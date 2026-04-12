@@ -67,6 +67,7 @@
 @if(in_array($rol, ['admin', 'contable']))
     <div class="sidebar-section">Contable</div>
     <a href="/contable/dashboard" class="{{ request()->is('contable/dashboard') ? 'active' : '' }}">Archivo plano</a>
+    <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cargar información</a>
 @endif
     </aside>
 
