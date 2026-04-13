@@ -38,10 +38,10 @@ class ProcesarArchivoFinanciero implements ShouldQueue
             ->where('anio', $this->anio)
             ->delete();
 
-        Excel::import(
-            new RegistroFinancieroImport($this->mes, $this->anio),
-            storage_path('app/' . $this->rutaArchivo)
-        );
+      Excel::import(
+    new RegistroFinancieroImport($this->mes, $this->anio),
+    storage_path('app/' . $this->rutaArchivo)
+);
 
         CargaFinanciera::where('id', $this->cargaId)->update([
             'estado'    => 'completado',

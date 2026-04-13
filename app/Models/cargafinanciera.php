@@ -16,4 +16,9 @@ class CargaFinanciera extends Model
         'error',
         'user_id',
     ];
+
+    public function usuario()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'user_id');
+    }
 }

@@ -12,42 +12,64 @@ class CargaFinancieraController extends Controller
 {
     public function index()
     {
-        $ultimaCarga = RegistroFinanciero::selectRaw('mes, anio, COUNT(*) as registros')
-            ->groupBy('mes', 'anio')
-            ->orderByDesc('anio')
-            ->orderByDesc('mes')
+        $historial = CargaFinanciera::with('usuario')
+            ->orderByDesc('created_at')
             ->get();
 
-        return view('financiero.carga', compact('ultimaCarga'));
+        return view('contable.carga', compact('historial'));
     }
 
     public function store(Request $request)
-{
-    $request->validate([
-        'archivo' => 'required|file|mimes:xlsx,csv,xls|max:102400',
-        'mes'     => 'required|integer|between:1,12',
-        'anio'    => 'required|integer|min:2020',
-    ]);
+    {
+        $request->validate([
+            'archivo' => 'required|file|mimes:xlsx,csv,xls|max:102400',
+            'mes'     => 'required|integer|between:1,12',
+            'anio'    => 'required|integer|min:2020',
+        ]);
 
-    $mes  = $request->mes;
-    $anio = $request->anio;
+        $mes  = $request->mes;
+        $anio = $request->anio;
 
-    // Solo guarda el archivo y registra la carga
-    $ruta = $request->file('archivo')->store('financiero');
+        if (!file_exists(storage_path('app/financiero'))) {
+            mkdir(storage_path('app/financiero'), 0755, true);
+        }
 
-    $carga = CargaFinanciera::create([
-        'mes'              => $mes,
-        'anio'             => $anio,
-        'archivo_original' => $request->file('archivo')->getClientOriginalName(),
-        'ruta_archivo'     => $ruta,
-        'estado'           => 'procesando',
-        'user_id'          => auth()->id(),
-    ]);
+        $nombreArchivo = uniqid() . '.xlsx';
+        $request->file('archivo')->move(
+            storage_path('app/financiero'),
+            $nombreArchivo
+        );
+        $ruta = 'financiero/' . $nombreArchivo;
 
-    // Despacha sin procesar nada aquí
-    ProcesarArchivoFinanciero::dispatch($ruta, $mes, $anio, $carga->id);
+        $carga = CargaFinanciera::create([
+            'mes'              => $mes,
+            'anio'             => $anio,
+            'archivo_original' => $request->file('archivo')->getClientOriginalName(),
+            'ruta_archivo'     => $ruta,
+            'estado'           => 'procesando',
+            'user_id'          => auth()->id(),
+        ]);
 
-    return back()->with('success',
-        'Archivo recibido. Procesando en segundo plano — revisa el historial en unos minutos.');
-}
+        ProcesarArchivoFinanciero::dispatch($ruta, $mes, $anio, $carga->id);
+
+        return back()->with('success',
+            'Archivo recibido. Procesando en segundo plano — revisa el historial en unos minutos.');
+    }
+
+    public function destroy($id)
+    {
+        $carga = CargaFinanciera::findOrFail($id);
+
+        RegistroFinanciero::where('mes', $carga->mes)
+            ->where('anio', $carga->anio)
+            ->delete();
+
+        if (file_exists(storage_path('app/' . $carga->ruta_archivo))) {
+            unlink(storage_path('app/' . $carga->ruta_archivo));
+        }
+
+        $carga->delete();
+
+        return back()->with('success', 'Carga eliminada correctamente.');
+    }
 }

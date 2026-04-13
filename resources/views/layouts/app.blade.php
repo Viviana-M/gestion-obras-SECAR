@@ -51,12 +51,12 @@
 @if(in_array($rol, ['admin', 'financiero']))
     <div class="sidebar-section">Financiero</div>
     <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Resumen financiero</a>
-    <a href="/financiero/carga" class="{{ request()->is('financiero/carga') ? 'active' : '' }}">Cargar información</a>
-@endif
+    @endif
 
 @if(in_array($rol, ['admin', 'operativo']))
     <div class="sidebar-section">Operativo</div>
     <a href="/operativo/dashboard" class="{{ request()->is('operativo/dashboard') ? 'active' : '' }}">Proyectos</a>
+    <a href="/operativo/forecast" class="{{ request()->is('operativo/forecast') ? 'active' : '' }}">Forecast costos</a>
 @endif
 
 @if(in_array($rol, ['admin', 'comercial']))
