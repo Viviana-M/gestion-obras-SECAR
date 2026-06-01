@@ -8,103 +8,105 @@ use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request)
-    {
-        // Filtros
-        $anio     = $request->get('anio', date('Y'));
-        $mes      = $request->get('mes', date('n'));
-        $modo     = $request->get('modo', 'acumulado'); // mes o acumulado
-        $proyecto = $request->get('proyecto', '');
+   public function index(Request $request)
+{
+    $anio     = $request->get('anio', date('Y'));
+    $mes      = $request->get('mes', date('n'));
+    $modo     = $request->get('modo', 'acumulado');
+    $proyecto = $request->get('proyecto', '');
 
-        // Períodos disponibles
-        $periodos = RegistroFinanciero::selectRaw('anio, mes')
-            ->groupBy('anio', 'mes')
-            ->orderByDesc('anio')
-            ->orderByDesc('mes')
-            ->get();
+    $periodos = RegistroFinanciero::selectRaw('anio, mes')
+        ->groupBy('anio', 'mes')
+        ->orderByDesc('anio')
+        ->orderByDesc('mes')
+        ->get();
 
-        // Proyectos disponibles
-        $proyectos = RegistroFinanciero::selectRaw('codigo_proyecto, nombre_proyecto')
-            ->groupBy('codigo_proyecto', 'nombre_proyecto')
-            ->orderBy('codigo_proyecto')
-            ->get();
+    $proyectos = RegistroFinanciero::selectRaw('codigo_proyecto, nombre_proyecto')
+        ->groupBy('codigo_proyecto', 'nombre_proyecto')
+        ->orderBy('codigo_proyecto')
+        ->get();
 
-        // Query base
-        $query = RegistroFinanciero::query()
-            ->where('anio', $anio);
+    // Proyectos que NUNCA han tenido ingreso en toda la historia
+    $conIngreso = RegistroFinanciero::where('cuenta_mayor', 'Ingreso')
+        ->selectRaw('DISTINCT codigo_proyecto')
+        ->pluck('codigo_proyecto')
+        ->toArray();
 
-        if ($modo === 'mes') {
-            $query->where('mes', $mes);
-        } else {
-            $query->where('mes', '<=', $mes);
-        }
-
-        if ($proyecto) {
-            $query->where('codigo_proyecto', $proyecto);
-        }
-
-        // Agrupar por proyecto y cuenta mayor
-        $datos = $query->selectRaw('
-                codigo_proyecto,
-                nombre_proyecto,
-                cuenta_mayor,
-                SUM(estado_er) as total_er
-            ')
-            ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_mayor')
-            ->orderBy('codigo_proyecto')
-            ->orderBy('cuenta_mayor')
-            ->get();
-
-        // Estructurar por proyecto
-        $proyectosData = [];
-        foreach ($datos as $fila) {
-            $cod = $fila->codigo_proyecto;
-            if (!isset($proyectosData[$cod])) {
-                $proyectosData[$cod] = [
-                    'codigo'   => $cod,
-                    'nombre'   => $fila->nombre_proyecto,
-                    'ingreso'  => 0,
-                    'costo_aplicado'    => 0,
-                    'costo_por_aplicar' => 0,
-                    'gasto'    => 0,
-                ];
+    // Query base — acumulado histórico hasta el período filtrado
+    $query = RegistroFinanciero::query()
+        ->where(function($q) use ($anio, $mes, $modo) {
+            if ($modo === 'mes') {
+                $q->where('anio', $anio)->where('mes', $mes);
+            } else {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
             }
-            match($fila->cuenta_mayor) {
-                'Ingreso'            => $proyectosData[$cod]['ingreso']           += $fila->total_er,
-                'Costos aplicados'   => $proyectosData[$cod]['costo_aplicado']    += $fila->total_er,
-                'Costos por aplicar' => $proyectosData[$cod]['costo_por_aplicar'] += $fila->total_er,
-                'Gasto'              => $proyectosData[$cod]['gasto']             += $fila->total_er,
-                default              => null,
-            };
-        }
+        });
 
-        // Calcular margen por proyecto
-        foreach ($proyectosData as &$p) {
-            $p['utilidad'] = $p['ingreso'] - abs($p['costo_aplicado']) - abs($p['costo_por_aplicar']);
-            $p['margen_pct'] = $p['ingreso'] != 0
-                ? round(($p['utilidad'] / $p['ingreso']) * 100, 2)
-                : null;
-            // Alerta: costos sin ingreso
-            $p['alerta'] = $p['ingreso'] == 0 &&
-                ($p['costo_aplicado'] != 0 || $p['costo_por_aplicar'] != 0);
-        }
-
-        // Totales generales
-        $totalIngreso         = array_sum(array_column($proyectosData, 'ingreso'));
-        $totalCostoAplicado   = array_sum(array_column($proyectosData, 'costo_aplicado'));
-        $totalCostoPorAplicar = array_sum(array_column($proyectosData, 'costo_por_aplicar'));
-        $totalUtilidad        = $totalIngreso - abs($totalCostoAplicado) - abs($totalCostoPorAplicar);
-        $totalMargen          = $totalIngreso != 0
-            ? round(($totalUtilidad / $totalIngreso) * 100, 2)
-            : null;
-
-        return view('financiero.dashboard', compact(
-            'proyectosData', 'periodos', 'proyectos',
-            'anio', 'mes', 'modo', 'proyecto',
-            'totalIngreso', 'totalCostoAplicado',
-            'totalCostoPorAplicar', 'totalUtilidad', 'totalMargen'
-        ));
+    if ($proyecto) {
+        $query->where('codigo_proyecto', $proyecto);
     }
+
+    $datos = $query->selectRaw('
+            codigo_proyecto,
+            nombre_proyecto,
+            cuenta_mayor,
+            SUM(estado_er) as total_er
+        ')
+        ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_mayor')
+        ->orderBy('codigo_proyecto')
+        ->orderBy('cuenta_mayor')
+        ->get();
+
+    $proyectosData = [];
+    foreach ($datos as $fila) {
+        $cod = $fila->codigo_proyecto;
+        if (!isset($proyectosData[$cod])) {
+            $proyectosData[$cod] = [
+                'codigo'            => $cod,
+                'nombre'            => $fila->nombre_proyecto,
+                'ingreso'           => 0,
+                'costo_aplicado'    => 0,
+                'costo_por_aplicar' => 0,
+                'gasto'             => 0,
+            ];
+        }
+        match($fila->cuenta_mayor) {
+            'Ingreso'            => $proyectosData[$cod]['ingreso']           += $fila->total_er,
+            'Costos aplicados'   => $proyectosData[$cod]['costo_aplicado']    += $fila->total_er,
+            'Costos por aplicar' => $proyectosData[$cod]['costo_por_aplicar'] += $fila->total_er,
+            'Gasto'              => $proyectosData[$cod]['gasto']             += $fila->total_er,
+            default              => null,
+        };
+    }
+
+    foreach ($proyectosData as $cod => &$p) {
+        $p['utilidad'] = $p['ingreso'] - abs($p['costo_aplicado']) - abs($p['costo_por_aplicar']);
+        $p['margen_pct'] = $p['ingreso'] != 0
+            ? round(($p['utilidad'] / $p['ingreso']) * 100, 2)
+            : null;
+        // Alerta solo si NUNCA ha tenido ingreso en toda la historia
+        $p['alerta'] = !in_array($cod, $conIngreso) &&
+            ($p['costo_aplicado'] != 0 || $p['costo_por_aplicar'] != 0);
+    }
+
+    $totalIngreso         = array_sum(array_column($proyectosData, 'ingreso'));
+    $totalCostoAplicado   = array_sum(array_column($proyectosData, 'costo_aplicado'));
+    $totalCostoPorAplicar = array_sum(array_column($proyectosData, 'costo_por_aplicar'));
+    $totalUtilidad        = $totalIngreso - abs($totalCostoAplicado) - abs($totalCostoPorAplicar);
+    $totalMargen          = $totalIngreso != 0
+        ? round(($totalUtilidad / $totalIngreso) * 100, 2)
+        : null;
+
+    return view('financiero.dashboard', compact(
+        'proyectosData', 'periodos', 'proyectos',
+        'anio', 'mes', 'modo', 'proyecto',
+        'totalIngreso', 'totalCostoAplicado',
+        'totalCostoPorAplicar', 'totalUtilidad', 'totalMargen'
+    ));
+}
 
     public function detalle(Request $request)
 {

@@ -3,7 +3,7 @@
 @section('title', 'Cargar información financiera')
 
 @section('content')
-    <h1 class="page-title">Carga de información financiera</h1>
+    <h1 class="page-title">Cierre de mes — Carga de información financiera</h1>
 
     @if(session('success'))
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem;">
@@ -54,6 +54,20 @@
                 <input type="file" name="archivo" accept=".xlsx,.xls,.csv"
                     style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
                 <small style="font-size:11px;color:#9CA3AF">Formatos aceptados: .xlsx, .xls, .csv — máximo 50MB</small>
+<div style="margin-top:8px;padding:10px 12px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;font-size:12px;color:#0369A1">
+    <strong>Columnas requeridas del archivo BIABLE (en orden):</strong><br>
+    <span style="font-family:monospace">
+        A: Unidad de negocio &nbsp;|&nbsp;
+        B: Cuenta contable &nbsp;|&nbsp;
+        C: Descripción cuenta &nbsp;|&nbsp;
+        D: Valor débito &nbsp;|&nbsp;
+        E: Valor crédito &nbsp;|&nbsp;
+        F: Movto libro 2
+    </span><br>
+    <span style="color:#DC2626;font-size:11px;margin-top:4px;display:block">
+        ⚠ El archivo debe guardarse como <strong>Valores</strong> en Excel antes de subir (sin fórmulas).
+    </span>
+</div>
             </div>
 
             <button type="submit"

@@ -27,6 +27,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/operativo/forecast', [\App\Http\Controllers\Operativo\ForecastController::class, 'index'])->name('operativo.forecast');
     Route::post('/operativo/forecast/guardar', [\App\Http\Controllers\Operativo\ForecastController::class, 'guardar'])->name('operativo.forecast.guardar');
     Route::post('/operativo/forecast/enviar', [\App\Http\Controllers\Operativo\ForecastController::class, 'enviar'])->name('operativo.forecast.enviar');
+    Route::get('/contable/cierre-obras', [\App\Http\Controllers\Contable\CierreObrasController::class, 'index'])->name('contable.cierre-obras');
+    Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
+    Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
+    Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
     });
     Route::get('/comercial/cotizaciones', function () {
         return view('comercial.cotizaciones');

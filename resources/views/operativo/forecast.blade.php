@@ -46,14 +46,6 @@
     <thead>
         <tr style="background:#1B3F6E;color:white">
             <th style="padding:8px 10px;text-align:left;position:sticky;left:0;background:#1B3F6E;min-width:200px;z-index:2">Proyecto / OT</th>
-            <th style="padding:8px 10px;text-align:right;min-width:100px">Ingreso mes</th>
-            <th style="padding:8px 10px;text-align:right;min-width:100px">Ingreso acum</th>
-            <th style="padding:8px 10px;text-align:center;min-width:80px">Costo tránsito</th>
-            <th style="padding:8px 10px;text-align:right;min-width:100px">Costo aplicado</th>
-            <th style="padding:8px 10px;text-align:right;min-width:80px">% MC Real</th>
-            <th style="padding:8px 10px;text-align:right;min-width:80px">Margen mín %</th>
-            <th style="padding:8px 10px;text-align:center;min-width:80px">Estado obra</th>
-            <th style="padding:8px 10px;text-align:center;min-width:80px">% Avance</th>
             @foreach($cuentas14 as $c)
                 <th style="padding:8px 6px;text-align:center;min-width:110px;font-size:10px;white-space:nowrap"
                     title="{{ $c->cuenta_contable }} - {{ $c->descripcion }}">
@@ -65,6 +57,13 @@
             <th style="padding:8px 10px;text-align:right;min-width:100px">Total a mover</th>
             <th style="padding:8px 10px;text-align:right;min-width:80px">% MC post</th>
             <th style="padding:8px 10px;text-align:center;min-width:60px">KPI</th>
+            <th style="padding:8px 10px;text-align:right;min-width:100px">Ingreso mes</th>
+            <th style="padding:8px 10px;text-align:right;min-width:100px">Ingreso acum</th>
+            <th style="padding:8px 10px;text-align:center;min-width:80px">Costo tránsito</th>
+            <th style="padding:8px 10px;text-align:right;min-width:100px">Costo aplicado</th>
+            <th style="padding:8px 10px;text-align:right;min-width:80px">% MC Real</th>
+            <th style="padding:8px 10px;text-align:center;min-width:80px">Estado obra</th>
+            <th style="padding:8px 10px;text-align:center;min-width:80px">% Avance</th>
         </tr>
     </thead>
     <tbody>
@@ -76,16 +75,16 @@
 
         @foreach($matriz as $cod => $p)
         @php
-    $totalSaldo14 = 0;
-    foreach($p['cuentas'] as $cuenta) {
-        $totalSaldo14 += abs($cuenta['saldo'] < 0 ? $cuenta['saldo'] : 0);
-    }
-    $totalCostos = $p['costo_aplicado'] + $totalSaldo14;
-    $mcReal = $p['ingreso_acum'] != 0
-        ? round(($p['ingreso_acum'] - $totalCostos) / $p['ingreso_acum'] * 100, 1)
-        : null;
-    $colorMC = $mcReal === null ? '#DC2626' : ($mcReal >= 15 ? '#16A34A' : ($mcReal >= 5 ? '#D97706' : '#DC2626'));
-@endphp
+            $totalSaldo14 = 0;
+            foreach($p['cuentas'] as $cuenta) {
+                $totalSaldo14 += abs($cuenta['saldo'] < 0 ? $cuenta['saldo'] : 0);
+            }
+            $totalCostos = $p['costo_aplicado'] + $totalSaldo14;
+            $mcReal = $p['ingreso_acum'] != 0
+                ? round(($p['ingreso_acum'] - $totalCostos) / $p['ingreso_acum'] * 100, 1)
+                : null;
+            $colorMC = $mcReal === null ? '#DC2626' : ($mcReal >= 15 ? '#16A34A' : ($mcReal >= 5 ? '#D97706' : '#DC2626'));
+        @endphp
         <tr class="fila-proyecto" data-codigo="{{ $cod }}"
             style="border-bottom:1px solid #E5E7EB;background:white"
             onmouseenter="this.style.background='#F9FAFB'"
@@ -96,6 +95,54 @@
                 {{ $cod }}<br>
                 <span style="font-size:10px;color:#6B7280;font-weight:400">{{ Str::limit($p['nombre'], 30) }}</span>
                 <input type="hidden" name="nombre_proyecto[{{ $cod }}]" value="{{ $p['nombre'] }}">
+            </td>
+
+            {{-- Celdas cuentas 14 --}}
+            @foreach($cuentas14 as $c)
+            @php
+                $saldo = $p['cuentas'][$c->cuenta_contable]['saldo'] ?? 0;
+                $montoMover = $p['cuentas'][$c->cuenta_contable]['monto_mover'] ?? 0;
+            @endphp
+            <td style="padding:4px 6px;text-align:center">
+                @if($saldo < 0)
+                    <div style="font-size:10px;color:#6B7280;margin-bottom:2px">${{ number_format(abs($saldo), 0, ',', '.') }}</div>
+                    <input type="number"
+                        name="movimientos[{{ $cod }}][{{ $c->cuenta_contable }}]"
+                        value="{{ $montoMover != 0 ? number_format($montoMover, 0, '', '') : '' }}"
+                        min="0" max="{{ abs($saldo) }}" step="1"
+                        placeholder="0"
+                        data-saldo="{{ abs($saldo) }}"
+                        data-proyecto="{{ $cod }}"
+                        {{ !$p['tiene_ingreso_mes'] ? 'disabled title="Sin ingreso en este mes"' : '' }}
+                        style="width:90px;padding:3px 5px;border:1px solid {{ !$p['tiene_ingreso_mes'] ? '#F3F4F6' : '#E5E7EB' }};border-radius:4px;font-size:11px;text-align:right;background:{{ !$p['tiene_ingreso_mes'] ? '#F9FAFB' : 'white' }};color:{{ !$p['tiene_ingreso_mes'] ? '#9CA3AF' : 'inherit' }};cursor:{{ !$p['tiene_ingreso_mes'] ? 'not-allowed' : 'text' }}"
+                        oninput="limpiarYRecalcular(this, '{{ $cod }}')"
+                        onfocus="this.style.borderColor='#1B3F6E'"
+                        onblur="validarMonto(this)">
+                @elseif($saldo > 0)
+                    <span style="color:#DC2626;font-size:10px;font-weight:600"
+                          title="Reversión excesiva: ${{ number_format($saldo, 0, ',', '.') }}">
+                        ⚠ ${{ number_format($saldo, 0, ',', '.') }}
+                    </span>
+                @else
+                    <span style="color:#D1D5DB;font-size:10px">—</span>
+                @endif
+            </td>
+            @endforeach
+
+            {{-- Total 14 pendiente --}}
+            <td style="padding:6px 10px;text-align:right;font-weight:600;color:#D97706">
+                ${{ number_format(abs(array_sum(array_column($p['cuentas'], 'saldo'))), 0, ',', '.') }}
+            </td>
+
+            {{-- Total a mover --}}
+            <td style="padding:6px 10px;text-align:right;font-weight:600" id="total-mover-{{ $cod }}">$0</td>
+
+            {{-- % MC post --}}
+            <td style="padding:6px 10px;text-align:right;font-weight:600" id="mc-post-{{ $cod }}">—</td>
+
+            {{-- KPI --}}
+            <td style="padding:6px 10px;text-align:center" id="estado-{{ $cod }}">
+                <span style="font-size:16px;color:#D1D5DB">●</span>
             </td>
 
             {{-- Ingreso mes --}}
@@ -125,15 +172,6 @@
                 {{ $mcReal !== null ? $mcReal . '%' : 'N/A' }}
             </td>
 
-            {{-- Margen mínimo --}}
-            <td style="padding:6px 10px;text-align:center">
-                <input type="number" name="margen_minimo[{{ $cod }}]"
-                    value="{{ $p['margen_minimo'] }}"
-                    min="0" max="100" step="0.1"
-                    style="width:55px;padding:3px 5px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:center"
-                    onchange="recalcular('{{ $cod }}')">
-            </td>
-
             {{-- Estado obra --}}
             <td style="padding:6px 10px;text-align:center">
                 <select name="estado_obra[{{ $cod }}]"
@@ -155,54 +193,6 @@
                     <option value="75" {{ $p['avance_pct'] == 75 ? 'selected' : '' }}>75%</option>
                     <option value="100" {{ $p['avance_pct'] == 100 ? 'selected' : '' }}>100%</option>
                 </select>
-            </td>
-
-            {{-- Celdas cuentas 14 --}}
-            @foreach($cuentas14 as $c)
-            @php
-                $saldo = $p['cuentas'][$c->cuenta_contable]['saldo'] ?? 0;
-                $montoMover = $p['cuentas'][$c->cuenta_contable]['monto_mover'] ?? 0;
-            @endphp
-            <td style="padding:4px 6px;text-align:center">
-               @if($saldo < 0)
-    {{-- Saldo negativo = costo pendiente = editable --}}
-    <div style="font-size:10px;color:#6B7280;margin-bottom:2px">${{ number_format(abs($saldo), 0, ',', '.') }}</div>
-    <input type="number"
-        name="movimientos[{{ $cod }}][{{ $c->cuenta_contable }}]"
-        value="{{ $montoMover != 0 ? number_format($montoMover, 0, '', '') : '' }}"
-        min="0" max="{{ abs($saldo) }}" step="1"
-        placeholder="0"
-        data-saldo="{{ abs($saldo) }}"
-        data-proyecto="{{ $cod }}"
-        {{ !$p['tiene_ingreso_mes'] ? 'disabled title="Sin ingreso en este mes"' : '' }}
-        style="width:90px;padding:3px 5px;border:1px solid {{ !$p['tiene_ingreso_mes'] ? '#F3F4F6' : '#E5E7EB' }};border-radius:4px;font-size:11px;text-align:right;background:{{ !$p['tiene_ingreso_mes'] ? '#F9FAFB' : 'white' }};color:{{ !$p['tiene_ingreso_mes'] ? '#9CA3AF' : 'inherit' }};cursor:{{ !$p['tiene_ingreso_mes'] ? 'not-allowed' : 'text' }}"
-        oninput="recalcular('{{ $cod }}')"
-        onfocus="this.style.borderColor='#1B3F6E'"
-        onblur="validarMonto(this)">
-@elseif($saldo > 0)
-    {{-- Saldo positivo = reversión excesiva = alerta --}}
-    <span style="color:#DC2626;font-size:10px;font-weight:600" 
-          title="Reversión excesiva: ${{ number_format($saldo, 0, ',', '.') }}">
-        ⚠ ${{ number_format($saldo, 0, ',', '.') }}
-    </span>
-@else
-    <span style="color:#D1D5DB;font-size:10px">—</span>
-@endif
-            </td>
-            @endforeach
-
-            <td style="padding:6px 10px;text-align:right;font-weight:600;color:#D97706">
-    ${{ number_format(abs(array_sum(array_column($p['cuentas'], 'saldo'))), 0, ',', '.') }}
-</td>
-            {{-- Total a mover --}}
-            <td style="padding:6px 10px;text-align:right;font-weight:600" id="total-mover-{{ $cod }}">$0</td>
-
-            {{-- % MC post --}}
-            <td style="padding:6px 10px;text-align:right;font-weight:600" id="mc-post-{{ $cod }}">—</td>
-
-            {{-- KPI --}}
-            <td style="padding:6px 10px;text-align:center" id="estado-{{ $cod }}">
-                <span style="font-size:16px;color:#D1D5DB">●</span>
             </td>
         </tr>
         @endforeach
@@ -282,6 +272,11 @@
 <script>
 const datosProyecto = @json($matriz);
 
+function limpiarYRecalcular(input, cod) {
+    input.value = input.value.replace(/[^0-9]/g, '');
+    recalcular(cod);
+}
+
 function recalcular(cod) {
     const fila = document.querySelector(`[data-codigo="${cod}"]`);
     if (!fila) return;
@@ -294,15 +289,12 @@ function recalcular(cod) {
     const ingreso = parseFloat(p.ingreso_acum);
     const ingresoMes = parseFloat(p.ingreso_mes);
     const costoAplicado = parseFloat(p.costo_aplicado);
-    const margenMinEl = fila.querySelector('input[name^="margen_minimo"]');
-    const margenMin = margenMinEl ? parseFloat(margenMinEl.value || 0) : 0;
 
-    // Validar que total a mover no supere ingreso del mes
     const totalMoverEl = document.getElementById('total-mover-' + cod);
     if (ingresoMes > 0 && totalMover > ingresoMes) {
         totalMoverEl.textContent = '$' + totalMover.toLocaleString('es-CO', {maximumFractionDigits:0});
         totalMoverEl.style.color = '#DC2626';
-        totalMoverEl.title = 'El total supera el ingreso del mes ($' + ingresoMes.toLocaleString('es-CO', {maximumFractionDigits:0}) + ')';
+        totalMoverEl.title = 'Supera ingreso del mes ($' + ingresoMes.toLocaleString('es-CO', {maximumFractionDigits:0}) + ')';
     } else {
         totalMoverEl.textContent = '$' + totalMover.toLocaleString('es-CO', {maximumFractionDigits:0});
         totalMoverEl.style.color = '#1B3F6E';
@@ -321,7 +313,7 @@ function recalcular(cod) {
         estadoEl.innerHTML = '<span style="font-size:16px;color:#DC2626">●</span>';
     } else {
         mcPostEl.textContent = mcPost.toFixed(1) + '%';
-        if (margenMin > 0 && mcPost >= margenMin) {
+        if (mcPost >= 15) {
             mcPostEl.style.color = '#16A34A';
             estadoEl.innerHTML = '<span style="font-size:16px;color:#16A34A">●</span>';
         } else if (mcPost >= 5) {
@@ -341,7 +333,6 @@ function validarMonto(input) {
     let val = Math.round(parseFloat(input.value || 0));
     input.value = val > 0 ? val : '';
 
-    // Validar que no supere el saldo de la cuenta
     if (val > saldo) {
         input.value = Math.round(saldo);
         input.style.borderColor = '#DC2626';
@@ -349,7 +340,6 @@ function validarMonto(input) {
         return;
     }
 
-    // Validar que el total no supere el ingreso del mes
     if (p) {
         const ingresoMes = parseFloat(p.ingreso_mes);
         const fila = document.querySelector(`[data-codigo="${cod}"]`);
@@ -358,14 +348,12 @@ function validarMonto(input) {
         inputs.forEach(inp => { totalMover += parseFloat(inp.value || 0); });
 
         if (ingresoMes > 0 && totalMover > ingresoMes) {
-            // Reducir este input al máximo permitido
             const otrosInputs = Array.from(inputs).filter(i => i !== input);
             let totalOtros = 0;
             otrosInputs.forEach(i => { totalOtros += parseFloat(i.value || 0); });
             const maxPermitido = Math.round(ingresoMes - totalOtros);
             input.value = Math.max(0, maxPermitido);
             input.style.borderColor = '#DC2626';
-            input.title = 'Límite: ingreso del mes $' + ingresoMes.toLocaleString('es-CO', {maximumFractionDigits:0});
             alert('El total a mover no puede superar el ingreso del mes: $' + ingresoMes.toLocaleString('es-CO', {maximumFractionDigits:0}));
         } else {
             input.style.borderColor = '#E5E7EB';
