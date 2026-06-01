@@ -31,7 +31,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
     Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
     Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
-    });
+    Route::get('/financiero/historicos', [\App\Http\Controllers\Financiero\HistoricosController::class, 'index'])->name('financiero.historicos');
+Route::get('/financiero/estados-financieros', [\App\Http\Controllers\Financiero\EstadosFinancierosController::class, 'index'])->name('financiero.estados');
+});
     Route::get('/comercial/cotizaciones', function () {
         return view('comercial.cotizaciones');
     });

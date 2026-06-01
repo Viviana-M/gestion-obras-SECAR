@@ -49,9 +49,11 @@
         @php $rol = auth()->user()->rol; @endphp
 
         @if(in_array($rol, ['admin', 'financiero']))
-            <div class="sidebar-section">Financiero</div>
-            <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Resumen financiero</a>
-        @endif
+    <div class="sidebar-section">Financiero</div>
+    <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Proyectos activos</a>
+    <a href="/financiero/historicos" class="{{ request()->is('financiero/historicos') ? 'active' : '' }}">Históricos</a>
+    <a href="/financiero/estados-financieros" class="{{ request()->is('financiero/estados-financieros') ? 'active' : '' }}">Estados financieros</a>
+    @endif
 
         @if(in_array($rol, ['admin', 'operativo']))
             <div class="sidebar-section">Operativo</div>
