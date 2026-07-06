@@ -1,0 +1,107 @@
+@extends('layouts.app')
+
+@section('title', 'Plano contable')
+
+@section('content')
+<h1 class="page-title">Plano contable — Versiones enviadas</h1>
+
+<div class="card" style="margin-bottom:1rem">
+    <form method="GET" action="{{ route('contable.plano-contable') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
+            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
+                    <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
+            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
+                    <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
+                @endfor
+            </select>
+        </div>
+        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+    </form>
+</div>
+
+@if(session('success'))
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
+@endif
+
+@php $fmt = fn($n) => '$'.number_format($n, 0, ',', '.'); @endphp
+
+@if($data->count() == 0)
+<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay versiones enviadas para este período.</div>
+@endif
+
+@foreach($data as $v)
+<div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
+    <div onclick="toggleV('{{ $v['id'] }}')" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap">
+        <div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-weight:600;color:#1B3F6E">Versión {{ $v['version'] }}</span>
+                @if($v['habilitada'])
+                    <span style="font-size:11px;background:#FEF9C3;color:#854D0E;padding:2px 8px;border-radius:8px">Habilitada para edición</span>
+                @else
+                    <span style="font-size:11px;background:#EFF6FF;color:#1B3F6E;padding:2px 8px;border-radius:8px">Enviado · bloqueado</span>
+                @endif
+            </div>
+            <div style="font-size:11px;color:#9CA3AF;margin-top:3px">Enviado {{ $v['enviado_at']?->format('d/m/Y H:i') }} · por {{ $v['enviado_por'] }}</div>
+        </div>
+        <div style="text-align:right">
+            <div style="font-size:13px;font-weight:600;color:#1B3F6E">{{ $fmt($v['total']) }}</div>
+            <div style="font-size:11px;color:#6B7280">{{ $v['obras'] }} obra(s) cerrada(s)</div>
+        </div>
+    </div>
+
+    <div id="v-{{ $v['id'] }}" style="display:none;border-top:1px solid #F3F4F6;padding:12px 16px">
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:12px">
+            @if($v['lineas']->count() > 0)
+            <a href="{{ route('contable.plano-contable.descargar', $v['id']) }}"
+               style="padding:8px 16px;background:#16A34A;color:white;border-radius:8px;font-size:13px;text-decoration:none">Descargar plano (Excel)</a>
+            @endif
+            <form method="POST" action="{{ route('contable.plano-contable.habilitar', $v['id']) }}">
+                @csrf
+                <button type="submit" style="padding:8px 16px;border:1px solid #1B3F6E;border-radius:8px;font-size:13px;cursor:pointer;background:white;color:#1B3F6E">
+                    {{ $v['habilitada'] ? 'Bloquear edición' : 'Habilitar edición a operaciones' }}
+                </button>
+            </form>
+        </div>
+
+        @if($v['lineas']->count() == 0)
+            <div style="text-align:center;color:#9CA3AF;padding:1rem">Esta versión no tiene obras cerradas con costos aplicados.</div>
+        @else
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+                <tr style="background:#1B3F6E;color:white">
+                    <th style="padding:8px 10px;text-align:left">Proyecto</th>
+                    <th style="padding:8px 10px;text-align:left">Cuenta 14</th>
+                    <th style="padding:8px 10px;text-align:left">Cuenta 61</th>
+                    <th style="padding:8px 10px;text-align:left">Concepto</th>
+                    <th style="padding:8px 10px;text-align:right">Monto</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($v['lineas'] as $l)
+                <tr style="border-bottom:1px solid #E5E7EB">
+                    <td style="padding:6px 10px;font-weight:500;color:#1B3F6E">{{ $l->codigo_proyecto }}</td>
+                    <td style="padding:6px 10px;font-family:monospace;color:#854D0E">{{ $l->cuenta_14 }}</td>
+                    <td style="padding:6px 10px;font-family:monospace;color:#15803D">{{ $l->cuenta_61 }}</td>
+                    <td style="padding:6px 10px;color:#6B7280">{{ Str::limit($l->nombre, 40) }}{{ $l->es_provision ? ' (provisión)' : '' }}</td>
+                    <td style="padding:6px 10px;text-align:right;font-weight:600">{{ $fmt($l->monto_aplicar) }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+        @endif
+    </div>
+</div>
+@endforeach
+
+<script>
+function toggleV(id){ const e=document.getElementById('v-'+id); if(e) e.style.display = e.style.display==='none'?'block':'none'; }
+</script>
+@endsection

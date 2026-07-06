@@ -154,7 +154,8 @@ $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                         'estado_obra'       => $estadoObra,
                         'avance_pct'        => floatval($avancePct),
                         'estado'            => 'borrador',
-                        'user_id'           => auth()->id(),
+                        'estado'            => 'borrador',
+                        'user_id'           => $request->user()?->id,
                     ]
                 );
             }

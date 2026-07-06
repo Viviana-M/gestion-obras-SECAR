@@ -47,7 +47,7 @@ class CargaFinancieraController extends Controller
             'archivo_original' => $request->file('archivo')->getClientOriginalName(),
             'ruta_archivo'     => $ruta,
             'estado'           => 'procesando',
-            'user_id'          => auth()->id(),
+            'user_id' => $request->user()?->id,
         ]);
 
         ProcesarArchivoFinanciero::dispatch($ruta, $mes, $anio, $carga->id);

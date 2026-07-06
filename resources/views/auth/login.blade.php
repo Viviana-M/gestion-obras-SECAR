@@ -26,21 +26,16 @@
         }
 
         .logo-mark {
-            width: 44px;
-            height: 44px;
-            border-radius: 10px;
-            background: #1B3F6E;
             display: flex;
-            align-items: center;
             justify-content: center;
-            margin-bottom: 1.25rem;
+            margin-bottom: 1.5rem;
         }
 
-        .logo-mark span {
-            color: white;
-            font-weight: 700;
-            font-size: 14px;
-            letter-spacing: 1px;
+        .logo-mark img {
+            height: 64px;
+            width: auto;
+            object-fit: contain;
+            border-radius: 8px;
         }
 
         h1 {
@@ -48,12 +43,14 @@
             font-weight: 600;
             color: #3D3D3D;
             margin-bottom: 4px;
+            text-align: center;
         }
 
         .subtitle {
             font-size: 13px;
             color: #6B7280;
             margin-bottom: 1.5rem;
+            text-align: center;
         }
 
         .field { margin-bottom: 1rem; }
@@ -122,9 +119,11 @@
 <body>
     <div class="login-card">
 
-        <div class="logo-mark"><span>GO</span></div>
+        <div class="logo-mark">
+            <img src="/images/logo-secar.JPG" alt="Secar Ingenieros">
+        </div>
         <h1>Bienvenido</h1>
-        <p class="subtitle">Sistema de gestión de proyectos de obras</p>
+        <p class="subtitle">Gestión Financiera de Proyectos</p>
 
         @if ($errors->any())
             <div class="alert-error">

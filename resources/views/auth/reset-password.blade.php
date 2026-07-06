@@ -1,39 +1,77 @@
-<x-guest-layout>
-    <form method="POST" action="{{ route('password.store') }}">
-        @csrf
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nueva contraseña — Gestión de Obras</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #F3F4F6; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-card { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 2rem; width: 100%; max-width: 400px; }
+        .logo-mark { display: flex; justify-content: center; margin-bottom: 1.5rem; }
+        .logo-mark img { height: 64px; width: auto; object-fit: contain; border-radius: 8px; }
+        h1 { font-size: 20px; font-weight: 600; color: #3D3D3D; margin-bottom: 4px; text-align: center; }
+        .subtitle { font-size: 13px; color: #6B7280; margin-bottom: 1.5rem; text-align: center; }
+        .field { margin-bottom: 1rem; }
+        .field label { font-size: 12px; font-weight: 500; color: #6B7280; display: block; margin-bottom: 5px; }
+        .field input { width: 100%; padding: 9px 12px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 14px; color: #3D3D3D; transition: border-color .15s; }
+        .field input:focus { outline: none; border-color: #2563B0; box-shadow: 0 0 0 3px rgba(37,99,176,.12); }
+        .btn-login { width: 100%; padding: 10px; background: #1B3F6E; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s; margin-bottom: 1rem; }
+        .btn-login:hover { background: #2563B0; }
+        .forgot { font-size: 12px; color: #2563B0; text-decoration: none; display: block; text-align: center; }
+        .forgot:hover { text-decoration: underline; }
+        .alert-error { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; border-radius: 8px; padding: 9px 12px; font-size: 13px; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
 
-        <!-- Password Reset Token -->
-        <input type="hidden" name="token" value="{{ $request->route('token') }}">
-
-        <!-- Email Address -->
-        <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email', $request->email)" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+        <div class="logo-mark">
+            <img src="/images/logo-secar.JPG" alt="Secar Ingenieros">
         </div>
+        <h1>Nueva contraseña</h1>
+        <p class="subtitle">Crea tu nueva contraseña de acceso.</p>
 
-        <!-- Password -->
-        <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-            <x-text-input id="password" class="block mt-1 w-full" type="password" name="password" required autocomplete="new-password" />
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
-        </div>
+        @if ($errors->any())
+            <div class="alert-error">
+                <ul style="margin:0;padding-left:18px">
+                    @foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach
+                </ul>
+            </div>
+        @endif
 
-        <!-- Confirm Password -->
-        <div class="mt-4">
-            <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
+        <form method="POST" action="{{ route('password.store') }}">
+            @csrf
 
-            <x-text-input id="password_confirmation" class="block mt-1 w-full"
-                                type="password"
-                                name="password_confirmation" required autocomplete="new-password" />
+            {{-- Datos ocultos que llegan desde el enlace del correo --}}
+            <input type="hidden" name="token" value="{{ $request->route('token') }}">
 
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
-        </div>
+            <div class="field">
+                <label for="email">Correo electrónico</label>
+                <input id="email" type="email" name="email"
+                    value="{{ old('email', $request->email) }}"
+                    required readonly
+                    style="background:#F9FAFB;color:#6B7280">
+            </div>
+            <div class="field">
+                <label for="password">Nueva contraseña</label>
+                <input id="password" type="password" name="password"
+                    required autofocus autocomplete="new-password"
+                    placeholder="Mínimo 8 caracteres">
+            </div>
+            <div class="field">
+                <label for="password_confirmation">Confirmar contraseña</label>
+                <input id="password_confirmation" type="password"
+                    name="password_confirmation" required
+                    autocomplete="new-password"
+                    placeholder="Repite la contraseña">
+            </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Reset Password') }}
-            </x-primary-button>
-        </div>
-    </form>
-</x-guest-layout>
+            <button type="submit" class="btn-login">Guardar contraseña</button>
+        </form>
+
+        <a href="{{ route('login') }}" class="forgot">Volver a iniciar sesión</a>
+
+    </div>
+</body>
+</html>

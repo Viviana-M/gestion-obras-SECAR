@@ -51,14 +51,36 @@
     </form>
 </div>
 
-{{-- ALERTAS --}}
-@php $alertas = array_filter($proyectosData, fn($p) => $p['alerta']); @endphp
-@if(count($alertas) > 0)
-<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#DC2626">
-    <strong>Alerta:</strong> {{ count($alertas) }} proyecto(s) con costos pero sin ingresos registrados —
-    @foreach($alertas as $a)
-        <strong>{{ $a['codigo'] }}</strong>{{ !$loop->last ? ', ' : '' }}
-    @endforeach
+{{-- ALERTA --}}
+@if($proyectosAlerta->count() > 0)
+<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:10px;padding:12px 16px;margin-bottom:1rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+            <div style="font-size:14px;font-weight:600;color:#854D0E">
+                {{ $proyectosAlerta->count() }} proyectos con costo pero sin ingreso registrado
+            </div>
+            <div style="font-size:12px;color:#9CA3AF;margin-top:2px">
+                Costo acumulado pendiente de facturar: ${{ number_format($totalAlerta, 0, ',', '.') }}
+            </div>
+        </div>
+        <button type="button" onclick="toggleAlerta()" id="btn-alerta"
+            style="font-size:12px;padding:6px 14px;border:1px solid #E5E7EB;border-radius:8px;background:white;cursor:pointer;color:#374151;white-space:nowrap">
+            Ver proyectos
+        </button>
+    </div>
+    <div id="lista-alerta" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #FDE68A">
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:320px;overflow:auto">
+            @foreach($proyectosAlerta as $pa)
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;padding:4px 2px">
+                <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    <span style="font-family:monospace;font-weight:600;color:#374151">{{ $pa['codigo'] }}</span>
+                    <span style="color:#9CA3AF"> · {{ \Illuminate\Support\Str::limit($pa['nombre'], 45) }}</span>
+                </div>
+                <span style="font-weight:600;color:#B45309;white-space:nowrap">${{ number_format($pa['costo_total'], 0, ',', '.') }}</span>
+            </div>
+            @endforeach
+        </div>
+    </div>
 </div>
 @endif
 
@@ -84,37 +106,103 @@
     </div>
 </div>
 
+{{-- CONTROLES --}}
+@php
+    $responsables = collect($proyectosData)
+        ->pluck('responsable_obra')
+        ->filter()
+        ->unique()
+        ->sort()
+        ->values();
+@endphp
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="buscador-er" type="text" oninput="filtrarER()" placeholder="Buscar código o nombre de OT…"
+            style="padding:7px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;min-width:240px">
+        <select id="resp-er" onchange="filtrarER()"
+            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+            <option value="">Todos los responsables</option>
+            @foreach($responsables as $r)
+                <option value="{{ $r }}">{{ $r }}</option>
+            @endforeach
+            <option value="__sin__">— Sin responsable —</option>
+        </select>
+        <select id="orden-er" onchange="ordenarSelect()"
+            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+            <option value="">Ordenar por…</option>
+            <option value="util-desc">Mayor utilidad</option>
+            <option value="util-asc">Menor utilidad</option>
+            <option value="margen-desc">Mayor margen</option>
+            <option value="margen-asc">Menor margen</option>
+            <option value="codigo-asc">Código A–Z</option>
+        </select>
+        <span id="contador-er" style="font-size:12px;color:#9CA3AF"></span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:12px;color:#6B7280;margin-right:4px">Vista:</span>
+        <button type="button" id="btn-nivel-1" onclick="setNivel(1)">Nivel 1 · resumen</button>
+        <button type="button" id="btn-nivel-2" onclick="setNivel(2)">Nivel 2 · detalle</button>
+    </div>
+</div>
+
 {{-- TABLA PRINCIPAL --}}
 <div class="card" style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <table id="tabla-er" style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
             <tr style="background:#F3F4F6">
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px;min-width:200px">Proyecto / OT</th>
+                <th onclick="ordenarCol('codigo')" style="text-align:left;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px;min-width:200px;cursor:pointer;user-select:none">Proyecto / OT<span id="arr-codigo"></span></th>
                 <th style="text-align:left;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Cuenta mayor</th>
-                <th style="text-align:right;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Estado de resultados</th>
-                <th style="text-align:right;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">% MC Real</th>
+                <th onclick="ordenarCol('util')" style="text-align:right;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px;cursor:pointer;user-select:none">Estado de resultados<span id="arr-util"></span></th>
+                <th onclick="ordenarCol('margen')" style="text-align:right;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px;cursor:pointer;user-select:none">% MC Real<span id="arr-margen"></span></th>
+                <th style="text-align:right;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">MC ofertado</th>
                 <th style="text-align:center;padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">KPI</th>
             </tr>
         </thead>
-        <tbody>
-            @forelse($proyectosData as $cod => $p)
-                @if($p['ingreso'] != 0)
-                <tr style="background:white">
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#374151">
+
+        @forelse($proyectosData as $cod => $p)
+            @if($p['ingreso'] != 0 || $p['costo_aplicado'] != 0 || $p['costo_por_aplicar'] != 0)
+            <tbody class="grupo"
+                data-cod="{{ strtolower($p['codigo']) }}"
+                data-nombre="{{ strtolower($p['nombre']) }}"
+                data-util="{{ $p['utilidad'] }}"
+                data-margen="{{ $p['margen_pct'] !== null ? $p['margen_pct'] : '' }}"
+                data-resp="{{ $p['responsable_obra'] }}">
+
+                {{-- Fila resumen --}}
+                <tr class="fila-resumen" onclick="toggleProyecto('{{ $cod }}')" style="background:#F9FAFB;cursor:pointer">
+                    <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-weight:600;color:#1B3F6E">
+                        <span class="chev" data-cod="{{ $cod }}" style="display:inline-block;width:14px;color:#9CA3AF">▸</span>
                         {{ $p['codigo'] }} - {{ $p['nombre'] }}
                         @if($p['alerta'])
                             <span style="background:#FEF2F2;color:#DC2626;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px">Sin ingreso</span>
                         @endif
+                        @if(!empty($p['responsable_obra']))
+                            <div style="font-size:10px;color:#9CA3AF;font-weight:400;margin-top:2px;margin-left:14px">Resp: {{ $p['responsable_obra'] }}</div>
+                        @endif
                     </td>
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#059669;cursor:pointer"
-                        onclick="abrirDetalle('{{ $cod }}', 'Ingreso', '{{ $p['nombre'] }}')">
-                        Ingreso ↗
+                    <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-size:11px;font-weight:600;color:{{ $p['utilidad'] >= 0 ? '#16A34A' : '#DC2626' }}">
+                        {{ $p['utilidad'] >= 0 ? 'Utilidad' : 'Pérdida' }}
                     </td>
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:right;color:#059669">${{ number_format($p['ingreso'], 0, ',', '.') }}</td>
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:right" rowspan="3">
+                    <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:right;font-weight:600;color:{{ $p['utilidad'] >= 0 ? '#15803D' : '#DC2626' }}">
+                        ${{ number_format($p['utilidad'], 0, ',', '.') }}
+                    </td>
+                    <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:right">
                         {{ $p['margen_pct'] !== null ? $p['margen_pct'] . '%' : 'N/A' }}
                     </td>
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:center" rowspan="3">
+                    <td onclick="event.stopPropagation(); abrirComparativo('{{ $cod }}')"
+                        style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:right;cursor:pointer">
+                        @if($p['mc_ofertado'] !== null)
+                            <span style="color:#6B7280">{{ $p['mc_ofertado'] }}%</span>
+                            @if($p['cumple'] === true)
+                                <span style="color:#16A34A;font-weight:700;margin-left:5px">✓</span>
+                            @elseif($p['cumple'] === false)
+                                <span style="color:#DC2626;font-weight:700;margin-left:5px">✗</span>
+                            @endif
+                        @else
+                            <span style="color:#D1D5DB">—</span>
+                        @endif
+                    </td>
+                    <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:center">
                         @if($p['margen_pct'] === null)
                             <span style="color:#DC2626;font-size:16px">●</span>
                         @elseif($p['margen_pct'] >= 15)
@@ -126,47 +214,59 @@
                         @endif
                     </td>
                 </tr>
+
+                {{-- Filas detalle (colapsables) --}}
+                @if($p['ingreso'] != 0)
+                <tr class="det det-{{ $cod }}" style="display:none;background:white">
+                    <td style="padding:6px 10px 6px 30px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px">↳ Ingreso</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#059669;cursor:pointer"
+                        onclick="abrirDetalle('{{ $cod }}', 'Ingreso', '{{ $p['nombre'] }}')">
+                        Ingreso ↗
+                    </td>
+                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:right;color:#059669">${{ number_format($p['ingreso'], 0, ',', '.') }}</td>
+                    <td colspan="3" style="border-bottom:1px solid #F3F4F6"></td>
+                </tr>
                 @endif
                 @if($p['costo_aplicado'] != 0)
-                <tr style="background:white">
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px;padding-left:20px">↳ {{ $p['codigo'] }}</td>
+                <tr class="det det-{{ $cod }}" style="display:none;background:white">
+                    <td style="padding:6px 10px 6px 30px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px">↳ Costos aplicados</td>
                     <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#DC2626;cursor:pointer"
                         onclick="abrirDetalle('{{ $cod }}', 'Costos aplicados', '{{ $p['nombre'] }}')">
                         Costos aplicados ↗
                     </td>
                     <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:right;color:#DC2626">-${{ number_format(abs($p['costo_aplicado']), 0, ',', '.') }}</td>
+                    <td colspan="3" style="border-bottom:1px solid #F3F4F6"></td>
                 </tr>
                 @endif
                 @if($p['costo_por_aplicar'] != 0)
-                <tr style="background:white">
-                    <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px;padding-left:20px">↳ {{ $p['codigo'] }}</td>
+                <tr class="det det-{{ $cod }}" style="display:none;background:white">
+                    <td style="padding:6px 10px 6px 30px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px">↳ Costos por aplicar</td>
                     <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;color:#D97706;cursor:pointer"
                         onclick="abrirDetalle('{{ $cod }}', 'Costos por aplicar', '{{ $p['nombre'] }}')">
                         Costos por aplicar ↗
                     </td>
                     <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;text-align:right;color:#D97706">-${{ number_format(abs($p['costo_por_aplicar']), 0, ',', '.') }}</td>
+                    <td colspan="3" style="border-bottom:1px solid #F3F4F6"></td>
                 </tr>
                 @endif
-                <tr style="background:#F9FAFB">
-                    <td colspan="2" style="padding:6px 10px;border-bottom:2px solid #E5E7EB;font-weight:600;color:#1B3F6E">
-                        Total {{ $p['codigo'] }} - {{ $p['nombre'] }}
-                    </td>
-                    <td style="padding:6px 10px;border-bottom:2px solid #E5E7EB;text-align:right;font-weight:600;color:{{ $p['utilidad'] >= 0 ? '#15803D' : '#DC2626' }}">
-                        ${{ number_format($p['utilidad'], 0, ',', '.') }}
-                    </td>
-                    <td colspan="2" style="border-bottom:2px solid #E5E7EB"></td>
-                </tr>
-            @empty
+            </tbody>
+            @endif
+        @empty
+            <tbody>
                 <tr>
-                    <td colspan="5" style="text-align:center;padding:2rem;color:#9CA3AF">
+                    <td colspan="6" style="text-align:center;padding:2rem;color:#9CA3AF">
                         No hay datos para el período seleccionado
                     </td>
                 </tr>
-            @endforelse
+            </tbody>
+        @endforelse
+
+        <tbody id="tbody-total">
             <tr style="background:#1B3F6E">
                 <td colspan="2" style="padding:10px;color:white;font-weight:600">Total general</td>
                 <td style="padding:10px;text-align:right;color:white;font-weight:600">${{ number_format($totalUtilidad, 0, ',', '.') }}</td>
                 <td style="padding:10px;text-align:right;color:white;font-weight:600">{{ $totalMargen !== null ? $totalMargen . '%' : 'N/A' }}</td>
+                <td style="padding:10px"></td>
                 <td style="padding:10px;text-align:center">
                     @if($totalMargen === null)
                         <span style="color:#FCA5A5;font-size:16px">●</span>
@@ -183,7 +283,7 @@
     </table>
 </div>
 
-{{-- MODAL --}}
+{{-- MODAL DRILL-DOWN --}}
 <div id="modal-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
     <div style="background:white;border-radius:12px;padding:1.5rem;width:90%;max-width:900px;max-height:80vh;overflow-y:auto">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
@@ -194,12 +294,177 @@
     </div>
 </div>
 
+{{-- MODAL COMPARATIVO OFERTADO VS REAL --}}
+<div id="modal-comp" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1001;align-items:center;justify-content:center" onclick="if(event.target===this)cerrarComp()">
+    <div style="background:white;border-radius:12px;padding:1.5rem;width:90%;max-width:620px;max-height:80vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 id="comp-title" style="font-size:15px;font-weight:600;color:#1B3F6E"></h3>
+            <button onclick="cerrarComp()" style="font-size:20px;background:none;border:none;cursor:pointer;color:#6B7280">×</button>
+        </div>
+        <div id="comp-body"></div>
+    </div>
+</div>
+
 <script>
-const filtros = {
-    anio: '{{ $anio }}',
-    mes: '{{ $mes }}',
-    modo: '{{ $modo }}'
-};
+const filtros = { anio: '{{ $anio }}', mes: '{{ $mes }}', modo: '{{ $modo }}' };
+
+let nivelActual = 1;
+
+function estiloNivel() {
+    const base = 'font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer;';
+    const act  = 'background:#1B3F6E;color:white;border:1px solid #1B3F6E;';
+    const ina  = 'background:white;color:#6B7280;border:1px solid #E5E7EB;';
+    document.getElementById('btn-nivel-1').style.cssText = base + (nivelActual === 1 ? act : ina);
+    document.getElementById('btn-nivel-2').style.cssText = base + (nivelActual === 2 ? act : ina);
+}
+
+function setNivel(n) {
+    nivelActual = n;
+    document.querySelectorAll('.det').forEach(r => r.style.display = (n === 2) ? 'table-row' : 'none');
+    document.querySelectorAll('.chev').forEach(c => c.textContent = (n === 2) ? '▾' : '▸');
+    estiloNivel();
+}
+
+function toggleProyecto(cod) {
+    const dets = document.querySelectorAll('.det-' + cod);
+    if (dets.length === 0) return;
+    const abierto = dets[0].style.display !== 'none';
+    dets.forEach(r => r.style.display = abierto ? 'none' : 'table-row');
+    const chev = document.querySelector('.chev[data-cod="' + cod + '"]');
+    if (chev) chev.textContent = abierto ? '▸' : '▾';
+}
+
+function toggleAlerta() {
+    const l = document.getElementById('lista-alerta');
+    const b = document.getElementById('btn-alerta');
+    const abierto = l.style.display !== 'none';
+    l.style.display = abierto ? 'none' : 'block';
+    b.textContent = abierto ? 'Ver proyectos' : 'Ocultar';
+}
+
+// ── Buscar y filtrar (texto + responsable) ──
+function filtrarER() {
+    const q = document.getElementById('buscador-er').value.toLowerCase().trim();
+    const resp = document.getElementById('resp-er').value;
+    let n = 0;
+    document.querySelectorAll('#tabla-er tbody.grupo').forEach(g => {
+        const okTexto = g.dataset.cod.includes(q) || g.dataset.nombre.includes(q);
+        const okResp = !resp
+            ? true
+            : (resp === '__sin__' ? !g.dataset.resp : g.dataset.resp === resp);
+        const ok = okTexto && okResp;
+        g.style.display = ok ? '' : 'none';
+        if (ok) n++;
+    });
+    document.getElementById('contador-er').textContent = n + ' proyecto' + (n === 1 ? '' : 's');
+}
+
+let ordenActual = { clave: null, dir: null };
+
+function aplicarOrden(clave, dir) {
+    const tabla = document.getElementById('tabla-er');
+    const total = document.getElementById('tbody-total');
+    const grupos = Array.from(tabla.querySelectorAll('tbody.grupo'));
+    grupos.sort((a, b) => {
+        if (clave === 'codigo') {
+            return dir === 'asc' ? a.dataset.cod.localeCompare(b.dataset.cod) : b.dataset.cod.localeCompare(a.dataset.cod);
+        }
+        const attr = clave === 'util' ? 'util' : 'margen';
+        let va = a.dataset[attr] === '' ? null : parseFloat(a.dataset[attr]);
+        let vb = b.dataset[attr] === '' ? null : parseFloat(b.dataset[attr]);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        return dir === 'asc' ? va - vb : vb - va;
+    });
+    grupos.forEach(g => tabla.insertBefore(g, total));
+    ordenActual = { clave, dir };
+    actualizarFlechas();
+}
+
+function actualizarFlechas() {
+    ['codigo', 'util', 'margen'].forEach(k => {
+        const el = document.getElementById('arr-' + k);
+        if (!el) return;
+        el.textContent = (ordenActual.clave === k) ? (ordenActual.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    });
+}
+
+function ordenarCol(clave) {
+    let dir;
+    if (ordenActual.clave === clave) dir = ordenActual.dir === 'asc' ? 'desc' : 'asc';
+    else dir = (clave === 'codigo') ? 'asc' : 'desc';
+    aplicarOrden(clave, dir);
+    document.getElementById('orden-er').value = '';
+}
+
+function ordenarSelect() {
+    const v = document.getElementById('orden-er').value;
+    if (!v) return;
+    const [clave, dir] = v.split('-');
+    aplicarOrden(clave, dir);
+}
+
+// ── Comparativo ofertado vs real ──
+function abrirComparativo(codigo) {
+    document.getElementById('comp-title').textContent = 'Ofertado vs real (acumulado) — ' + codigo;
+    document.getElementById('comp-body').innerHTML = '<p style="color:#9CA3AF;font-size:13px">Cargando…</p>';
+    document.getElementById('modal-comp').style.display = 'flex';
+
+    fetch('/financiero/comparativo?codigo=' + encodeURIComponent(codigo))
+        .then(r => r.json())
+        .then(d => {
+            const r = d.real;
+            const o = d.ofertado || { ingreso: null, costo: null, utilidad: null, margen: null };
+            const money = v => (v === null || v === undefined || isNaN(v)) ? '—' : '$' + Math.round(v).toLocaleString('es-CO');
+            const perc  = v => (v === null || v === undefined || isNaN(v)) ? '—' : (Math.round(v * 100) / 100) + '%';
+
+            function fila(lbl, of, re, esMoney, mejorAlto) {
+                const ofTxt = esMoney ? money(of) : perc(of);
+                const reTxt = esMoney ? money(re) : perc(re);
+                let difTxt = '—', col = '#9CA3AF';
+                const valido = of !== null && of !== undefined && re !== null && re !== undefined && !isNaN(of) && !isNaN(re);
+                if (valido) {
+                    const dif = re - of;
+                    const bueno = mejorAlto ? dif >= 0 : dif <= 0;
+                    col = bueno ? '#16A34A' : '#DC2626';
+                    if (esMoney) difTxt = (dif >= 0 ? '+' : '-') + '$' + Math.round(Math.abs(dif)).toLocaleString('es-CO');
+                    else difTxt = (dif >= 0 ? '+' : '-') + (Math.round(Math.abs(dif) * 100) / 100) + 'pp';
+                }
+                return `<tr>
+                    <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;color:#374151">${lbl}</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;text-align:right;color:#6B7280">${ofTxt}</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;text-align:right;font-weight:600;color:#1B3F6E">${reTxt}</td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;text-align:right;font-weight:600;color:${col}">${difTxt}</td>
+                </tr>`;
+            }
+
+            let html = '';
+            if (!d.ofertado) {
+                html += '<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#854D0E">Este proyecto no está en el maestro comercial — solo se muestra el real.</div>';
+            }
+            html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+            html += '<thead><tr style="background:#F3F4F6">'
+                  + '<th style="text-align:left;padding:7px 10px;color:#6B7280;font-size:11px">Concepto</th>'
+                  + '<th style="text-align:right;padding:7px 10px;color:#6B7280;font-size:11px">Ofertado</th>'
+                  + '<th style="text-align:right;padding:7px 10px;color:#6B7280;font-size:11px">Real acumulado</th>'
+                  + '<th style="text-align:right;padding:7px 10px;color:#6B7280;font-size:11px">Diferencia</th>'
+                  + '</tr></thead><tbody>';
+            html += fila('Ingreso',  o.ingreso,  r.ingreso,  true,  true);
+            html += fila('Costo',    o.costo,    r.costo,    true,  false);
+            html += fila('Utilidad', o.utilidad, r.utilidad, true,  true);
+            html += fila('Margen',   o.margen,   r.margen,   false, true);
+            html += '</tbody></table>';
+            html += '<div style="font-size:10px;color:#9CA3AF;margin-top:8px">El real es el acumulado de toda la vida del proyecto, sin filtro de mes. "—" donde comercial no cargó el dato.</div>';
+
+            document.getElementById('comp-body').innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('comp-body').innerHTML = '<p style="color:#DC2626;font-size:13px">Error cargando.</p>';
+        });
+}
+
+function cerrarComp() { document.getElementById('modal-comp').style.display = 'none'; }
 
 function abrirDetalle(codigo, cuentaMayor, nombreProyecto) {
     document.getElementById('modal-title').textContent = codigo + ' — ' + cuentaMayor;
@@ -234,11 +499,8 @@ function abrirDetalle(codigo, cuentaMayor, nombreProyecto) {
                 totalER += er;
                 const color = er >= 0 ? '#059669' : '#DC2626';
 
-                const desbalance = debito > 0 && credito === 0
-                    ? 'Solo débito'
-                    : credito > 0 && debito === 0
-                    ? 'Solo crédito'
-                    : null;
+                const desbalance = debito > 0 && credito === 0 ? 'Solo débito'
+                    : credito > 0 && debito === 0 ? 'Solo crédito' : null;
 
                 let alertaFila = '';
                 if (desbalance) {
@@ -292,12 +554,7 @@ function abrirDetalle(codigo, cuentaMayor, nombreProyecto) {
 function togglePeriodos(rowId, codigo, cuentaEncoded) {
     const row = document.getElementById(rowId);
     const content = document.getElementById(rowId + '-content');
-
-    if (row.style.display !== 'none') {
-        row.style.display = 'none';
-        return;
-    }
-
+    if (row.style.display !== 'none') { row.style.display = 'none'; return; }
     row.style.display = 'table-row';
     const cuenta = decodeURIComponent(cuentaEncoded);
     const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -305,10 +562,7 @@ function togglePeriodos(rowId, codigo, cuentaEncoded) {
     fetch(`/financiero/detalle-cuenta?codigo=${codigo}&cuenta=${encodeURIComponent(cuenta)}&anio=${filtros.anio}&mes=${filtros.mes}&modo=${filtros.modo}`)
         .then(r => r.json())
         .then(data => {
-            if (!data.periodos || data.periodos.length === 0) {
-                content.innerHTML = 'Sin movimientos por período.';
-                return;
-            }
+            if (!data.periodos || data.periodos.length === 0) { content.innerHTML = 'Sin movimientos por período.'; return; }
             let html = '<table style="width:100%;border-collapse:collapse;font-size:11px">';
             html += '<tr style="background:#E5E7EB"><th style="padding:4px 8px;text-align:left;color:#6B7280">Período</th><th style="padding:4px 8px;text-align:right;color:#6B7280">Débito</th><th style="padding:4px 8px;text-align:right;color:#6B7280">Crédito</th><th style="padding:4px 8px;text-align:right;color:#6B7280">Neto ER</th></tr>';
             data.periodos.forEach(p => {
@@ -326,12 +580,13 @@ function togglePeriodos(rowId, codigo, cuentaEncoded) {
         });
 }
 
-function cerrarModal() {
-    document.getElementById('modal-overlay').style.display = 'none';
-}
+function cerrarModal() { document.getElementById('modal-overlay').style.display = 'none'; }
 
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
     if (e.target === this) cerrarModal();
 });
+
+estiloNivel();
+filtrarER();
 </script>
 @endsection

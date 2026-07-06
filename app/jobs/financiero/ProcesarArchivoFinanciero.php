@@ -11,12 +11,13 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Maatwebsite\Excel\Facades\Excel;
-
+use App\Models\SaldoBalance;
+use App\Imports\Financiero\BalanceImport;
 class ProcesarArchivoFinanciero implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 600;
+    public $timeout = 1200;
     public $tries   = 1;
 
     protected $rutaArchivo;
@@ -42,7 +43,15 @@ class ProcesarArchivoFinanciero implements ShouldQueue
     new RegistroFinancieroImport($this->mes, $this->anio),
     storage_path('app/' . $this->rutaArchivo)
 );
+// Segunda pasada: cuentas de balance (clases 1, 2, 3) a su tabla aparte
+        SaldoBalance::where('mes', $this->mes)
+            ->where('anio', $this->anio)
+            ->delete();
 
+        Excel::import(
+            new BalanceImport($this->mes, $this->anio),
+            storage_path('app/' . $this->rutaArchivo)
+        );
         CargaFinanciera::where('id', $this->cargaId)->update([
             'estado'    => 'completado',
             'registros' => RegistroFinanciero::where('mes', $this->mes)
