@@ -93,7 +93,15 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::get('/admin/usuarios/{usuario}/editar', [UsuarioController::class, 'edit'])->name('admin.usuarios.edit');
     Route::put('/admin/usuarios/{usuario}', [UsuarioController::class, 'update'])->name('admin.usuarios.update');
     Route::post('/admin/usuarios/{usuario}/estado', [UsuarioController::class, 'toggleActivo'])->name('admin.usuarios.estado');
-
+    Route::get('/admin/un-bolsas', [\App\Http\Controllers\Admin\UnBolsaController::class, 'index'])->name('admin.un-bolsas.index');
+    Route::post('/admin/un-bolsas', [\App\Http\Controllers\Admin\UnBolsaController::class, 'store'])->name('admin.un-bolsas.store');
+    Route::put('/admin/un-bolsas/{unBolsa}', [\App\Http\Controllers\Admin\UnBolsaController::class, 'update'])->name('admin.un-bolsas.update');
+    Route::put('/admin/un-bolsas/{unBolsa}/toggle', [\App\Http\Controllers\Admin\UnBolsaController::class, 'toggle'])->name('admin.un-bolsas.toggle');
+    Route::get('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'index'])->name('admin.terceros-mano-obra.index');
+    Route::post('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('admin.terceros-mano-obra.store');
+    Route::put('/admin/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('admin.terceros-mano-obra.update');
+    Route::put('/admin/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('admin.terceros-mano-obra.toggle');
+    
     // Preferencias
     Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 });

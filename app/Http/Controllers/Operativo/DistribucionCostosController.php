@@ -452,6 +452,7 @@ class DistribucionCostosController extends Controller
     }
 
     // Lógica compartida: arma la tabla del resumen para un departamento concreto.
+    // Lógica compartida: arma la tabla del resumen para un departamento concreto.
     private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = []): array
     {
         if ($departamento === 'instalaciones') {
@@ -469,8 +470,9 @@ class DistribucionCostosController extends Controller
             return false;
         };
 
-        $mapa14 = Homologacion::get(['cuenta_14', 'estructura'])
-            ->keyBy(fn($h) => (string) $h->cuenta_14);
+        // Mapa 14 -> estructura y 14 -> cuenta 61 (para mostrar a qué 61 va)
+        $homolAll = Homologacion::get(['cuenta_14', 'cuenta_61', 'estructura']);
+        $mapa14    = $homolAll->keyBy(fn($h) => (string) $h->cuenta_14);
 
         $extraer14 = function ($desc) {
             if (!$desc) return null;
@@ -480,18 +482,23 @@ class DistribucionCostosController extends Controller
 
         $ingresoMes = $this->sumaMes('Ingreso', $anio, $mes);
 
+        // Costo ya en cuenta 6: traemos proyecto, cuenta_contable (la 61 real) y descripción (trae la 14)
         $costoC6Cat = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
             ->where('anio', $anio)->where('mes', $mes)
-            ->selectRaw('codigo_proyecto, descripcion, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto', 'descripcion')
+            ->selectRaw('codigo_proyecto, cuenta_contable, descripcion, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'descripcion')
             ->get();
 
         $tabla = [];
         foreach ($tipos as $tk => $tl) {
-            $tabla[$tk] = ['ingreso' => 0.0, 'cat' => []];
-            foreach ($categorias as $ck => $cl) $tabla[$tk]['cat'][$ck] = 0.0;
+            $tabla[$tk] = ['ingreso' => 0.0, 'cat' => [], 'detalle' => []];
+            foreach ($categorias as $ck => $cl) {
+                $tabla[$tk]['cat'][$ck] = 0.0;
+                $tabla[$tk]['detalle'][$ck] = [];   // aquí van las líneas de cada celda
+            }
         }
 
+        // 1) Ingreso del mes por tipo
         foreach ($ingresoMes as $cod => $val) {
             if (!$esDelDepto($cod)) continue;
             $tk = $this->tipoObra((string) $cod);
@@ -499,6 +506,7 @@ class DistribucionCostosController extends Controller
             $tabla[$tk]['ingreso'] += (float) $val;
         }
 
+        // 2) Costo ya en cuenta 6 (triangulando por la 14 de la descripción)
         foreach ($costoC6Cat as $r) {
             if (!$esDelDepto($r->codigo_proyecto)) continue;
             $tk = $this->tipoObra((string) $r->codigo_proyecto);
@@ -507,9 +515,18 @@ class DistribucionCostosController extends Controller
             $h   = $c14 ? ($mapa14[$c14] ?? null) : null;
             $ck  = $h->estructura ?? 'OTROS COSTO';
             if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
-            $tabla[$tk]['cat'][$ck] += abs((float) $r->total);
+            $monto = abs((float) $r->total);
+            $tabla[$tk]['cat'][$ck] += $monto;
+            $tabla[$tk]['detalle'][$ck][] = [
+                'proyecto' => (string) $r->codigo_proyecto,
+                'cuenta_14' => $c14 ?: '—',
+                'cuenta_61' => (string) $r->cuenta_contable,
+                'monto'    => $monto,
+                'origen'   => 'ya6',   // ya estaba en la cuenta 6
+            ];
         }
 
+        // 3) Costo que se aplica ahora (14 -> 6)
         foreach ($aplicar as $cod => $cuentas) {
             if (!$esDelDepto($cod)) continue;
             $tk = $this->tipoObra((string) $cod);
@@ -521,6 +538,13 @@ class DistribucionCostosController extends Controller
                 $ck = $h->estructura ?? 'OTROS COSTO';
                 if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
                 $tabla[$tk]['cat'][$ck] += $monto;
+                $tabla[$tk]['detalle'][$ck][] = [
+                    'proyecto' => (string) $cod,
+                    'cuenta_14' => (string) $c14,
+                    'cuenta_61' => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
+                    'monto'    => $monto,
+                    'origen'   => 'aplic',  // se aplica ahora
+                ];
             }
         }
 

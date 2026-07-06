@@ -6,10 +6,12 @@
     $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
     $periodo = ($nombresMes[$mes] ?? '').' '.$anio;
     $fmt = fn($n) => '$'.number_format($n, 0, ',', '.');
+    // Participación = costo de la categoría / ingreso de la columna
     $pct = fn($p, $t) => ($t != 0) ? number_format($p / $t * 100, 1, ',', '.').'%' : '—';
-
-    // Colores por categoría (como tu Excel)
     $colCat = ['MOI'=>'#DCFCE7','EQU-MAT-SUM'=>'#DCFCE7','MOE'=>'#DCFCE7','MOFIJAOPER'=>'#DCFCE7','OTROS COSTO'=>'#DCFCE7'];
+
+    // Cuántas columnas ocupa la tabla (para el colspan del detalle)
+    $numCols = 1 + (count($tabla) + 1) * 2;
 @endphp
 
 @section('content')
@@ -38,6 +40,7 @@
 
 <p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
     Costo total del mes por categoría = lo que ya estaba en la cuenta 6 del mes + lo que se aplica ahora de la cuenta 14. Ingreso = facturación del mes.
+    <br><span style="color:#9CA3AF">La participación (PART.) es el peso de cada costo sobre el ingreso. Haz clic en un valor de costo para ver su detalle.</span>
 </p>
 
 <div class="card" style="overflow-x:auto">
@@ -46,7 +49,7 @@
             <tr style="background:#1B3F6E;color:white">
                 <th style="text-align:left;padding:8px 10px;font-size:11px">ÍTEM</th>
                 @foreach($tabla as $tk => $t)
-                    <th style="text-align:right;padding:8px 10px;font-size:11px">{{ mb_strtoupper($tipos[$tk]) }}</th>
+                    <th style="text-align:right;padding:8px 10px;font-size:11px">{{ mb_strtoupper($tipos[$tk] ?? $tk) }}</th>
                     <th style="text-align:right;padding:8px 10px;font-size:11px">PART.</th>
                 @endforeach
                 <th style="text-align:right;padding:8px 10px;font-size:11px">TOTAL</th>
@@ -68,14 +71,67 @@
             {{-- CATEGORÍAS --}}
             @foreach($categorias as $ck => $cl)
             <tr style="border-bottom:1px solid #F3F4F6">
-                <td style="padding:6px 10px;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $ck }}</td>
+                <td style="padding:6px 10px;background:{{ $colCat[$ck] ?? '#fff' }};font-weight:500">{{ $ck }}</td>
                 @foreach($tabla as $tk => $t)
-                    <td style="padding:6px 10px;text-align:right;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $fmt($t['cat'][$ck]) }}</td>
-                    <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($t['cat'][$ck], $t['ingreso']) }}</td>
+                    @php
+                        $valor = $t['cat'][$ck];
+                        $tieneDetalle = !empty($t['detalle'][$ck] ?? []);
+                        $cellId = 'det-'.$tk.'-'.\Illuminate\Support\Str::slug($ck);
+                    @endphp
+                    <td style="padding:6px 10px;text-align:right;background:{{ $colCat[$ck] ?? '#fff' }};{{ $tieneDetalle ? 'cursor:pointer;' : '' }}"
+                        @if($tieneDetalle) onclick="toggleDetalle('{{ $cellId }}')" title="Clic para ver el detalle" @endif>
+                        {{ $fmt($valor) }}
+                        @if($tieneDetalle)<span style="color:#6366F1;font-size:10px;margin-left:3px">▸</span>@endif
+                    </td>
+                    <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($valor, $t['ingreso']) }}</td>
                 @endforeach
                 <td style="padding:6px 10px;text-align:right;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $fmt($todo['cat'][$ck]) }}</td>
                 <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($todo['cat'][$ck], $todo['ingreso']) }}</td>
             </tr>
+
+            {{-- Filas de DETALLE (una por cada celda con datos, ocultas por defecto) --}}
+            @foreach($tabla as $tk => $t)
+                @php
+                    $lineas = $t['detalle'][$ck] ?? [];
+                    $cellId = 'det-'.$tk.'-'.\Illuminate\Support\Str::slug($ck);
+                @endphp
+                @if(!empty($lineas))
+                <tr id="{{ $cellId }}" style="display:none;background:#F9FAFB">
+                    <td colspan="{{ $numCols }}" style="padding:0 10px 10px 30px">
+                        <div style="font-size:11px;color:#6B7280;margin:6px 0 4px">
+                            Detalle de <b>{{ $ck }}</b> · {{ mb_strtoupper($tipos[$tk] ?? $tk) }}
+                            <span style="color:#9CA3AF">({{ count($lineas) }} {{ count($lineas)==1 ? 'línea' : 'líneas' }})</span>
+                        </div>
+                        <table style="width:100%;border-collapse:collapse;font-size:11px">
+                            <tr style="color:#9CA3AF;text-align:left">
+                                <td style="padding:3px 6px">Proyecto (OT)</td>
+                                <td style="padding:3px 6px">Cuenta 14</td>
+                                <td style="padding:3px 6px"></td>
+                                <td style="padding:3px 6px">Cuenta 61</td>
+                                <td style="padding:3px 6px">Origen</td>
+                                <td style="padding:3px 6px;text-align:right">Valor</td>
+                            </tr>
+                            @foreach($lineas as $ln)
+                            <tr style="border-top:1px solid #EEF0F2">
+                                <td style="padding:4px 6px;font-weight:500;color:#1B3F6E">{{ $ln['proyecto'] }}</td>
+                                <td style="padding:4px 6px;font-family:monospace;color:#6B7280">{{ $ln['cuenta_14'] }}</td>
+                                <td style="padding:4px 6px;text-align:center;color:#D1D5DB">→</td>
+                                <td style="padding:4px 6px;font-family:monospace;color:#1B3F6E">{{ $ln['cuenta_61'] }}</td>
+                                <td style="padding:4px 6px">
+                                    @if($ln['origen'] === 'aplic')
+                                        <span style="font-size:10px;background:#DCFCE7;color:#15803D;padding:1px 7px;border-radius:6px">Aplicado ahora</span>
+                                    @else
+                                        <span style="font-size:10px;background:#EFF6FF;color:#1B3F6E;padding:1px 7px;border-radius:6px">Ya en cuenta 6</span>
+                                    @endif
+                                </td>
+                                <td style="padding:4px 6px;text-align:right;font-weight:500">{{ $fmt($ln['monto']) }}</td>
+                            </tr>
+                            @endforeach
+                        </table>
+                    </td>
+                </tr>
+                @endif
+            @endforeach
             @endforeach
 
             {{-- TOTAL COSTO --}}
@@ -115,38 +171,10 @@
 </div>
 
 <script>
-const PERIODO = @json($periodo);
-
-function descargarResumen(){
-    const tabla = document.getElementById('tabla-resumen');
-    const filas = [];
-    tabla.querySelectorAll('tr').forEach(tr => {
-        const celdas = [];
-        tr.querySelectorAll('th,td').forEach(td => {
-            celdas.push(td.innerText.trim());
-        });
-        filas.push(celdas);
-    });
-
-    const esc = v => {
-        v = String(v == null ? '' : v);
-        if(/[";\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
-        return v;
-    };
-    const csv = filas.map(f => f.map(esc).join(';')).join('\r\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'resumen_distribucion_' + String(PERIODO || '').replace(/\s+/g, '_') + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+function toggleDetalle(id){
+    const fila = document.getElementById(id);
+    if(fila){ fila.style.display = (fila.style.display === 'none' || !fila.style.display) ? 'table-row' : 'none'; }
 }
-
-@if($descargar)
-document.addEventListener('DOMContentLoaded', descargarResumen);
-@endif
 </script>
+
 @endsection
