@@ -10,4 +10,8 @@ return [
     'operacion'          => 'Operación',
     'comercial'          => 'Comercial',
     'contabilidad'       => 'Contabilidad',
+
+    // Departamentos (controlan qué obras ve cada quien en Distribución de costos)
+    'dep_mantenimiento'  => 'Depto. Mantenimiento',
+    'dep_instalaciones'  => 'Depto. Instalaciones',
 ];

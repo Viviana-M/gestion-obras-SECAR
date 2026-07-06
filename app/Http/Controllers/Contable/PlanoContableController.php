@@ -23,7 +23,8 @@ class PlanoContableController extends Controller
         $usuarios = User::pluck('name', 'id');
 
         $versiones = Distribucion::where('mes', $mes)->where('anio', $anio)
-            ->where('estado', 'enviado')->orderByDesc('version')->get();
+            ->where('estado', 'enviado')
+            ->orderBy('departamento')->orderByDesc('version')->get();
 
         $data = $versiones->map(function ($d) use ($aplican, $usuarios) {
             $lineas = AplicacionCosto::where('distribucion_id', $d->id)
@@ -31,14 +32,15 @@ class PlanoContableController extends Controller
                 ->where('monto_aplicar', '>', 0)
                 ->orderBy('codigo_proyecto')->get();
             return [
-                'id'          => $d->id,
-                'version'     => $d->version,
-                'enviado_at'  => $d->enviado_at,
-                'enviado_por' => $usuarios[$d->enviado_por] ?? '—',
-                'habilitada'  => $d->edicion_habilitada,
-                'lineas'      => $lineas,
-                'total'       => $lineas->sum('monto_aplicar'),
-                'obras'       => $lineas->pluck('codigo_proyecto')->unique()->count(),
+                'id'           => $d->id,
+                'version'      => $d->version,
+                'departamento' => $d->departamento,
+                'enviado_at'   => $d->enviado_at,
+                'enviado_por'  => $usuarios[$d->enviado_por] ?? '—',
+                'habilitada'   => $d->edicion_habilitada,
+                'lineas'       => $lineas,
+                'total'        => $lineas->sum('monto_aplicar'),
+                'obras'        => $lineas->pluck('codigo_proyecto')->unique()->count(),
             ];
         });
 
@@ -63,6 +65,16 @@ class PlanoContableController extends Controller
     {
         $distribucion->edicion_habilitada = !$distribucion->edicion_habilitada;
         $distribucion->save();
+
+        // Registrar el evento en la trazabilidad del plano
+        \App\Models\DistribucionVersion::create([
+            'distribucion_id' => $distribucion->id,
+            'evento'          => $distribucion->edicion_habilitada ? 'reabierto' : 'bloqueado',
+            'user_id'         => auth()->id(),
+            'user_nombre'     => auth()->user()?->name,
+            'snapshot'        => null, // al reabrir/bloquear los números no cambian
+        ]);
+
         $msg = $distribucion->edicion_habilitada
             ? "Versión {$distribucion->version} habilitada: operaciones ya puede editarla."
             : "Versión {$distribucion->version} bloqueada de nuevo.";

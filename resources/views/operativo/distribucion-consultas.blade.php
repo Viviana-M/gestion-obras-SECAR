@@ -47,7 +47,16 @@
                 }
             @endphp
             <tr style="border-bottom:1px solid #E5E7EB">
-                <td <td style="padding:10px 14px;font-weight:500;color:#1B3F6E">{{ $meses[$f['mes']] ?? $f['mes'] }} {{ $f['anio'] }} · <span style="color:#6B7280;font-weight:400">v{{ $f['version'] }}</span></td>
+                @php
+                    $prefDep = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'][$f['departamento'] ?? ''] ?? '';
+                @endphp
+                <td style="padding:10px 14px;font-weight:500;color:#1B3F6E">
+                    {{ $meses[$f['mes']] ?? $f['mes'] }} {{ $f['anio'] }} ·
+                    <span style="color:#6B7280;font-weight:400">{{ $prefDep ? $prefDep.'-' : '' }}v{{ $f['version'] }}</span>
+                    @if($f['departamento'])
+                        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#EEF2FF;color:#4338CA;margin-left:6px">{{ ucfirst($f['departamento']) }}</span>
+                    @endif
+                </td>
                 <td style="padding:10px 14px;color:#6B7280">
                     {{ $f['guardado_at']?->format('d/m/Y H:i') }}
                     <div style="font-size:11px;color:#9CA3AF">por {{ $f['guardado_por'] }}</div>
@@ -60,6 +69,8 @@
                 <td style="padding:10px 14px;text-align:center;white-space:nowrap">
                     <a href="{{ route('operativo.distribucion', ['dist' => $f['id']]) }}"
                        style="font-size:12px;padding:6px 12px;border:1px solid #1B3F6E;border-radius:6px;color:#1B3F6E;text-decoration:none">{{ $cta }}</a>
+                    <a href="{{ route('operativo.distribucion.trazabilidad', $f['id']) }}"
+                       style="font-size:12px;padding:6px 12px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;text-decoration:none;margin-left:4px">Trazabilidad</a>
                     @if($f['estado'] !== 'enviado')
                     <form method="POST" action="{{ route('operativo.distribucion.eliminar', $f['id']) }}" style="display:inline"
                           onsubmit="return confirm('¿Eliminar este borrador? No se puede deshacer.')">

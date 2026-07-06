@@ -76,6 +76,58 @@ class User extends Authenticatable
         return in_array($clave, $permitidos);
     }
 
+    // Departamentos que el usuario puede ver (para Distribución de costos).
+    // Admin ve ambos. Los demás, según sus módulos marcados.
+    // Devuelve las claves de prefijos que le corresponden.
+    public function departamentosPermitidos(): array
+    {
+        // Mapa: cada departamento y los prefijos de obra que le pertenecen.
+        $mapa = [
+            'dep_mantenimiento' => ['C', 'R', 'MO', 'GM'],
+            'dep_instalaciones' => ['GI', 'OA', 'OB', 'OC'],
+        ];
+
+        $prefijos = [];
+        foreach ($mapa as $modulo => $pref) {
+            if ($this->puedeVerModulo($modulo)) {
+                $prefijos = array_merge($prefijos, $pref);
+            }
+        }
+        return $prefijos;
+    }
+
+    // Devuelve el código de departamento del usuario si tiene UNO solo.
+    // Supervisor de mantenimiento -> 'mantenimiento'; de instalaciones -> 'instalaciones'.
+    // Si tiene ambos (director) o es admin -> null (debe elegir en pantalla).
+    public function departamentoUnico(): ?string
+    {
+        $mant = $this->puedeVerModulo('dep_mantenimiento');
+        $inst = $this->puedeVerModulo('dep_instalaciones');
+
+        if ($this->esAdmin()) return null;      // admin elige
+        if ($mant && $inst)   return null;       // director elige
+        if ($mant)            return 'mantenimiento';
+        if ($inst)            return 'instalaciones';
+        return null;
+    }
+
+    // Prefijos de obra de un departamento dado.
+    public static function prefijosDeDepartamento(string $dep): array
+    {
+        return [
+            'mantenimiento' => ['C', 'R', 'MO', 'GM'],
+            'instalaciones' => ['GI', 'OA', 'OB', 'OC'],
+        ][$dep] ?? [];
+    }
+    // ¿Puede ver ALGÚN departamento? (para saber si filtrar o no)
+    public function tieneFiltroDepartamento(): bool
+    {
+        if ($this->esAdmin()) return false; // admin ve todo, sin filtro
+        // Si no tiene marcado ningún departamento, no filtramos por ahora
+        // (para no bloquear usuarios existentes). Filtra solo si marcó al menos uno.
+        return $this->puedeVerModulo('dep_mantenimiento') || $this->puedeVerModulo('dep_instalaciones');
+    }
+
     // Envía el correo de restablecimiento con el diseño de Secar
     // (en lugar del correo genérico de Laravel).
     public function sendPasswordResetNotification($token): void

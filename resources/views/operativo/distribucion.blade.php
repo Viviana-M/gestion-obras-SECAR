@@ -3,10 +3,42 @@
 @section('title', 'Distribución de costos')
 
 @section('content')
-<h1 class="page-title">Distribución de costos</h1>
+@php
+    $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
+    $depPrefijo = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'];
+@endphp
+<h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    Distribución de costos
+    @if($depEfectivo)
+        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
+            {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
+        </span>
+    @elseif(is_null($depUsuario))
+        <span style="font-size:12px;color:#9CA3AF;font-weight:400">— elige un departamento arriba para empezar —</span>
+    @endif
+</h1>
 
 <div class="card" style="margin-bottom:1rem">
     <form method="GET" action="{{ route('operativo.distribucion') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        @if(is_null($depUsuario))
+        {{-- Director/admin: elige el departamento. El supervisor no ve esto (ya está fijo). --}}
+        <div>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
+            <select name="departamento" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                <option value="">— Elegir —</option>
+                <option value="mantenimiento" {{ $depEfectivo == 'mantenimiento' ? 'selected' : '' }}>Mantenimiento</option>
+                <option value="instalaciones" {{ $depEfectivo == 'instalaciones' ? 'selected' : '' }}>Instalaciones</option>
+            </select>
+        </div>
+        @endif
+        <div>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Vista</label>
+            <select name="vista" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                @foreach(['todo'=>'Todo lo pendiente (cuenta 14)','mes'=>'Solo el mes seleccionado'] as $k => $v)
+                    <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
+                @endforeach
+            </select>
+        </div>
         <div>
             <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
             <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
@@ -25,8 +57,17 @@
         </div>
         <div>
             <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Tipo de obra</label>
+            @php
+                if ($depEfectivo === 'instalaciones') {
+                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
+                } elseif ($depEfectivo === 'mantenimiento') {
+                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías'];
+                } else {
+                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías','otro'=>'Otros'];
+                }
+            @endphp
             <select name="tipo" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-                @foreach(['todos'=>'Todos','mantenimiento'=>'Mantenimiento','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías','otro'=>'Otros'] as $k => $v)
+                @foreach($opcionesTipo as $k => $v)
                     <option value="{{ $k }}" {{ $tipo == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
@@ -41,6 +82,10 @@
         </div>
         <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
     </form>
+    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
+        En vista <b>“Todo lo pendiente”</b> se muestran todas las obras con saldo abierto en la cuenta 14 (el mes/año solo afecta los números al corte).
+        En vista <b>“Solo el mes seleccionado”</b> se muestran únicamente las obras con movimiento de cuenta 14 en ese mes y año.
+    </p>
 </div>
 
 @if(session('success'))
@@ -52,7 +97,7 @@
 
 @if($distId)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-    <span>Editando borrador existente (v{{ $envio->version ?? '?' }}). Al guardar se actualiza esta misma versión.</span>
+    <span>Editando borrador existente ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza esta misma versión.</span>
     <a href="{{ route('operativo.distribucion') }}" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
 </div>
 @endif
@@ -83,6 +128,7 @@
     <span style="font-size:12px;color:#6B7280">Acciones rápidas:</span>
     <button type="button" onclick="aplicarTodo()" style="font-size:12px;padding:6px 14px;border:1px solid #16A34A;border-radius:8px;background:white;color:#15803D;cursor:pointer">Aplicar todo el pendiente</button>
     <button type="button" onclick="ponerEnCero()" style="font-size:12px;padding:6px 14px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;cursor:pointer">Poner todo en 0</button>
+    <button type="button" onclick="abrirCalculo()" style="font-size:12px;padding:6px 14px;border:1px solid #4338CA;border-radius:8px;background:#EEF2FF;color:#4338CA;font-weight:500;cursor:pointer">✨ Calcular costo sugerido</button>
 </div>
 @endif
 
@@ -91,7 +137,11 @@
     $colEstado = ['abierta'=>['#F0FDF4','#15803D'],'parcial'=>['#FEF9C3','#854D0E'],'cerrada'=>['#EFF6FF','#1B3F6E']];
     $colSem = ['verde'=>'#16A34A','ambar'=>'#D97706','rojo'=>'#DC2626','gris'=>'#9CA3AF'];
     $fmt = fn($n) => '$'.number_format($n, 0, ',', '.');
-    $pp  = fn($v) => $v === null ? '—' : (($v >= 0 ? '+' : '').number_format($v, 1, ',', '.').' pp');
+    $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+    $mesNombre = ($nombresMes[$mes] ?? '').' '.$anio;
+    $mesAnt = $mes - 1; $anioAnt = $anio;
+    if ($mesAnt < 1) { $mesAnt = 12; $anioAnt = $anio - 1; }
+    $mesAnteriorNombre = ($nombresMes[$mesAnt] ?? '').' '.$anioAnt;
 @endphp
 
 @if($kpiObras == 0)
@@ -103,6 +153,7 @@
 <input type="hidden" name="mes" value="{{ $mes }}">
 <input type="hidden" name="anio" value="{{ $anio }}">
 <input type="hidden" name="dist" value="{{ $distId }}">
+<input type="hidden" name="departamento" value="{{ $depEfectivo }}">
 
 @foreach($obras as $cod => $o)
 @php $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280']; @endphp
@@ -129,25 +180,113 @@
         </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E5E7EB">
-        <div style="background:white;padding:10px 14px">
-            <div style="font-size:10px;color:#9CA3AF">Margen del mes <i>(ref.)</i></div>
-            <div style="font-size:15px;font-weight:600;color:#6B7280">{{ $o['margen_mes'] === null ? '—' : $o['margen_mes'].'%' }}</div>
+    {{-- ESTADO DE AVANCE DE OBRA (acumulado al mes anterior) --}}
+    <div style="background:#F9FAFB;padding:10px 16px;border-top:1px solid #E5E7EB">
+        <div style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;margin-bottom:6px">ESTADO DE AVANCE DE OBRA · ACUMULADO A {{ mb_strtoupper($mesAnteriorNombre) }}</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Facturado acum. reconocido</div>
+                <div style="font-size:14px;font-weight:600;color:#1B3F6E">{{ $fmt($o['fact_acum_rec']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acum. reconocido</div>
+                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_acum_rec']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Margen acum. ($)</div>
+                <div style="font-size:14px;font-weight:600;color:{{ $o['margen_acum_pesos'] >= 0 ? '#15803D' : '#DC2626' }}">{{ $fmt($o['margen_acum_pesos']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">MC %</div>
+                <div style="font-size:14px;font-weight:600;color:#374151">{{ $o['mc_pct_acum'] === null ? '—' : $o['mc_pct_acum'].'%' }}</div>
+            </div>
         </div>
-        <div style="background:white;padding:10px 14px">
-            <div style="font-size:10px;color:#9CA3AF">Margen acumulado <i>(control)</i></div>
-            <div style="font-size:15px;font-weight:600;color:{{ $colSem[$o['semaforo']] }}">{{ $o['margen_acum'] === null ? '—' : $o['margen_acum'].'%' }}</div>
-            <div style="font-size:10px;color:#9CA3AF">vs ofertado: {{ $pp($o['delta_acum']) }}</div>
+    </div>
+
+    {{-- RENTABILIDAD DEL MES (costo del mes + MC dinámico al aplicar 14→6) --}}
+    <div style="background:#FFFBEB;padding:10px 16px;border-top:1px solid #E5E7EB">
+        <div style="font-size:9px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:6px">RENTABILIDAD DEL MES · {{ mb_strtoupper($mesNombre) }}</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Ingresos del mes</div>
+                <div style="font-size:14px;font-weight:600;color:#854D0E">{{ $fmt($o['ingreso_mes']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo del mes (cuenta 6)</div>
+                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_mes_c6']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Aplicado ahora (14→6)</div>
+                <div style="font-size:14px;font-weight:600;color:#1B3F6E" id="aplic6-{{ $cod }}">{{ $fmt($o['aplicado_mes']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">MC del mes ($)</div>
+                <div style="font-size:14px;font-weight:600;color:{{ $o['mc_mes_pesos'] >= 0 ? '#15803D' : '#DC2626' }}" id="mcmes-{{ $cod }}">{{ $fmt($o['mc_mes_pesos']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Rentabilidad % MC</div>
+                <div style="font-size:14px;font-weight:600;color:#854D0E" id="mcpct-{{ $cod }}">{{ $o['mc_mes_pct'] === null ? '—' : $o['mc_mes_pct'].'%' }}</div>
+            </div>
         </div>
-        <div style="background:white;padding:10px 14px">
-            <div style="font-size:10px;color:#9CA3AF">Margen proyección <i>(dinámico)</i></div>
-            <div style="font-size:15px;font-weight:600;color:#374151" id="proy-{{ $cod }}">{{ $o['margen_proy'] === null ? '—' : $o['margen_proy'].'%' }}</div>
-            <div style="font-size:10px;color:#9CA3AF" id="proyd-{{ $cod }}">vs ofertado: {{ $pp($o['delta_proy']) }}</div>
+    </div>
+
+    {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
+    <div style="background:#EEF2FF;padding:10px 16px;border-top:1px solid #E5E7EB">
+        <div style="font-size:9px;font-weight:700;color:#4338CA;letter-spacing:.4px;margin-bottom:6px">PROYECCIÓN DE RENTABILIDAD · OFERTA vs REALIDAD</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Valor oferta comercial</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_valor_oferta']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Diferencia por facturar</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_dif_facturar']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario en obra (cta 14)</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario almacén <i>(en actualización)</i></div>
+                <div style="font-size:14px;font-weight:600;color:#9CA3AF">{{ $fmt($o['pr_inv_almacen']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo total</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % ofertado</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_mc_ofertado'] === null ? '—' : $o['pr_mc_ofertado'].'%' }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % proyección <i>(costo acum + inventarios)</i></div>
+                @php
+                    $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
+                    $colProy = '#312E81';
+                    if ($mcp !== null && $ofc !== null) $colProy = $mcp >= $ofc ? '#15803D' : '#DC2626';
+                @endphp
+                <div style="font-size:14px;font-weight:600;color:{{ $colProy }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance de facturación</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_fact'] === null ? '—' : $o['pr_avance_fact'].'%' }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo presupuestado</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance ejecución obra</div>
+                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_ejec'] === null ? '—' : $o['pr_avance_ejec'].'%' }}</div>
+            </div>
         </div>
-        <div style="background:white;padding:10px 14px">
-            <div style="font-size:10px;color:#9CA3AF">Ofertado (comercial)</div>
-            <div style="font-size:15px;font-weight:600;color:#1B3F6E">{{ $o['ofertado'] === null ? '—' : $o['ofertado'].'%' }}</div>
-        </div>
+    </div>
+
+    {{-- OBSERVACIONES DEL COORDINADOR --}}
+    <div style="padding:10px 16px;border-top:1px solid #E5E7EB">
+        <label style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;display:block;margin-bottom:5px">OBSERVACIONES DEL COORDINADOR</label>
+        <textarea name="observacion[{{ $cod }}]" rows="2" placeholder="Escribe aquí cualquier observación sobre esta obra (opcional)..."
+            style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical">{{ $o['observacion'] }}</textarea>
     </div>
 
     <div style="padding:12px 16px">
@@ -255,32 +394,66 @@
 
 @if($kpiObras > 0 && !$bloqueado)
 <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1rem">
+    <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
     <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
     <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 22px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Enviar a contabilidad</button>
 </div>
 @endif
 </form>
 
+{{-- MODAL: ajustar tolerancia --}}
+<div id="modal-calc" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:12px;padding:20px 22px;max-width:420px;width:90%">
+        <h3 style="font-size:15px;font-weight:600;color:#1B3F6E;margin-bottom:8px">✨ Calcular costo sugerido</h3>
+        <p style="font-size:12.5px;color:#6B7280;line-height:1.5;margin-bottom:14px">
+            El sistema aplicará costo en cada obra sin que su <b>margen acumulado</b> baje más que la tolerancia por debajo del <b>margen ofertado</b> (piso = ofertado − tolerancia), validando también la proyección. Las obras que ya vienen por debajo de ese piso o en pérdida <b>no recibirán costos</b> y te las mostraré en un aviso.
+        </p>
+        <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Tolerancia (puntos por debajo del margen ofertado)</label>
+        <input type="number" id="tol-input" value="3" min="0" max="100" step="1"
+            style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;margin-bottom:16px">
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" onclick="cerrarCalculo()" style="padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;cursor:pointer">Cancelar</button>
+            <button type="button" onclick="ejecutarCalculo()" style="padding:8px 18px;background:#4338CA;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Calcular</button>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL: resultado / alertas --}}
+<div id="modal-alerta" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:12px;padding:20px 22px;max-width:560px;width:90%;max-height:82vh;overflow:auto">
+        <h3 style="font-size:15px;font-weight:600;color:#1B3F6E;margin-bottom:12px">Resultado del cálculo</h3>
+        <div id="alerta-contenido"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:8px">
+            <button type="button" id="btn-export-alerta" onclick="exportarAlerta()" style="padding:8px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;cursor:pointer">⬇ Exportar a Excel</button>
+            <button type="button" onclick="cerrarAlerta()" style="padding:8px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Entendido</button>
+        </div>
+    </div>
+</div>
+
 @php
     $ctaJs = $catalogo->keyBy('cuenta_14');
     $datosJs = [];
     foreach ($obras as $cod => $o) {
         $datosJs[$cod] = [
-            'ing'   => $o['ingreso_acum'],
-            'costo' => $o['costo_apl_acum'],
-            'of'    => $o['ofertado'],
-            'acum'  => $o['margen_acum'],
-            'pend'  => $o['total_pendiente'],
-            'rev'   => $o['total_reversado'],
+            'ingMes'   => $o['ingreso_mes'],
+            'costoMes' => $o['costo_apl_mes'],
+            'ingAcum'  => $o['ingreso_acum'],
+            'costoAcum'=> $o['costo_apl_acum'],
+            'of'       => $o['ofertado'],
+            'mcProy'   => $o['pr_mc_proy'],
+            'nombre'   => $o['nombre'],
+            'pend'     => $o['total_pendiente'],
+            'rev'      => $o['total_reversado'],
         ];
     }
 @endphp
 <script>
 const CTA = @json($ctaJs);
 const DATOS = @json($datosJs);
-const COLSEM = {verde:'#16A34A',ambar:'#D97706',rojo:'#DC2626',gris:'#9CA3AF'};
+const PERIODO = @json($mesNombre);
 const ESTCOL = {abierta:['#F0FDF4','#15803D'], parcial:['#FEF9C3','#854D0E'], cerrada:['#EFF6FF','#1B3F6E']};
 let provIdx = {};
+let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
 
 const fmt = n => '$' + Math.round(n).toLocaleString('es-CO');
 
@@ -291,6 +464,11 @@ function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.val
 function sumAplicar(cod){
     const card=document.getElementById('card-'+cod); let s=0;
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>s+=parseFloat(i.value||0));
+    return s;
+}
+function sumProv(cod){
+    const card=document.getElementById('card-'+cod); let s=0;
+    card.querySelectorAll('input[data-tipo="prov"]').forEach(i=>s+=parseFloat(i.value||0));
     return s;
 }
 function esCerrable(cod){
@@ -311,18 +489,19 @@ function recalc(cod){
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=parseFloat(i.value||0));
     card.querySelectorAll('input[data-tipo="prov"]').forEach(i=>sumP+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
-    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(sumA+sumP);
+    const aplicado = sumA + sumP;
+
+    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado);
+    const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado);
+
     evaluarCerrable(cod);
-    if(!d.ing){ return; }
-    const proy=(d.ing-(d.costo+sumA+sumP))/d.ing*100;
-    document.getElementById('proy-'+cod).textContent=proy.toFixed(1)+'%';
-    const dp = d.of!=null ? (proy-d.of) : null;
-    document.getElementById('proyd-'+cod).textContent = d.of!=null ? ('vs ofertado: '+(dp>=0?'+':'')+dp.toFixed(1)+' pp') : '';
-    let sem='gris';
-    if(d.of!=null && d.acum!=null){
-        if(d.acum<d.of) sem='rojo'; else if(proy<d.of) sem='ambar'; else sem='verde';
-    }
-    document.getElementById('dot-'+cod).style.background=COLSEM[sem];
+
+    const costoMesTotal = (d.costoMes||0) + aplicado;
+    const mcMesPesos = (d.ingMes||0) - costoMesTotal;
+    const mcEl=document.getElementById('mcmes-'+cod);
+    if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }
+    const pctEl=document.getElementById('mcpct-'+cod);
+    if(pctEl){ pctEl.textContent = d.ingMes ? ((mcMesPesos/d.ingMes*100).toFixed(1)+'%') : '—'; }
 }
 
 function cambiarEstado(cod, val){
@@ -371,9 +550,169 @@ function ponerEnCero(){
     for (const cod in DATOS) { recalc(cod); }
 }
 
+/* ===== Cálculo automático de costo sugerido ===== */
+function abrirCalculo(){ document.getElementById('modal-calc').style.display='flex'; }
+function cerrarCalculo(){ document.getElementById('modal-calc').style.display='none'; }
+function cerrarAlerta(){ document.getElementById('modal-alerta').style.display='none'; }
+
+function distribuirEnObra(cod, objetivo){
+    const inputs=[...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')];
+    const maxes=inputs.map(i=>parseFloat(i.max||0));
+    const totalMax=maxes.reduce((a,b)=>a+b,0);
+    if(totalMax<=0){ inputs.forEach(i=>i.value=0); return; }
+    const obj=Math.max(0, Math.min(objetivo, totalMax));
+    inputs.forEach((inp,idx)=>{
+        const share = totalMax>0 ? (maxes[idx]/totalMax)*obj : 0;
+        inp.value = Math.min(Math.round(share), Math.round(maxes[idx]));
+    });
+}
+
+function ejecutarCalculo(){
+    let tol = parseFloat(document.getElementById('tol-input').value);
+    if(isNaN(tol) || tol < 0) tol = 3;
+
+    const enPerdida = [];
+    const bajoOfertado = [];
+
+    for(const cod in DATOS){
+        const d = DATOS[cod];
+        const inputs = document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]');
+
+        // Margen acumulado actual (control): ingreso vs costo cuenta 6 acumulado
+        const mcAcum = d.ingAcum>0 ? (d.ingAcum - d.costoAcum)/d.ingAcum*100 : null;
+        // Margen proyectado (oferta vs realidad)
+        const mcProy = (d.mcProy !== null && d.mcProy !== undefined) ? d.mcProy : null;
+        const of  = (d.of !== null && d.of !== undefined) ? d.of : null;
+        // Piso: ofertado − tolerancia. Sin oferta cargada, protegemos contra pérdida (piso 0).
+        const piso = of !== null ? (of - tol) : 0;
+
+        // 1) En pérdida (algún margen negativo): no aplicar
+        const enPerd = (mcProy !== null && mcProy < 0) || (mcAcum !== null && mcAcum < 0);
+        if(enPerd){
+            inputs.forEach(i => i.value = 0);
+            enPerdida.push({cod, nombre:d.nombre, margen:(mcProy !== null ? mcProy : mcAcum)});
+            recalc(cod);
+            continue;
+        }
+
+        // 2) Ya viene por debajo del piso (acumulado o proyección): no aplicar, mostrar
+        const yaBajo = (mcAcum !== null && mcAcum < piso) || (mcProy !== null && mcProy < piso);
+        if(of !== null && yaBajo){
+            inputs.forEach(i => i.value = 0);
+            bajoOfertado.push({cod, nombre:d.nombre, margen:(mcProy !== null ? mcProy : mcAcum), ofertado:of});
+            recalc(cod);
+            continue;
+        }
+
+        // 3) Aplicar hasta que el margen acumulado llegue al piso:
+        //    costo tal que (ingAcum − (costoAcum + X)) / ingAcum = piso/100
+        //    X = ingAcum*(1 − piso/100) − costoAcum   (menos las provisiones ya puestas)
+        let objetivo = d.ingAcum>0 ? (d.ingAcum*(1 - piso/100) - d.costoAcum) : 0;
+        objetivo -= sumProv(cod);
+        if(objetivo < 0) objetivo = 0;
+
+        distribuirEnObra(cod, objetivo);
+        recalc(cod);
+    }
+
+    cerrarCalculo();
+    mostrarAlerta(enPerdida, bajoOfertado);
+}
+
+function mostrarAlerta(perdida, bajo){
+    ultimaAlerta = { perdida, bajo, periodo: PERIODO };
+
+    let html = '';
+
+    if(perdida.length === 0 && bajo.length === 0){
+        html += '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:12px 14px;font-size:13px;color:#15803D">✓ Se calculó el costo sugerido en todas las obras dentro de la tolerancia. Revisa los valores y guarda cuando estés de acuerdo.</div>';
+    } else {
+        html += '<div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 14px;font-size:13px;color:#4338CA;margin-bottom:12px">Se calculó el costo sugerido. Revisa estos casos antes de guardar:</div>';
+    }
+
+    if(perdida.length){
+        html += '<div style="font-size:12px;font-weight:700;color:#DC2626;margin-bottom:6px">⚠ En pérdida — no se aplicaron costos ('+perdida.length+')</div>';
+        html += '<div style="border:1px solid #FECACA;border-radius:8px;overflow:hidden;margin-bottom:14px">';
+        perdida.forEach((o,ix) => {
+            html += '<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 12px;font-size:12px;'+(ix%2?'background:#FEF2F2':'background:white')+'">'
+                 +  '<span><b>'+o.cod+'</b> · '+(o.nombre||'')+'</span>'
+                 +  '<span style="color:#DC2626;font-weight:600;white-space:nowrap">'+o.margen.toFixed(1)+'%</span></div>';
+        });
+        html += '</div>';
+    }
+
+    if(bajo.length){
+        html += '<div style="font-size:12px;font-weight:700;color:#B45309;margin-bottom:6px">Por debajo del piso ofertado — no se aplicaron costos ('+bajo.length+')</div>';
+        html += '<div style="border:1px solid #FDE68A;border-radius:8px;overflow:hidden">';
+        bajo.forEach((o,ix) => {
+            html += '<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 12px;font-size:12px;'+(ix%2?'background:#FFFBEB':'background:white')+'">'
+                 +  '<span><b>'+o.cod+'</b> · '+(o.nombre||'')+'</span>'
+                 +  '<span style="white-space:nowrap;color:#B45309;font-weight:600">'+o.margen.toFixed(1)+'% <span style="color:#9CA3AF;font-weight:400">vs '+o.ofertado.toFixed(1)+'% ofertado</span></span></div>';
+        });
+        html += '</div>';
+    }
+
+    document.getElementById('alerta-contenido').innerHTML = html;
+
+    const btnExp = document.getElementById('btn-export-alerta');
+    if(btnExp) btnExp.style.display = (perdida.length || bajo.length) ? 'inline-block' : 'none';
+
+    document.getElementById('modal-alerta').style.display = 'flex';
+}
+
+function exportarAlerta(){
+    const { perdida, bajo, periodo } = ultimaAlerta;
+    if(perdida.length === 0 && bajo.length === 0){
+        alert('No hay obras para revisar en este cálculo.');
+        return;
+    }
+
+    const filas = [];
+    filas.push(['Código', 'Nombre obra', 'Motivo', 'Margen', 'Ofertado', 'Período']);
+
+    perdida.forEach(o => {
+        filas.push([
+            o.cod,
+            o.nombre || '',
+            'En pérdida (no se aplicaron costos)',
+            o.margen.toFixed(1).replace('.', ',') + '%',
+            '',
+            periodo
+        ]);
+    });
+
+    bajo.forEach(o => {
+        filas.push([
+            o.cod,
+            o.nombre || '',
+            'Por debajo del piso ofertado (no se aplicaron costos)',
+            o.margen.toFixed(1).replace('.', ',') + '%',
+            o.ofertado.toFixed(1).replace('.', ',') + '%',
+            periodo
+        ]);
+    });
+
+    const esc = v => {
+        v = String(v == null ? '' : v);
+        if(/[";\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+        return v;
+    };
+    const csv = filas.map(f => f.map(esc).join(';')).join('\r\n');
+
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'obras_por_revisar_' + String(periodo || '').replace(/\s+/g, '_') + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 function bloquearForm(){
     const f=document.getElementById('form-dist'); if(!f) return;
-    f.querySelectorAll('input, select, button').forEach(e=>{ e.disabled=true; });
+    f.querySelectorAll('input, select, button, textarea').forEach(e=>{ e.disabled=true; });
 }
 
 document.addEventListener('DOMContentLoaded', function(){

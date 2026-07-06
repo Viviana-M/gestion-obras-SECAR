@@ -23,8 +23,13 @@
     <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Rol</label>
     <select name="rol" id="selRol"
         style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-        <option value="usuario" {{ old('rol', $usuario->rol ?? 'usuario') === 'usuario' ? 'selected' : '' }}>Usuario (acceso según módulos)</option>
-        <option value="admin" {{ old('rol', $usuario->rol ?? '') === 'admin' ? 'selected' : '' }}>Administrador (acceso total)</option>
+        <optgroup label="Acceso según módulos">
+            <option value="admin" {{ old('rol', $usuario->rol ?? '') === 'admin' ? 'selected' : '' }}>Administrador (acceso total)</option>
+            <option value="director"   {{ old('rol', $usuario->rol ?? '') === 'director' ? 'selected' : '' }}>Director</option>
+            <option value="gerente"    {{ old('rol', $usuario->rol ?? '') === 'gerente' ? 'selected' : '' }}>Gerente</option>
+            <option value="supervisor" {{ old('rol', $usuario->rol ?? '') === 'supervisor' ? 'selected' : '' }}>Supervisor</option>
+            <option value="coordinador" {{ old('rol', $usuario->rol ?? '') === 'coordinador' ? 'selected' : '' }}>Coordinador</option>
+        </optgroup>
     </select>
 </div>
 

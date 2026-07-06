@@ -40,9 +40,19 @@
 @foreach($data as $v)
 <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
     <div onclick="toggleV('{{ $v['id'] }}')" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap">
+        @php
+            $depInfo = [
+                'mantenimiento' => ['MT', 'Mantenimiento', '#EFF6FF', '#1B3F6E'],
+                'instalaciones' => ['IN', 'Instalaciones', '#F0FDF4', '#15803D'],
+            ];
+            $di = $depInfo[$v['departamento'] ?? ''] ?? ['', '', '#F3F4F6', '#6B7280'];
+        @endphp
         <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span style="font-weight:600;color:#1B3F6E">Versión {{ $v['version'] }}</span>
+                @if($di[1])
+                    <span style="font-size:11px;font-weight:700;background:{{ $di[2] }};color:{{ $di[3] }};padding:3px 10px;border-radius:8px">{{ mb_strtoupper($di[1]) }}</span>
+                @endif
+                <span style="font-weight:600;color:#1B3F6E">Versión {{ $di[0] ? $di[0].'-' : '' }}v{{ $v['version'] }}</span>
                 @if($v['habilitada'])
                     <span style="font-size:11px;background:#FEF9C3;color:#854D0E;padding:2px 8px;border-radius:8px">Habilitada para edición</span>
                 @else
