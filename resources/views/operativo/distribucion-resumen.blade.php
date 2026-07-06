@@ -71,10 +71,10 @@
                 <td style="padding:6px 10px;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $ck }}</td>
                 @foreach($tabla as $tk => $t)
                     <td style="padding:6px 10px;text-align:right;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $fmt($t['cat'][$ck]) }}</td>
-                    <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($t['cat'][$ck], $t['costo_total']) }}</td>
+                    <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($t['cat'][$ck], $t['ingreso']) }}</td>
                 @endforeach
                 <td style="padding:6px 10px;text-align:right;background:{{ $colCat[$ck] ?? '#fff' }}">{{ $fmt($todo['cat'][$ck]) }}</td>
-                <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($todo['cat'][$ck], $todo['costo_total']) }}</td>
+                <td style="padding:6px 10px;text-align:right;color:#374151;font-weight:600">{{ $pct($todo['cat'][$ck], $todo['ingreso']) }}</td>
             </tr>
             @endforeach
 
@@ -83,10 +83,10 @@
                 <td style="padding:7px 10px">TOTAL COSTO</td>
                 @foreach($tabla as $tk => $t)
                     <td style="padding:7px 10px;text-align:right">{{ $fmt($t['costo_total']) }}</td>
-                    <td style="padding:7px 10px;text-align:right">{{ $t['costo_total'] != 0 ? '100%' : '—' }}</td>
+                    <td style="padding:7px 10px;text-align:right">{{ $pct($t['costo_total'], $t['ingreso']) }}</td>
                 @endforeach
                 <td style="padding:7px 10px;text-align:right">{{ $fmt($todo['costo_total']) }}</td>
-                <td style="padding:7px 10px;text-align:right">100%</td>
+                <td style="padding:7px 10px;text-align:right">{{ $pct($todo['costo_total'], $todo['ingreso']) }}</td>
             </tr>
 
             {{-- MC ($) --}}

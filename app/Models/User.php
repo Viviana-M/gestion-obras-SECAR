@@ -84,7 +84,7 @@ class User extends Authenticatable
         // Mapa: cada departamento y los prefijos de obra que le pertenecen.
         $mapa = [
             'dep_mantenimiento' => ['C', 'R', 'MO', 'GM'],
-            'dep_instalaciones' => ['GI', 'OA', 'OB', 'OC'],
+            'dep_instalaciones' => ['GI', 'O'],
         ];
 
         $prefijos = [];
@@ -116,7 +116,7 @@ class User extends Authenticatable
     {
         return [
             'mantenimiento' => ['C', 'R', 'MO', 'GM'],
-            'instalaciones' => ['GI', 'OA', 'OB', 'OC'],
+            'instalaciones' => ['GI', 'O'],
         ][$dep] ?? [];
     }
     // ¿Puede ver ALGÚN departamento? (para saber si filtrar o no)

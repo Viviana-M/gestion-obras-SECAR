@@ -456,7 +456,7 @@ class DistribucionCostosController extends Controller
     {
         if ($departamento === 'instalaciones') {
             $tipos = ['obras' => 'Obras', 'garantia' => 'Garantías'];
-            $prefijos = ['GI', 'OA', 'OB', 'OC'];
+            $prefijos = ['GI', 'O'];
         } else {
             $tipos = ['obras' => 'Obras', 'contrato' => 'Contratos', 'reparacion' => 'Reparaciones', 'garantia' => 'Garantías'];
             $prefijos = ['C', 'R', 'MO', 'GM'];
@@ -762,7 +762,7 @@ class DistribucionCostosController extends Controller
         if (str_starts_with($c, 'C'))  return 'contrato';
         // Instalaciones
         if (str_starts_with($c, 'GI')) return 'garantia';
-        if (str_starts_with($c, 'OA') || str_starts_with($c, 'OB') || str_starts_with($c, 'OC')) return 'obras';
+        if (str_starts_with($c, 'O'))  return 'obras';   // O → todas Obras
         return 'otro';
     }
 }
