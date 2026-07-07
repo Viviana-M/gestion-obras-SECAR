@@ -13,7 +13,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
     protected $mes;
     protected $anio;
 
-    private $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM'];
+    private $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM', 'MTO', 'INS'];
 
     public function __construct($mes, $anio)
     {
@@ -33,7 +33,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
 
     public function model(array $row)
     {
-        $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
+       $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
         if ($movto == 0) {
             $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
             $credito = $this->limpiarNumero($row['creditos'] ?? 0);
@@ -73,6 +73,8 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
             'descripcion'      => trim($row['nombre_auxiliar'] ?? ''),
+            'tercero_dcto'     => trim($row['tercero_docto'] ?? '') ?: null,
+            'razon_social'     => trim($row['razon_social_docto'] ?? '') ?: null,
             'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
             'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
             'movto_libro2'     => $movto,

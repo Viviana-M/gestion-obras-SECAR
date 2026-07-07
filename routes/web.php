@@ -73,7 +73,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
     Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
     Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');
-
+    Route::get('/operativo/distribucion-areas', [\App\Http\Controllers\Operativo\DistribucionAreasController::class, 'index'])->name('operativo.distribucion-areas');
+    
     // Maestro de proyectos (carga comercial)
     Route::get('/operativo/maestro-comercial', [MaestroComercialController::class, 'index'])->name('operativo.maestro.index');
     Route::post('/operativo/maestro-comercial/importar', [MaestroComercialController::class, 'importar'])->name('operativo.maestro.importar');
@@ -101,31 +102,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('admin.terceros-mano-obra.store');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('admin.terceros-mano-obra.update');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('admin.terceros-mano-obra.toggle');
-    
+
     // Preferencias
     Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 });
-Route::get('/diag-cuentas', function () {
-    // Un registro de ejemplo de "Costos aplicados" con TODAS sus columnas,
-    // para ver qué campos existen y si hay alguno que apunte a la cuenta 14 de origen.
-    $ejemplo = \App\Models\RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
-        ->orderByDesc('id')
-        ->first();
-
-    // Un registro de ejemplo de "Costos por aplicar" (cuenta 14) para comparar columnas.
-    $ejemplo14 = \App\Models\RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-        ->orderByDesc('id')
-        ->first();
-
-    // Lista de las columnas reales de la tabla.
-    $columnas = \Illuminate\Support\Facades\Schema::getColumnListing(
-        (new \App\Models\RegistroFinanciero)->getTable()
-    );
-
-    return response()->json([
-        'columnas_de_la_tabla'        => $columnas,
-        'ejemplo_costos_aplicados_61' => $ejemplo,
-        'ejemplo_costos_por_aplicar_14' => $ejemplo14,
-    ], 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-})->middleware('auth');
 require __DIR__.'/auth.php';
