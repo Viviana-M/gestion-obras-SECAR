@@ -43,7 +43,7 @@ class TopeFacturacionFifoTest extends TestCase
     }
 
     #[Test]
-    public function la_propuesta_inicial_se_topa_al_facturado_y_reparte_fifo(): void
+    public function la_propuesta_inicial_aplica_saldos_completos_por_antiguedad_sin_exceder_el_tope(): void
     {
         $this->seedFifo();
 
@@ -51,17 +51,34 @@ class TopeFacturacionFifoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        // La obra aparece (tiene saldo neto en cuenta 14)
         $resp->assertSee('id="card-C-700"', false);
-        // Reparto FIFO topado: 600 al saldo antiguo, 400 al nuevo (no 800).
+        // Tope 1000: cabe completo el saldo antiguo (600); el nuevo (800) NO cabe entero,
+        // así que NO se aplica (no se parte para no dejar poquitos).
         $resp->assertSee('data-tope="600"', false);
-        $resp->assertSee('data-tope="400"', false);
-        // El pendiente completo (800) NO se propone en el saldo nuevo.
-        $resp->assertDontSee('data-tope="800"', false);
+        $resp->assertSee('data-tope="0"', false);      // el saldo nuevo queda sin proponer
+        $resp->assertDontSee('data-tope="400"', false); // no hay recorte parcial (poquito)
+        $resp->assertDontSee('data-tope="800"', false); // ni se propone el saldo nuevo entero
     }
 
     #[Test]
-    public function guardar_recorta_al_tope_consumiendo_lo_mas_antiguo(): void
+    public function la_propuesta_nunca_excede_el_saldo_abierto_neto(): void
+    {
+        // Cuenta con período que se reversa: bruto 2.000.000, pero neto abierto 1.285.607.
+        $this->rf('Ingreso', 5000000, 7, 2026, '41350100'); // tope muy alto
+        $this->rf('Costos por aplicar', -2000000, 4, 2026, '14200506'); // pendiente bruto
+        $this->rf('Costos por aplicar', 714393, 5, 2026, '14200506');   // reversa parcial => neto 1.285.607
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        // Propone como máximo el saldo neto abierto (1.285.607), nunca el bruto (2.000.000).
+        $resp->assertSee('data-tope="1285607"', false);
+        $resp->assertDontSee('data-tope="2000000"', false);
+    }
+
+    #[Test]
+    public function guardar_aplica_saldos_completos_por_antiguedad_sin_exceder_el_tope(): void
     {
         $this->seedFifo();
 
@@ -71,11 +88,25 @@ class TopeFacturacionFifoTest extends TestCase
             'aplicar' => ['C-700' => ['14350105' => 600, '14350206' => 800]],
         ])->assertRedirect();
 
-        // Se recorta al tope 1000: 600 (mayo, completo) + 400 (junio, recortado).
+        // Cabe el saldo antiguo completo (600); el nuevo (800) no cabe entero => no se aplica.
         $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
-        $this->assertEqualsWithDelta(400, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->where('cuenta_14', '14350206')->sum('monto_aplicar'), 0.5);
-        // Total aplicado = tope.
-        $this->assertEqualsWithDelta(1000, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->sum('monto_aplicar'), 0.5);
+        $this->assertSame(0, AplicacionCosto::where('codigo_proyecto', 'C-700')->where('cuenta_14', '14350206')->count());
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
+    public function guardar_no_aplica_mas_que_el_saldo_abierto_de_la_cuenta(): void
+    {
+        $this->seedFifo(); // 14350105 pendiente 600
+
+        // Se manipula el formulario para aplicar 9999 en una cuenta cuyo saldo abierto es 600.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14350105' => 9999]],
+        ])->assertRedirect();
+
+        // Se recorta al saldo abierto (600), nunca más.
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
     }
 
     #[Test]

@@ -115,32 +115,18 @@ class DistribucionCostosController extends Controller
         $costoAplMes  = $this->sumaMes('Costos aplicados', $anio, $mes);
         $costoAplAcum = $this->sumaAcum('Costos aplicados', $anio, $mes);
 
-        // Tope de facturación (FIFO) para proyectos CON ingreso: el costo aplicado
-        // 14→6 en el mes no puede superar lo facturado del mes. Se consume el pendiente
-        // de la cuenta 14 de más antiguo a más nuevo hasta agotar el tope del mes
-        // (ingreso_mes − costo_apl_mes). El exceso queda para meses con más facturación.
-        $pendPeriodoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-            ->selectRaw('codigo_proyecto, cuenta_contable, anio, mes, SUM(estado_er) as saldo')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'anio', 'mes')
-            ->havingRaw('SUM(estado_er) < -0.5');
+        // Antigüedad de cada cuenta 14 (período más antiguo con pendiente), para el
+        // reparto FIFO topado al facturado del mes. El reparto en sí se calcula más
+        // abajo, sobre el saldo NETO abierto de cada cuenta (no el bruto por período).
+        $periodoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable');
         if ($vista === 'mes') {
-            $pendPeriodoQuery->where('anio', $anio)->where('mes', $mes);
+            $periodoQuery->where('anio', $anio)->where('mes', $mes);
         }
-        $topeFifo = [];       // [cod][cuenta_14] => monto topado FIFO
         $periodoCuenta = [];  // [cod|cuenta_14] => período más antiguo (anio*100+mes)
-        $lineasPorProy = [];
-        foreach ($pendPeriodoQuery->get() as $r) {
-            $cod     = $r->codigo_proyecto;
-            $periodo = (int) $r->anio * 100 + (int) $r->mes;
-            $lineasPorProy[$cod][] = ['cuenta_14' => (string) $r->cuenta_contable, 'periodo' => $periodo, 'monto' => abs((float) $r->saldo)];
-            $key = $cod.'|'.$r->cuenta_contable;
-            $periodoCuenta[$key] = isset($periodoCuenta[$key]) ? min($periodoCuenta[$key], $periodo) : $periodo;
-        }
-        foreach ($lineasPorProy as $cod => $lineas) {
-            $ing = (float) ($ingresoMes[$cod] ?? 0);
-            if (abs($ing) < 0.5) continue; // sin ingreso: no aplica (va por autorización de gerencia)
-            $cap = max(0.0, $ing - abs((float) ($costoAplMes[$cod] ?? 0)));
-            $topeFifo[$cod] = $this->repartoFifo($lineas, $cap);
+        foreach ($periodoQuery->get() as $r) {
+            $periodoCuenta[$r->codigo_proyecto.'|'.$r->cuenta_contable] = (int) $r->periodo;
         }
 
         // Inventario en obra = saldo TOTAL de cuenta 14 (todos los períodos), para la proyección.
@@ -215,11 +201,32 @@ class DistribucionCostosController extends Controller
             // salvo que ya tenga un valor guardado en el borrador.
             $sinIngreso = abs((float) $o['ingreso_mes']) < 0.5;
 
+            // Reparto FIFO topado al facturado del mes, sobre el SALDO NETO abierto de
+            // cada cuenta 14 (respeta el pendiente mostrado) y aplicando cada saldo
+            // COMPLETO por antigüedad (sin dejar poquitos). Solo proyectos con ingreso.
+            $topeProy = [];
+            if (!$sinIngreso) {
+                $lineasFifo = [];
+                foreach ($o['cat'] as $c) {
+                    foreach ($c['subs'] as $sub) {
+                        if ($sub['pendiente'] > 0.5) {
+                            $lineasFifo[] = [
+                                'cuenta_14' => $sub['cuenta_14'],
+                                'periodo'   => $periodoCuenta[$cod.'|'.$sub['cuenta_14']] ?? 0,
+                                'monto'     => (float) $sub['pendiente'],
+                            ];
+                        }
+                    }
+                }
+                $cap = max(0.0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes']));
+                $topeProy = $this->repartoFifo($lineasFifo, $cap);
+            }
+
             foreach ($o['cat'] as $k => &$c) {
                 foreach ($c['subs'] as &$sub) {
                     // Datos para el reparto FIFO topado al facturado del mes.
                     $sub['periodo'] = $periodoCuenta[$cod.'|'.$sub['cuenta_14']] ?? 0;
-                    $sub['tope']    = $topeFifo[$cod][$sub['cuenta_14']] ?? 0;
+                    $sub['tope']    = $topeProy[$sub['cuenta_14']] ?? 0;
 
                     if (isset($savedAplicar[$sub['cuenta_14']])) {
                         $sub['aplicar'] = (float) $savedAplicar[$sub['cuenta_14']]->monto_aplicar;
@@ -227,7 +234,7 @@ class DistribucionCostosController extends Controller
                         $sub['aplicar'] = 0;
                     } else {
                         // Nuevo borrador con ingreso: proponer el monto topado FIFO
-                        // (no el pendiente completo, que puede exceder el facturado del mes).
+                        // (saldo completo por cuenta, sin exceder el facturado del mes).
                         $sub['aplicar'] = $sub['tope'];
                     }
                 }
@@ -387,33 +394,38 @@ class DistribucionCostosController extends Controller
             return $sinIngreso && ! in_array((string) $cod, $aprobados, true);
         };
 
-        // Refuerzo del TOPE DE FACTURACIÓN (FIFO) para proyectos CON ingreso: el total
-        // aplicado 14→6 en el mes no puede superar el facturado del mes. Si el formulario
-        // se manipuló para exceder, se recorta al tope consumiendo los saldos más antiguos.
+        // Refuerzo para proyectos CON ingreso: (1) no aplicar más que el saldo abierto
+        // de cada cuenta 14, y (2) el total aplicado del mes no supera el facturado del
+        // mes (tope), consumiendo por antigüedad y aplicando saldos completos (FIFO).
         $costoAplMesG = $this->sumaMes('Costos aplicados', $anio, $mes);
-        $periodoCuentaG = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-            ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
+        $saldos14G = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as saldo, MIN(anio*100+mes) as periodo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
-            ->get()
-            ->reduce(function ($carry, $r) {
-                $carry[$r->codigo_proyecto.'|'.$r->cuenta_contable] = (int) $r->periodo;
-                return $carry;
-            }, []);
+            ->get();
+        $pendNetoG = [];   // saldo abierto (neto) por cuenta
+        $periodoCuentaG = []; // antigüedad por cuenta
+        foreach ($saldos14G as $r) {
+            $key = $r->codigo_proyecto.'|'.$r->cuenta_contable;
+            $neto = (float) $r->saldo;
+            $pendNetoG[$key]      = $neto < 0 ? abs($neto) : 0.0;
+            $periodoCuentaG[$key] = (int) $r->periodo;
+        }
         foreach ($aplicar as $cod => $cuentas) {
             $ing = (float) ($ingresoMesG[$cod] ?? 0);
             if (abs($ing) < 0.5) continue; // sin ingreso: lo maneja el bloqueo de autorización
             $cap = max(0.0, $ing - abs((float) ($costoAplMesG[$cod] ?? 0)));
             $lineas = [];
             foreach ((array) $cuentas as $c14 => $monto) {
-                $monto = (float) $monto;
-                if ($monto <= 0) continue;
+                // No aplicar más que el saldo abierto de la cuenta.
+                $monto = min((float) $monto, $pendNetoG[$cod.'|'.$c14] ?? 0.0);
+                if ($monto <= 0.5) continue;
                 $lineas[] = [
                     'cuenta_14' => (string) $c14,
                     'periodo'   => $periodoCuentaG[$cod.'|'.$c14] ?? PHP_INT_MAX,
                     'monto'     => $monto,
                 ];
             }
-            // Reparto FIFO sobre lo sometido: recorta al tope conservando lo más antiguo.
+            // Reparto FIFO (saldos completos por antigüedad) sin exceder el tope.
             $aplicar[$cod] = $this->repartoFifo($lineas, $cap);
         }
 
@@ -914,10 +926,13 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Reparte un tope entre líneas de cuenta 14 de MÁS ANTIGUO a MÁS NUEVO (FIFO).
-     * $lineas: [ ['cuenta_14'=>string, 'periodo'=>int (anio*100+mes), 'monto'=>float], ... ].
-     * Devuelve [cuenta_14 => monto_asignado], consumiendo el tope por antigüedad; lo
-     * que exceda el tope queda sin asignar.
+     * Reparte un tope entre cuentas 14 de MÁS ANTIGUO a MÁS NUEVO (FIFO), aplicando
+     * el SALDO COMPLETO de cada cuenta (nunca una fracción, para no dejar poquitos)
+     * y sin exceder el saldo abierto. Se detiene ante la primera cuenta cuyo saldo no
+     * cabe en el tope restante; esa cuenta (y las siguientes) quedan abiertas para un
+     * mes con más facturación.
+     * $lineas: [ ['cuenta_14'=>string, 'periodo'=>int (anio*100+mes), 'monto'=>float (saldo abierto)], ... ].
+     * Devuelve [cuenta_14 => monto_asignado].
      */
     private function repartoFifo(array $lineas, float $tope): array
     {
@@ -925,11 +940,13 @@ class DistribucionCostosController extends Controller
         $restante = max(0.0, $tope);
         $asignado = [];
         foreach ($lineas as $l) {
-            if ($restante <= 0.5) break;
-            $aplica = min((float) $l['monto'], $restante);
-            if ($aplica <= 0) continue;
-            $asignado[$l['cuenta_14']] = ($asignado[$l['cuenta_14']] ?? 0) + $aplica;
-            $restante -= $aplica;
+            $monto = (float) $l['monto'];
+            if ($monto <= 0.5) continue;
+            if ($monto > $restante + 0.5) {
+                break; // no cabe completo: no se parte, queda abierto (FIFO estricto)
+            }
+            $asignado[$l['cuenta_14']] = ($asignado[$l['cuenta_14']] ?? 0) + $monto;
+            $restante -= $monto;
         }
         return $asignado;
     }
