@@ -144,10 +144,10 @@
             </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="buscador" onkeyup="filtrarObras(this.value)" placeholder="🔎 Código o cliente…" autocomplete="off"
+            <input type="text" id="buscador" placeholder="🔎 Código o cliente…" autocomplete="off"
                 style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
-            <button type="button" onclick="expandirTodo(true)" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
-            <button type="button" onclick="expandirTodo(false)" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+            <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
+            <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
         </div>
     </div>
     @if(!$bloqueado && $puedeEditar)
@@ -191,7 +191,7 @@
 
 {{-- ══════════ GRUPO: CON INGRESO (expandido) ══════════ --}}
 <div class="grupo-obras" data-grupo="con">
-    <div onclick="toggleGrupo('con')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
+    <div id="grupo-head-con" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
         <svg id="chev-grupo-con" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1B3F6E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
         <span style="font-weight:700;color:#1B3F6E;font-size:14px">Con ingreso</span>
         <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#EFF6FF;color:#1B3F6E">{{ count($obrasConIngreso) }}</span>
@@ -208,7 +208,7 @@
 
 {{-- ══════════ GRUPO: SIN INGRESO (colapsado) ══════════ --}}
 <div class="grupo-obras" data-grupo="sin" style="margin-top:16px">
-    <div onclick="toggleGrupo('sin')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
+    <div id="grupo-head-sin" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
         <svg id="chev-grupo-sin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#B91C1C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
         <span style="font-weight:700;color:#B91C1C;font-size:14px">Sin ingreso · requiere autorización</span>
         <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#FEE2E2;color:#B91C1C">{{ count($obrasSinIngreso) }}</span>
@@ -623,6 +623,19 @@ function bloquearForm(){
 document.addEventListener('DOMContentLoaded', function(){
     for (const cod in DATOS) { evaluarCerrable(cod); }
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
+
+    // Enlaces por addEventListener (además de los inline): garantizan que el
+    // buscador, expandir/colapsar y los grupos respondan aunque una CSP bloquee
+    // los handlers inline o el navegador no dispare 'keyup'.
+    function on(id, ev, fn){ const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
+    on('buscador', 'input', function(){ filtrarObras(this.value); });
+    on('btn-expandir', 'click', function(){ expandirTodo(true); });
+    on('btn-colapsar', 'click', function(){ expandirTodo(false); });
+    on('grupo-head-con', 'click', function(){ toggleGrupo('con'); });
+    on('grupo-head-sin', 'click', function(){ toggleGrupo('sin'); });
+    document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
+        row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
+    });
 });
 </script>
 @endsection

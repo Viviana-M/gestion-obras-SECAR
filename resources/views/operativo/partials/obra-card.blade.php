@@ -1,7 +1,7 @@
 @php $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280']; @endphp
 <div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ $o['requiere_autorizacion'] ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" onclick="toggleObra('{{ $cod }}')">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span id="dot-{{ $cod }}" style="width:9px;height:9px;border-radius:50%;background:{{ $colSem[$o['semaforo']] }};display:inline-block"></span>
