@@ -218,6 +218,7 @@
                                 value="{{ round($sub['aplicar']) }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
                                 data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ $o['bloqueado_ingreso'] ? '1' : '0' }}"
+                                data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="capear(this);recalc('{{ $cod }}')"
                                 @if($o['bloqueado_ingreso']) title="Se aplicará solo cuando gerencia apruebe la autorización" @endif
                                 style="width:100px;padding:3px 6px;border:1px solid {{ $o['bloqueado_ingreso'] ? '#FCA5A5' : '#E5E7EB' }};border-radius:4px;font-size:11px;text-align:right">

@@ -278,6 +278,7 @@
             'pend'     => $o['total_pendiente'],
             'rev'      => $o['total_reversado'],
             'sinIngreso' => (bool) $o['requiere_autorizacion'],
+            'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
         ];
     }
 @endphp
@@ -413,9 +414,11 @@ function addProv(cod){
 }
 
 function aplicarTodo(){
+    // "Aplicar todo el pendiente" = proponer el monto topado al facturado del mes
+    // y repartido FIFO por antigüedad (data-tope viene calculado del servidor).
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
-        if (inp.dataset.bloqueado === '1') return; // solo obras con ingreso
-        inp.value = Math.round(parseFloat(inp.max || 0));
+        if (inp.dataset.bloqueado === '1') return; // sin ingreso: no se toca
+        inp.value = Math.round(parseFloat(inp.dataset.tope || 0));
     });
     for (const cod in DATOS) { recalc(cod); }
 }
@@ -459,16 +462,25 @@ function abrirCalculo(){ document.getElementById('modal-calc').style.display='fl
 function cerrarCalculo(){ document.getElementById('modal-calc').style.display='none'; }
 function cerrarAlerta(){ document.getElementById('modal-alerta').style.display='none'; }
 
-function distribuirEnObra(cod, objetivo){
-    const inputs=[...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')].filter(i=>i.dataset.bloqueado!=='1');
-    const maxes=inputs.map(i=>parseFloat(i.max||0));
-    const totalMax=maxes.reduce((a,b)=>a+b,0);
-    if(totalMax<=0){ inputs.forEach(i=>i.value=0); return; }
-    const obj=Math.max(0, Math.min(objetivo, totalMax));
-    inputs.forEach((inp,idx)=>{
-        const share = totalMax>0 ? (maxes[idx]/totalMax)*obj : 0;
-        inp.value = Math.min(Math.round(share), Math.round(maxes[idx]));
+/* Llena los inputs de una obra hasta 'objetivo', consumiendo de MÁS ANTIGUO a
+   MÁS NUEVO (data-periodo asc). Cada input se llena hasta su pendiente (max). */
+function llenarFifoObra(cod, objetivo){
+    const inputs = [...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')]
+        .filter(i => i.dataset.bloqueado !== '1')
+        .sort((a,b) => (parseInt(a.dataset.periodo||0,10) - parseInt(b.dataset.periodo||0,10)));
+    let rem = Math.max(0, objetivo);
+    inputs.forEach(inp => {
+        const max = parseFloat(inp.max || 0);
+        const v = Math.min(max, rem);
+        inp.value = Math.round(v);
+        rem -= v;
     });
+}
+
+function distribuirEnObra(cod, objetivo){
+    // Tope de facturación del mes: el objetivo nunca supera lo facturable.
+    const cap = (DATOS[cod] && DATOS[cod].cap != null) ? DATOS[cod].cap : Infinity;
+    llenarFifoObra(cod, Math.min(objetivo, cap));
 }
 
 function ejecutarCalculo(){
