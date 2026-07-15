@@ -14,6 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Confía en el proxy de Cloudflare (túnel) para que Laravel
         // detecte que la conexión es HTTPS y genere las URLs correctamente.
         $middleware->trustProxies(at: '*');
+
+        // Alias para exigir acceso a un módulo por ruta (permisos por módulo).
+        $middleware->alias([
+            'modulo' => \App\Http\Middleware\RequiereModulo::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

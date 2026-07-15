@@ -14,6 +14,7 @@ use App\Models\ObservacionObra;
 use App\Models\Distribucion;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Exports\ResumenDistribucionExport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\DistribucionVersion;
@@ -301,116 +302,127 @@ class DistribucionCostosController extends Controller
         $usuario = $request->user();
         $departamento = $usuario?->departamentoUnico() ?: $request->input('departamento');
 
-        if (!$distribucion) {
-            if (!in_array($departamento, ['mantenimiento', 'instalaciones'])) {
-                return back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
-            }
-            // Numeración separada por departamento
-            $version = (Distribucion::where('mes', $mes)->where('anio', $anio)
-                        ->where('departamento', $departamento)->max('version') ?? 0) + 1;
-            $distribucion = Distribucion::create([
-                'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
-                'version' => $version, 'estado' => 'borrador',
-                'edicion_habilitada' => false, 'guardado_por' => $request->user()?->id,
-            ]);
-        } else {
-            $distribucion->guardado_por = $request->user()?->id;
+        if (!$distribucion && !in_array($departamento, ['mantenimiento', 'instalaciones'])) {
+            return back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
         }
 
-        $cerrar = array_keys(array_filter($estadoObra, fn($e) => $e === 'cerrada'));
-        $pendientePorObra = collect();
-        if (!empty($cerrar)) {
-            $pendientePorObra = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-                ->whereIn('codigo_proyecto', $cerrar)
-                ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
-                ->groupBy('codigo_proyecto')
-                ->pluck('saldo', 'codigo_proyecto');
-        }
-
+        // Todo el guardado (crear/actualizar el borrador, estados de obra, borrar y
+        // reinsertar las líneas de AplicacionCosto, observaciones y la versión) va en
+        // una sola transacción: si algo falla a mitad, no queda un plano parcial.
         $noCerradas = [];
-        foreach ($estadoObra as $cod => $est) {
-            if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
-            if ($est === 'cerrada') {
-                $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
-                $pendAbs   = $saldo < 0 ? abs($saldo) : 0;
-                $reversado = $saldo > 0 ? $saldo : 0;
-                $aplicado  = array_sum(array_map('floatval', $aplicar[$cod] ?? []));
-                if ($reversado > 0.5 || $aplicado < $pendAbs - 0.5) {
-                    $est = 'parcial';
-                    $noCerradas[] = $cod;
+        $msg = '';
+
+        DB::transaction(function () use (
+            &$distribucion, &$noCerradas, &$msg,
+            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request
+        ) {
+            if (!$distribucion) {
+                // Numeración separada por departamento
+                $version = (Distribucion::where('mes', $mes)->where('anio', $anio)
+                            ->where('departamento', $departamento)->max('version') ?? 0) + 1;
+                $distribucion = Distribucion::create([
+                    'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
+                    'version' => $version, 'estado' => 'borrador',
+                    'edicion_habilitada' => false, 'guardado_por' => $request->user()?->id,
+                ]);
+            } else {
+                $distribucion->guardado_por = $request->user()?->id;
+            }
+
+            $cerrar = array_keys(array_filter($estadoObra, fn($e) => $e === 'cerrada'));
+            $pendientePorObra = collect();
+            if (!empty($cerrar)) {
+                $pendientePorObra = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+                    ->whereIn('codigo_proyecto', $cerrar)
+                    ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+                    ->groupBy('codigo_proyecto')
+                    ->pluck('saldo', 'codigo_proyecto');
+            }
+
+            foreach ($estadoObra as $cod => $est) {
+                if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
+                if ($est === 'cerrada') {
+                    $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
+                    $pendAbs   = $saldo < 0 ? abs($saldo) : 0;
+                    $reversado = $saldo > 0 ? $saldo : 0;
+                    $aplicado  = array_sum(array_map('floatval', $aplicar[$cod] ?? []));
+                    if ($reversado > 0.5 || $aplicado < $pendAbs - 0.5) {
+                        $est = 'parcial';
+                        $noCerradas[] = $cod;
+                    }
+                }
+                ObraEstado::updateOrCreate(
+                    ['codigo_proyecto' => $cod],
+                    ['estado' => $est, 'user_id' => $request->user()?->id]
+                );
+            }
+
+            // IMPORTANTE: la cuenta 61 y la estructura que se copian a AplicacionCosto quedan
+            // CONGELADAS. Deben ser las del período que se está distribuyendo, no las de hoy.
+            $periodo = Homologacion::periodo($anio, $mes);
+            $homol   = Homologacion::mapaEn($periodo);
+
+            AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
+
+            foreach ($aplicar as $cod => $cuentas) {
+                foreach ($cuentas as $c14 => $monto) {
+                    $monto = (float) $monto;
+                    if ($monto <= 0) continue;
+                    $h = $homol[(string) $c14] ?? null;
+                    AplicacionCosto::create([
+                        'distribucion_id' => $distribucion->id,
+                        'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
+                        'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
+                        'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
+                        'monto_aplicar' => $monto, 'es_provision' => false,
+                        'estado' => 'borrador', 'user_id' => $request->user()?->id,
+                    ]);
                 }
             }
-            ObraEstado::updateOrCreate(
-                ['codigo_proyecto' => $cod],
-                ['estado' => $est, 'user_id' => $request->user()?->id]
-            );
-        }
 
-        // IMPORTANTE: la cuenta 61 y la estructura que se copian a AplicacionCosto quedan
-        // CONGELADAS. Deben ser las del período que se está distribuyendo, no las de hoy.
-        $periodo = Homologacion::periodo($anio, $mes);
-        $homol   = Homologacion::mapaEn($periodo);
-
-        AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
-
-        foreach ($aplicar as $cod => $cuentas) {
-            foreach ($cuentas as $c14 => $monto) {
-                $monto = (float) $monto;
-                if ($monto <= 0) continue;
-                $h = $homol[(string) $c14] ?? null;
-                AplicacionCosto::create([
-                    'distribucion_id' => $distribucion->id,
-                    'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                    'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
-                    'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
-                    'monto_aplicar' => $monto, 'es_provision' => false,
-                    'estado' => 'borrador', 'user_id' => $request->user()?->id,
-                ]);
+            foreach ($provision as $cod => $items) {
+                foreach ($items as $p) {
+                    $monto = (float) ($p['monto'] ?? 0);
+                    $c14   = $p['cuenta'] ?? null;
+                    if ($monto <= 0 || !$c14) continue;
+                    $h = $homol[(string) $c14] ?? null;
+                    AplicacionCosto::create([
+                        'distribucion_id' => $distribucion->id,
+                        'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
+                        'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
+                        'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
+                        'monto_aplicar' => $monto, 'es_provision' => true,
+                        'descripcion' => $p['desc'] ?? null,
+                        'estado' => 'borrador', 'user_id' => $request->user()?->id,
+                    ]);
+                }
             }
-        }
 
-        foreach ($provision as $cod => $items) {
-            foreach ($items as $p) {
-                $monto = (float) ($p['monto'] ?? 0);
-                $c14   = $p['cuenta'] ?? null;
-                if ($monto <= 0 || !$c14) continue;
-                $h = $homol[(string) $c14] ?? null;
-                AplicacionCosto::create([
-                    'distribucion_id' => $distribucion->id,
-                    'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                    'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
-                    'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
-                    'monto_aplicar' => $monto, 'es_provision' => true,
-                    'descripcion' => $p['desc'] ?? null,
-                    'estado' => 'borrador', 'user_id' => $request->user()?->id,
-                ]);
+            // Guardar observaciones del coordinador (por obra, mes y año)
+            $observacionesInput = $request->input('observacion', []);
+            foreach ($observacionesInput as $cod => $texto) {
+                $texto = trim((string) $texto);
+                ObservacionObra::updateOrCreate(
+                    ['codigo_proyecto' => $cod, 'mes' => $mes, 'anio' => $anio],
+                    ['observacion' => $texto !== '' ? $texto : null, 'user_id' => $request->user()?->id]
+                );
             }
-        }
 
-        // Guardar observaciones del coordinador (por obra, mes y año)
-        $observacionesInput = $request->input('observacion', []);
-        foreach ($observacionesInput as $cod => $texto) {
-            $texto = trim((string) $texto);
-            ObservacionObra::updateOrCreate(
-                ['codigo_proyecto' => $cod, 'mes' => $mes, 'anio' => $anio],
-                ['observacion' => $texto !== '' ? $texto : null, 'user_id' => $request->user()?->id]
-            );
-        }
+            if ($accion === 'enviar') {
+                $distribucion->estado = 'enviado';
+                $distribucion->edicion_habilitada = false;
+                $distribucion->enviado_at = now();
+                $distribucion->enviado_por = $request->user()?->id;
+                $msg = 'Borrador enviado a contabilidad. Queda en solo lectura.';
+            } else {
+                $msg = 'Borrador guardado.';
+            }
+            $distribucion->save();
 
-        if ($accion === 'enviar') {
-            $distribucion->estado = 'enviado';
-            $distribucion->edicion_habilitada = false;
-            $distribucion->enviado_at = now();
-            $distribucion->enviado_por = $request->user()?->id;
-            $msg = 'Borrador enviado a contabilidad. Queda en solo lectura.';
-        } else {
-            $msg = 'Borrador guardado.';
-        }
-        $distribucion->save();
-
-        // Registrar la versión en la bitácora (foto congelada de este momento)
-        $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
-        $this->registrarVersion($distribucion, $evento, $request);
+            // Registrar la versión en la bitácora (foto congelada de este momento)
+            $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
+            $this->registrarVersion($distribucion, $evento, $request);
+        });
 
         if (!empty($noCerradas)) {
             $msg .= ' Nota: ' . implode(', ', $noCerradas) . ' no se pudieron cerrar (saldo abierto en cuenta 14); quedaron en parcial.';

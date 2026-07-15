@@ -302,6 +302,9 @@ class PlanoContableController extends Controller
 
     public function habilitar(Distribucion $distribucion)
     {
+        abort_unless(auth()->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $distribucion->edicion_habilitada = !$distribucion->edicion_habilitada;
         $distribucion->save();
 

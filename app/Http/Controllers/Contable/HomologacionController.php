@@ -130,6 +130,9 @@ class HomologacionController extends Controller
 
     public function guardar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $data = $request->validate(
             [
                 'cuenta_14'  => ['required', 'string', 'max:255', 'regex:/^14\d+$/'],
@@ -177,6 +180,9 @@ class HomologacionController extends Controller
      */
     public function actualizar(Request $request, Homologacion $homologacion)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $data = $request->validate(
             [
                 'cuenta_61'                => ['required', 'string', 'max:255', 'regex:/^6\d+$/'],
@@ -275,6 +281,9 @@ class HomologacionController extends Controller
      */
     public function eliminar(Homologacion $homologacion)
     {
+        abort_unless(auth()->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $cuenta = $homologacion->cuenta_14;
 
         $n = Homologacion::sinFiltro()->where('cuenta_14', $cuenta)->count();
@@ -288,6 +297,9 @@ class HomologacionController extends Controller
 
     public function importar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $request->validate([
             'archivo'      => 'required|file|mimes:xlsx,xls|max:51200',
             'vigente_mes'  => 'required|integer|between:1,12',

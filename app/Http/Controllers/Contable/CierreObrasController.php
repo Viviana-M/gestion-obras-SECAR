@@ -23,6 +23,9 @@ class CierreObrasController extends Controller
 
     public function cargarExcel(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,xls,csv|max:10240',
         ]);
@@ -38,7 +41,7 @@ class CierreObrasController extends Controller
             if (empty($codigo)) continue;
 
             $nombre     = trim($fila[1] ?? '');
-            $fechaCierre = !empty($fila[2]) ? $fila[2] : now()->toDateString();
+            $fechaCierre = $this->normalizarFecha($fila[2] ?? null);
             $tipoCierre = trim($fila[3] ?? 'total');
             $observacion = trim($fila[4] ?? '');
 
@@ -72,6 +75,9 @@ class CierreObrasController extends Controller
 
     public function cerrarManual(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $request->validate([
             'codigo_proyecto' => 'required|string',
             'fecha_cierre'    => 'required|date',
@@ -98,7 +104,46 @@ class CierreObrasController extends Controller
 
     public function destroy($id)
     {
+        abort_unless(auth()->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         ProyectoCerrado::findOrFail($id)->delete();
         return back()->with('success', 'Registro eliminado correctamente.');
+    }
+
+    /**
+     * Normaliza la fecha de cierre que llega desde el Excel. La celda puede venir
+     * como serial de Excel (numérico), como texto d/m/Y, o como fecha ISO. Sin
+     * esta normalización, el cast 'date' del modelo interpretaba el serial como
+     * timestamp UNIX (1970) o parseaba d/m/Y como m/d (mes inválido).
+     */
+    private function normalizarFecha($valor): string
+    {
+        if ($valor === null || trim((string) $valor) === '') {
+            return now()->toDateString();
+        }
+
+        // Serial de fecha de Excel (número de días desde 1900).
+        if (is_numeric($valor)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $valor)
+                    ->format('Y-m-d');
+            } catch (\Throwable $e) {
+                return now()->toDateString();
+            }
+        }
+
+        $texto = trim((string) $valor);
+        foreach (['d/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d', 'd/m/y'] as $formato) {
+            $fecha  = \DateTime::createFromFormat($formato, $texto);
+            $errores = \DateTime::getLastErrors();
+            $sinErrores = $errores === false
+                || (empty($errores['warning_count']) && empty($errores['error_count']));
+            if ($fecha !== false && $sinErrores) {
+                return $fecha->format('Y-m-d');
+            }
+        }
+
+        return now()->toDateString();
     }
 }

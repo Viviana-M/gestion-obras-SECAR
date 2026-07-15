@@ -21,77 +21,92 @@ Route::get('/dashboard', [\App\Http\Controllers\DashboardInicioController::class
 
 Route::middleware(['auth', UsuarioActivo::class])->group(function () {
 
-    // Perfil
+    // Perfil (cualquier usuario autenticado)
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // Homologaciones (plan de cuentas 14 ↔ 61)
-    Route::get('/contable/homologaciones', [HomologacionController::class, 'index'])->name('contable.homologaciones.index');
-    Route::post('/contable/homologaciones/importar', [HomologacionController::class, 'importar'])->name('contable.homologaciones.importar');
-    Route::post('/contable/homologaciones/manual', [HomologacionController::class, 'guardar'])->name('contable.homologaciones.guardar');
-    Route::put('/contable/homologaciones/{homologacion}', [HomologacionController::class, 'actualizar'])->name('contable.homologaciones.actualizar');
-    Route::delete('/contable/homologaciones/{homologacion}', [HomologacionController::class, 'eliminar'])->name('contable.homologaciones.eliminar');
+    // Preferencias de la interfaz (cualquier usuario autenticado)
+    Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 
-    // Financiero
-    Route::get('/financiero/dashboard', [\App\Http\Controllers\Financiero\DashboardController::class, 'index'])->name('financiero.dashboard');
-    Route::get('/financiero/detalle', [\App\Http\Controllers\Financiero\DashboardController::class, 'detalle'])->name('financiero.detalle');
-    Route::get('/financiero/detalle-cuenta', [\App\Http\Controllers\Financiero\DashboardController::class, 'detalleCuenta'])->name('financiero.detalle.cuenta');
-    Route::get('/financiero/historicos', [\App\Http\Controllers\Financiero\HistoricosController::class, 'index'])->name('financiero.historicos');
-    Route::get('/financiero/historicos/detalle', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalle'])->name('financiero.historicos.detalle');
-    Route::get('/financiero/historicos/detalle-cuenta', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalleCuenta'])->name('financiero.historicos.detalle.cuenta');
-    Route::get('/financiero/estados-financieros', [\App\Http\Controllers\Financiero\EstadosFinancierosController::class, 'index'])->name('financiero.estados');
-    Route::get('/financiero/comparativo', [\App\Http\Controllers\Financiero\DashboardController::class, 'comparativo'])->name('financiero.comparativo');
+    // ══════════════════════ CONTABILIDAD ══════════════════════
+    Route::middleware('modulo:contabilidad')->group(function () {
 
-    // Contable - cargas y cierres
-    Route::get('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'index'])->name('contable.carga');
-    Route::post('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'store'])->name('contable.carga.store');
-    Route::delete('/contable/carga/{id}', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'destroy'])->name('contable.carga.eliminar');
-    Route::get('/contable/cierre-obras', [\App\Http\Controllers\Contable\CierreObrasController::class, 'index'])->name('contable.cierre-obras');
-    Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
-    Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
-    Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
-    Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano.reversion');
+        // Homologaciones (plan de cuentas 14 ↔ 61)
+        Route::get('/contable/homologaciones', [HomologacionController::class, 'index'])->name('contable.homologaciones.index');
+        Route::post('/contable/homologaciones/importar', [HomologacionController::class, 'importar'])->name('contable.homologaciones.importar');
+        Route::post('/contable/homologaciones/manual', [HomologacionController::class, 'guardar'])->name('contable.homologaciones.guardar');
+        Route::put('/contable/homologaciones/{homologacion}', [HomologacionController::class, 'actualizar'])->name('contable.homologaciones.actualizar');
+        Route::delete('/contable/homologaciones/{homologacion}', [HomologacionController::class, 'eliminar'])->name('contable.homologaciones.eliminar');
 
-    // Contable - Plano contable (distribución 14 → 61)
-    Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');
-    Route::get('/contable/plano-contable/{distribucion}/descargar', [PlanoContableController::class, 'exportarPlano'])->name('contable.plano-contable.descargar');
-    Route::post('/contable/plano-contable/{distribucion}/habilitar', [PlanoContableController::class, 'habilitar'])->name('contable.plano-contable.habilitar');
-    Route::get   ('/contable/reclasificaciones',                    [PlanoReclasificacionController::class, 'index'])    ->name('contable.reclasificaciones.index');
-    Route::get   ('/contable/reclasificaciones/{homologacion}',     [PlanoReclasificacionController::class, 'detalle'])  ->name('contable.reclasificaciones.detalle');
-    Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
-    Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
-    // Operativo - Forecast (respaldo)
-    Route::get('/operativo/forecast', [\App\Http\Controllers\Operativo\ForecastController::class, 'index'])->name('operativo.forecast');
-    Route::post('/operativo/forecast/guardar', [\App\Http\Controllers\Operativo\ForecastController::class, 'guardar'])->name('operativo.forecast.guardar');
-    Route::post('/operativo/forecast/enviar', [\App\Http\Controllers\Operativo\ForecastController::class, 'enviar'])->name('operativo.forecast.enviar');
-    Route::get('/operativo/dashboard', function () {
-        return view('operativo.dashboard');
+        // Cargas y cierres
+        Route::get('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'index'])->name('contable.carga');
+        Route::post('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'store'])->name('contable.carga.store');
+        Route::delete('/contable/carga/{id}', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'destroy'])->name('contable.carga.eliminar');
+        Route::get('/contable/cierre-obras', [\App\Http\Controllers\Contable\CierreObrasController::class, 'index'])->name('contable.cierre-obras');
+        Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
+        Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
+        Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
+        Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano.reversion');
+
+        // Plano contable (distribución 14 → 61)
+        Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');
+        Route::get('/contable/plano-contable/{distribucion}/descargar', [PlanoContableController::class, 'exportarPlano'])->name('contable.plano-contable.descargar');
+        Route::post('/contable/plano-contable/{distribucion}/habilitar', [PlanoContableController::class, 'habilitar'])->name('contable.plano-contable.habilitar');
+        Route::get   ('/contable/reclasificaciones',                    [PlanoReclasificacionController::class, 'index'])    ->name('contable.reclasificaciones.index');
+        Route::get   ('/contable/reclasificaciones/{homologacion}',     [PlanoReclasificacionController::class, 'detalle'])  ->name('contable.reclasificaciones.detalle');
+        Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
+        Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
     });
 
-    // Operativo - Distribución de costos
-    Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
-    Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
-    Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
-    Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
-    Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
-    Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
-    Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');
-    Route::get('/operativo/distribucion-areas', [\App\Http\Controllers\Operativo\DistribucionAreasController::class, 'index'])->name('operativo.distribucion-areas');
-    
-    // Maestro de proyectos (carga comercial)
-    Route::get('/operativo/maestro-comercial', [MaestroComercialController::class, 'index'])->name('operativo.maestro.index');
-    Route::post('/operativo/maestro-comercial/importar', [MaestroComercialController::class, 'importar'])->name('operativo.maestro.importar');
-    Route::post('/operativo/maestro-comercial/manual', [MaestroComercialController::class, 'guardar'])->name('operativo.maestro.guardar');
-    Route::put('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'actualizar'])->name('operativo.maestro.actualizar');
-    Route::delete('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'eliminar'])->name('operativo.maestro.eliminar');
-
-    // Comercial
-    Route::get('/comercial/cotizaciones', function () {
-        return view('comercial.cotizaciones');
+    // ══════════════════════ FINANCIERO ══════════════════════
+    Route::middleware('modulo:gestion_financiera')->group(function () {
+        Route::get('/financiero/dashboard', [\App\Http\Controllers\Financiero\DashboardController::class, 'index'])->name('financiero.dashboard');
+        Route::get('/financiero/detalle', [\App\Http\Controllers\Financiero\DashboardController::class, 'detalle'])->name('financiero.detalle');
+        Route::get('/financiero/detalle-cuenta', [\App\Http\Controllers\Financiero\DashboardController::class, 'detalleCuenta'])->name('financiero.detalle.cuenta');
+        Route::get('/financiero/historicos', [\App\Http\Controllers\Financiero\HistoricosController::class, 'index'])->name('financiero.historicos');
+        Route::get('/financiero/historicos/detalle', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalle'])->name('financiero.historicos.detalle');
+        Route::get('/financiero/historicos/detalle-cuenta', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalleCuenta'])->name('financiero.historicos.detalle.cuenta');
+        Route::get('/financiero/estados-financieros', [\App\Http\Controllers\Financiero\EstadosFinancierosController::class, 'index'])->name('financiero.estados');
+        Route::get('/financiero/comparativo', [\App\Http\Controllers\Financiero\DashboardController::class, 'comparativo'])->name('financiero.comparativo');
     });
 
-    // Administración de usuarios (solo admin, protegido dentro del controlador)
+    // ══════════════════════ OPERATIVO ══════════════════════
+    Route::middleware('modulo:operacion')->group(function () {
+        // Forecast (respaldo)
+        Route::get('/operativo/forecast', [\App\Http\Controllers\Operativo\ForecastController::class, 'index'])->name('operativo.forecast');
+        Route::post('/operativo/forecast/guardar', [\App\Http\Controllers\Operativo\ForecastController::class, 'guardar'])->name('operativo.forecast.guardar');
+        Route::post('/operativo/forecast/enviar', [\App\Http\Controllers\Operativo\ForecastController::class, 'enviar'])->name('operativo.forecast.enviar');
+        Route::get('/operativo/dashboard', function () {
+            return view('operativo.dashboard');
+        });
+
+        // Distribución de costos
+        Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
+        Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
+        Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
+        Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
+        Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
+        Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
+        Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');
+        Route::get('/operativo/distribucion-areas', [\App\Http\Controllers\Operativo\DistribucionAreasController::class, 'index'])->name('operativo.distribucion-areas');
+
+        // Maestro de proyectos (carga comercial)
+        Route::get('/operativo/maestro-comercial', [MaestroComercialController::class, 'index'])->name('operativo.maestro.index');
+        Route::post('/operativo/maestro-comercial/importar', [MaestroComercialController::class, 'importar'])->name('operativo.maestro.importar');
+        Route::post('/operativo/maestro-comercial/manual', [MaestroComercialController::class, 'guardar'])->name('operativo.maestro.guardar');
+        Route::put('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'actualizar'])->name('operativo.maestro.actualizar');
+        Route::delete('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'eliminar'])->name('operativo.maestro.eliminar');
+    });
+
+    // ══════════════════════ COMERCIAL ══════════════════════
+    Route::middleware('modulo:comercial')->group(function () {
+        Route::get('/comercial/cotizaciones', function () {
+            return view('comercial.cotizaciones');
+        });
+    });
+
+    // ══════════════════════ ADMINISTRACIÓN (solo admin, verificado en el controlador) ══════════════════════
     Route::get('/admin/usuarios', [UsuarioController::class, 'index'])->name('admin.usuarios.index');
     Route::get('/admin/usuarios/crear', [UsuarioController::class, 'create'])->name('admin.usuarios.create');
     Route::post('/admin/usuarios', [UsuarioController::class, 'store'])->name('admin.usuarios.store');
@@ -106,8 +121,5 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('admin.terceros-mano-obra.store');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('admin.terceros-mano-obra.update');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('admin.terceros-mano-obra.toggle');
-
-    // Preferencias
-    Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 });
 require __DIR__.'/auth.php';
