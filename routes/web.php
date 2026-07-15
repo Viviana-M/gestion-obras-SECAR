@@ -138,5 +138,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('admin.terceros-mano-obra.store');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('admin.terceros-mano-obra.update');
     Route::put('/admin/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('admin.terceros-mano-obra.toggle');
+    Route::get('/admin/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'index'])->name('admin.mano-obra-directa.index');
+    Route::post('/admin/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'store'])->name('admin.mano-obra-directa.store');
+    Route::put('/admin/mano-obra-directa/{manoObraDirecta}', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'update'])->name('admin.mano-obra-directa.update');
+    Route::put('/admin/mano-obra-directa/{manoObraDirecta}/toggle', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'toggle'])->name('admin.mano-obra-directa.toggle');
 });
 require __DIR__.'/auth.php';

@@ -190,6 +190,7 @@
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
                 <a href="{{ route('admin.terceros-mano-obra.index') }}">Terceros mano de obra</a>
+                <a href="{{ route('admin.mano-obra-directa.index') }}" class="{{ request()->is('admin/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación cuentas</a>
                 <a href="/contable/reclasificaciones" class="{{ request()->is('contable/reclasificaciones*') ? 'active' : '' }}">
                     Reclasificaciones
