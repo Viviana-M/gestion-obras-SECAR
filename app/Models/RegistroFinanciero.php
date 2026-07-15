@@ -11,6 +11,8 @@ protected $fillable = [
     'nombre_proyecto',
     'cuenta_contable',
     'descripcion',
+    'tercero_dcto',      // ← agregar
+    'razon_social',      // ← agregar
     'valor_debito',
     'valor_credito',
     'movto_libro2',

@@ -2,22 +2,34 @@
 
 namespace App\Jobs\Financiero;
 
-use App\Imports\Financiero\RegistroFinancieroImport;
+use App\Imports\Financiero\MovimientoBiableImport;
 use App\Models\CargaFinanciera;
 use App\Models\RegistroFinanciero;
+use App\Models\SaldoBalance;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Models\SaldoBalance;
-use App\Imports\Financiero\BalanceImport;
+
+/**
+ * Procesa un archivo de BIABLE.
+ *
+ * ANTES: leía el Excel DOS VECES (RegistroFinancieroImport + BalanceImport), cada una
+ * recorriendo todas las filas del archivo para descartar la mayoría. Con WithChunkReading,
+ * PhpSpreadsheet reabre y reparsea el archivo en CADA chunk, así que dos pasadas con
+ * chunks de 500 sobre ~20.000 filas útiles significaban ~80 aperturas del Excel.
+ *
+ * AHORA: una sola pasada (MovimientoBiableImport) que reparte cada fila a la tabla que
+ * corresponda, con inserts crudos por lotes y chunks de 2000.
+ */
 class ProcesarArchivoFinanciero implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 1200;
+    public $timeout = 3600;
     public $tries   = 1;
 
     protected $rutaArchivo;
@@ -35,25 +47,31 @@ class ProcesarArchivoFinanciero implements ShouldQueue
 
     public function handle(): void
     {
+        // El log de queries se come la memoria en importaciones largas.
+        DB::connection()->disableQueryLog();
+
+        $archivo = storage_path('app/' . $this->rutaArchivo);
+
+        if (!is_file($archivo)) {
+            throw new \RuntimeException("No encuentro el archivo: {$archivo}");
+        }
+
+        // Reprocesar REEMPLAZA el período: se borra y se vuelve a insertar.
         RegistroFinanciero::where('mes', $this->mes)
             ->where('anio', $this->anio)
             ->delete();
 
-      Excel::import(
-    new RegistroFinancieroImport($this->mes, $this->anio),
-    storage_path('app/' . $this->rutaArchivo)
-);
-// Segunda pasada: cuentas de balance (clases 1, 2, 3) a su tabla aparte
         SaldoBalance::where('mes', $this->mes)
             ->where('anio', $this->anio)
             ->delete();
 
-        Excel::import(
-            new BalanceImport($this->mes, $this->anio),
-            storage_path('app/' . $this->rutaArchivo)
-        );
+        // UNA sola lectura del Excel: el importador reparte cada fila a su tabla.
+        $import = new MovimientoBiableImport($this->mes, $this->anio);
+        Excel::import($import, $archivo);
+
         CargaFinanciera::where('id', $this->cargaId)->update([
             'estado'    => 'completado',
+            'error'     => null,
             'registros' => RegistroFinanciero::where('mes', $this->mes)
                             ->where('anio', $this->anio)->count(),
         ]);

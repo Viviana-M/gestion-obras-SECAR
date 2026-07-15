@@ -9,6 +9,7 @@ use App\Http\Controllers\Contable\PlanoReversionController;
 use App\Http\Controllers\Contable\PlanoContableController;
 use App\Http\Controllers\Admin\UsuarioController;
 use App\Http\Middleware\UsuarioActivo;
+use App\Http\Controllers\Contable\PlanoReclasificacionController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -56,7 +57,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');
     Route::get('/contable/plano-contable/{distribucion}/descargar', [PlanoContableController::class, 'exportarPlano'])->name('contable.plano-contable.descargar');
     Route::post('/contable/plano-contable/{distribucion}/habilitar', [PlanoContableController::class, 'habilitar'])->name('contable.plano-contable.habilitar');
-
+    Route::get   ('/contable/reclasificaciones',                    [PlanoReclasificacionController::class, 'index'])    ->name('contable.reclasificaciones.index');
+    Route::get   ('/contable/reclasificaciones/{homologacion}',     [PlanoReclasificacionController::class, 'detalle'])  ->name('contable.reclasificaciones.detalle');
+    Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
+    Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
     // Operativo - Forecast (respaldo)
     Route::get('/operativo/forecast', [\App\Http\Controllers\Operativo\ForecastController::class, 'index'])->name('operativo.forecast');
     Route::post('/operativo/forecast/guardar', [\App\Http\Controllers\Operativo\ForecastController::class, 'guardar'])->name('operativo.forecast.guardar');

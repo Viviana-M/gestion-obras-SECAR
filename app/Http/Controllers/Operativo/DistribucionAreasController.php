@@ -28,6 +28,9 @@ class DistribucionAreasController extends Controller
         $mes  = (int) $request->get('mes', date('n'));
         $anio = (int) $request->get('anio', date('Y'));
 
+        // Período contable en formato AAAAMM: define QUÉ VERSIÓN de la homologación aplica.
+        $periodo = Homologacion::periodo($anio, $mes);
+
         // Departamento del usuario (mismo criterio que en distribución normal)
         $usuario     = $request->user();
         $depUsuario  = $usuario?->departamentoUnico();
@@ -45,7 +48,7 @@ class DistribucionAreasController extends Controller
         $bolsaSel = $request->get('bolsa');
         $saldoBolsa = [];
         if ($bolsaSel) {
-            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel);
+            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel, $periodo);
         }
 
         // OT del departamento (proyectos reales, excluyendo las bolsas)
@@ -64,14 +67,16 @@ class DistribucionAreasController extends Controller
         ]);
     }
 
-    // Saldo de una bolsa desglosado por cuenta 14 (con su cuenta 61 destino)
     // Saldo de una bolsa desglosado por cuenta 14 (con su cuenta 61 destino).
     // En las bolsas de área: saldo POSITIVO = hay costo por repartir.
     // Saldo NEGATIVO = se reversó de más -> alerta.
-    private function saldoBolsaPorCuenta(string $bolsa): array
+    //
+    // La cuenta 61 destino y la estructura se toman de la homologación VIGENTE EN EL
+    // PERÍODO que se está distribuyendo, no de la de hoy. Así, si contabilidad cambió
+    // una cuenta, un período anterior sigue mostrando la cuenta que le correspondía.
+    private function saldoBolsaPorCuenta(string $bolsa, int $periodo): array
     {
-        $homol = Homologacion::get(['cuenta_14', 'cuenta_61', 'nombre', 'estructura'])
-            ->keyBy(fn($h) => (string) $h->cuenta_14);
+        $homol = Homologacion::mapaEn($periodo);
 
         $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('codigo_proyecto', $bolsa)
@@ -100,6 +105,7 @@ class DistribucionAreasController extends Controller
         }
         return $lineas;
     }
+
     // Proyectos reales del departamento, con sus márgenes (reutiliza la lógica de distribución)
     private function proyectosDelDepto(string $departamento, int $mes, int $anio): array
     {
@@ -135,7 +141,7 @@ class DistribucionAreasController extends Controller
             ->selectRaw('codigo_proyecto, MAX(nombre_proyecto) as nombre')
             ->groupBy('codigo_proyecto')->pluck('nombre', 'codigo_proyecto');
 
-        $cerradas    = ProyectoCerrado::pluck('codigo_proyecto')->flip();
+        $cerradas     = ProyectoCerrado::pluck('codigo_proyecto')->flip();
         $estadoManual = ObraEstado::pluck('estado', 'codigo_proyecto');
 
         $proyectos = [];
@@ -168,7 +174,7 @@ class DistribucionAreasController extends Controller
             $proyectos[$cod] = $o;
         }
 
-        // Ordenar por semáforo (los en riesgo primero) y luego por nombre
+        // Ordenar por semáforo (los en riesgo primero) y luego por código
         uasort($proyectos, fn($a, $b) => ($a['orden_sem'] <=> $b['orden_sem']) ?: strcmp($a['codigo'], $b['codigo']));
 
         return $proyectos;

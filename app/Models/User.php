@@ -14,6 +14,9 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
+    /** Departamentos: no son modulos con nivel, son filtros de obra (pertenece/no). */
+    public const DEPARTAMENTOS = ['dep_mantenimiento', 'dep_instalaciones'];
+
     protected $fillable = [
         'name',
         'email',
@@ -22,6 +25,7 @@ class User extends Authenticatable
         'sede',
         'menu_colapsado',
         'modulos_permitidos',
+        'permisos_modulos',
         'activo',
     ];
 
@@ -32,6 +36,7 @@ class User extends Authenticatable
             'password'           => 'hashed',
             'menu_colapsado'     => 'boolean',
             'modulos_permitidos' => 'array',
+            'permisos_modulos'   => 'array',
             'activo'             => 'boolean',
         ];
     }
@@ -41,13 +46,11 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    // ¿Es administrador?
     public function esAdmin(): bool
     {
         return $this->rol === 'admin';
     }
 
-    // Acceso heredado del rol antiguo (compatibilidad con usuarios existentes).
     public function modulosLegado(): array
     {
         return [
@@ -58,30 +61,59 @@ class User extends Authenticatable
         ][$this->rol] ?? [];
     }
 
-    // ¿Puede ver este módulo?
-    // Admin ve TODO. Si tiene checks guardados, mandan los checks.
-    // Si no tiene checks (usuario antiguo), conserva su acceso por rol.
+    /**
+     * Mapa efectivo de permisos: modulo => 'ver'|'editar'.
+     * Prioridad: permisos_modulos (nuevo) -> modulos_permitidos (viejo) -> rol. Los dos
+     * ultimos se reconstruyen como 'editar' para no quitarle acceso a usuarios existentes.
+     */
+    public function mapaPermisos(): array
+    {
+        $mapa = $this->permisos_modulos ?? [];
+        if (!empty($mapa)) {
+            return $mapa;
+        }
+
+        $viejos = $this->modulos_permitidos ?? [];
+        if (empty($viejos)) {
+            $viejos = $this->modulosLegado();
+        }
+
+        $recon = [];
+        foreach ($viejos as $m) {
+            $recon[$m] = in_array($m, self::DEPARTAMENTOS, true) ? 'ver' : 'editar';
+        }
+        return $recon;
+    }
+
+    // ¿Puede VER este módulo? (ver o editar cuentan como ver)
     public function puedeVerModulo(string $clave): bool
     {
         if ($this->esAdmin()) {
             return true;
         }
-
-        $permitidos = $this->modulos_permitidos ?? [];
-
-        if (empty($permitidos)) {
-            $permitidos = $this->modulosLegado();
-        }
-
-        return in_array($clave, $permitidos);
+        return isset($this->mapaPermisos()[$clave]);
     }
 
-    // Departamentos que el usuario puede ver (para Distribución de costos).
-    // Admin ve ambos. Los demás, según sus módulos marcados.
-    // Devuelve las claves de prefijos que le corresponden.
+    // ¿Puede EDITAR este módulo? Admin siempre; el resto solo si su nivel es 'editar'.
+    public function puedeEditarModulo(string $clave): bool
+    {
+        if ($this->esAdmin()) {
+            return true;
+        }
+        return ($this->mapaPermisos()[$clave] ?? null) === 'editar';
+    }
+
+    // Nivel de un modulo: 'editar' | 'ver' | null (sin acceso). Admin -> 'editar'.
+    public function nivelModulo(string $clave): ?string
+    {
+        if ($this->esAdmin()) {
+            return 'editar';
+        }
+        return $this->mapaPermisos()[$clave] ?? null;
+    }
+
     public function departamentosPermitidos(): array
     {
-        // Mapa: cada departamento y los prefijos de obra que le pertenecen.
         $mapa = [
             'dep_mantenimiento' => ['C', 'R', 'MO', 'GM'],
             'dep_instalaciones' => ['GI', 'O'],
@@ -96,22 +128,18 @@ class User extends Authenticatable
         return $prefijos;
     }
 
-    // Devuelve el código de departamento del usuario si tiene UNO solo.
-    // Supervisor de mantenimiento -> 'mantenimiento'; de instalaciones -> 'instalaciones'.
-    // Si tiene ambos (director) o es admin -> null (debe elegir en pantalla).
     public function departamentoUnico(): ?string
     {
         $mant = $this->puedeVerModulo('dep_mantenimiento');
         $inst = $this->puedeVerModulo('dep_instalaciones');
 
-        if ($this->esAdmin()) return null;      // admin elige
-        if ($mant && $inst)   return null;       // director elige
+        if ($this->esAdmin()) return null;
+        if ($mant && $inst)   return null;
         if ($mant)            return 'mantenimiento';
         if ($inst)            return 'instalaciones';
         return null;
     }
 
-    // Prefijos de obra de un departamento dado.
     public static function prefijosDeDepartamento(string $dep): array
     {
         return [
@@ -119,17 +147,13 @@ class User extends Authenticatable
             'instalaciones' => ['GI', 'O'],
         ][$dep] ?? [];
     }
-    // ¿Puede ver ALGÚN departamento? (para saber si filtrar o no)
+
     public function tieneFiltroDepartamento(): bool
     {
-        if ($this->esAdmin()) return false; // admin ve todo, sin filtro
-        // Si no tiene marcado ningún departamento, no filtramos por ahora
-        // (para no bloquear usuarios existentes). Filtra solo si marcó al menos uno.
+        if ($this->esAdmin()) return false;
         return $this->puedeVerModulo('dep_mantenimiento') || $this->puedeVerModulo('dep_instalaciones');
     }
 
-    // Envía el correo de restablecimiento con el diseño de Secar
-    // (en lugar del correo genérico de Laravel).
     public function sendPasswordResetNotification($token): void
     {
         $url = route('password.reset', [

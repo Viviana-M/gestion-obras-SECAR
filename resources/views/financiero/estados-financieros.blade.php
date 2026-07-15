@@ -23,19 +23,15 @@
     .er-valor { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 13px; color: #374151; }
     .er-valor.neg { color: #DC2626; }
 
-    /* Sección (clase, 1 dígito) */
     .er-sec { background: #F9FAFB; border-top: 2px solid #E8EAED; }
     .er-sec .er-label, .er-sec .er-valor { color: #1B3F6E; font-weight: 700; }
     .er-sec .er-code { color: #1B3F6E; font-weight: 700; }
 
-    /* Grupo (2 dígitos) un poco más fuerte */
     .er-g2 .er-label, .er-g2 .er-valor { font-weight: 600; color: #374151; }
 
-    /* Hoja (auxiliar, 8 dígitos) más tenue */
     .er-leaf .er-label { color: #6B7280; }
     .er-leaf .er-valor { color: #6B7280; }
 
-    /* Subtotales */
     .er-subtotal { display: flex; align-items: baseline; padding: 9px 14px; background: #EFF6FF; }
     .er-subtotal .er-label { color: #1B3F6E; font-weight: 700; font-size: 13px; white-space: nowrap; }
     .er-subtotal .er-dots { flex: 1 1 auto; border-bottom: 1px dotted #BBD3F0; margin: 0 10px; transform: translateY(-4px); }
@@ -44,7 +40,32 @@
     .er-final .er-label { color: #fff; font-weight: 700; font-size: 13.5px; white-space: nowrap; }
     .er-final .er-dots { flex: 1 1 auto; border-bottom: 1px dotted #5C7BA3; margin: 0 10px; transform: translateY(-4px); }
     .er-final .er-valor { color: #fff; font-weight: 700; font-size: 14.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* Comparativo con el anio anterior */
+    .cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .cmp th { text-align: right; padding: 7px 10px; font-size: 10.5px; color: #6B7280; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #E5E7EB; }
+    .cmp th:first-child { text-align: left; }
+    .cmp td { padding: 7px 10px; text-align: right; font-variant-numeric: tabular-nums; border-bottom: 1px solid #F4F5F7; }
+    .cmp td:first-child { text-align: left; color: #374151; }
+    .cmp tr:last-child td { border-bottom: none; font-weight: 700; color: #1B3F6E; }
+    .var-up   { color: #15803D; font-weight: 600; }
+    .var-down { color: #DC2626; font-weight: 600; }
+    .var-na   { color: #C0C5CC; }
 </style>
+
+@php
+    $nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    $mesNombre  = $nombresMes[$mes - 1] ?? '';
+    $money = fn($n) => '$'.number_format($n, 0, ',', '.');
+
+    // Un aumento de ingresos o utilidad es bueno; uno de costos o gastos, no.
+    $pinta = function (?float $v, bool $subirEsBueno = true) {
+        if ($v === null) return ['—', 'var-na'];
+        $txt   = ($v > 0 ? '+' : '') . number_format($v, 1, ',', '.') . '%';
+        $bueno = $subirEsBueno ? ($v >= 0) : ($v <= 0);
+        return [$txt, $bueno ? 'var-up' : 'var-down'];
+    };
+@endphp
 
 <h1 class="page-title">Estados financieros</h1>
 
@@ -62,7 +83,7 @@
         <div>
             <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Hasta mes</label>
             <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-                @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
+                @foreach($nombresMes as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
@@ -78,25 +99,77 @@
     </form>
 </div>
 
+{{-- QUÉ PERÍODO SE ESTÁ VIENDO --}}
+<div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:9px 14px;margin-bottom:1rem;font-size:12.5px;color:#4338CA">
+    @if($modo === 'acumulado')
+        Acumulado de <b>enero a {{ mb_strtolower($mesNombre) }} de {{ $anio }}</b>.
+        El estado de resultados no acumula entre años: las cuentas 4, 5 y 6 se reinician cada enero.
+    @else
+        Movimiento de <b>{{ $mesNombre }} de {{ $anio }}</b> únicamente.
+    @endif
+</div>
+
 {{-- RESUMEN --}}
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:1rem">
     <div style="background:#F0FDF4;border-radius:8px;padding:12px 16px">
         <div style="font-size:11px;color:#15803D;margin-bottom:4px">Ingresos</div>
-        <div style="font-size:17px;font-weight:600;color:#15803D">${{ number_format($totIngresos, 0, ',', '.') }}</div>
+        <div style="font-size:17px;font-weight:600;color:#15803D">{{ $money($totIngresos) }}</div>
     </div>
     <div style="background:#FEF2F2;border-radius:8px;padding:12px 16px">
         <div style="font-size:11px;color:#DC2626;margin-bottom:4px">Costos</div>
-        <div style="font-size:17px;font-weight:600;color:#DC2626">${{ number_format($totCostos, 0, ',', '.') }}</div>
+        <div style="font-size:17px;font-weight:600;color:#DC2626">{{ $money($totCostos) }}</div>
     </div>
     <div style="background:#FEF9C3;border-radius:8px;padding:12px 16px">
         <div style="font-size:11px;color:#854D0E;margin-bottom:4px">Gastos</div>
-        <div style="font-size:17px;font-weight:600;color:#854D0E">${{ number_format($totGastos, 0, ',', '.') }}</div>
+        <div style="font-size:17px;font-weight:600;color:#854D0E">{{ $money($totGastos) }}</div>
     </div>
     <div style="background:{{ $utilNeta >= 0 ? '#F0FDF4' : '#FEF2F2' }};border-radius:8px;padding:12px 16px">
         <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Utilidad neta {{ $margenNeto !== null ? '('.$margenNeto.'%)' : '' }}</div>
-        <div style="font-size:17px;font-weight:600;color:{{ $utilNeta >= 0 ? '#15803D' : '#DC2626' }}">${{ number_format($utilNeta, 0, ',', '.') }}</div>
+        <div style="font-size:17px;font-weight:600;color:{{ $utilNeta >= 0 ? '#15803D' : '#DC2626' }}">{{ $money($utilNeta) }}</div>
     </div>
 </div>
+
+{{-- COMPARATIVO CON EL AÑO ANTERIOR --}}
+@if(!empty($comparativo) && $comparativo['hay_datos'])
+<div class="card" style="margin-bottom:1rem">
+    <h3 style="margin-bottom:10px">
+        Comparativo con {{ $comparativo['anio'] }}
+        <span style="font-weight:400;font-size:11.5px;color:#9CA3AF">
+            (mismo corte: {{ $modo === 'acumulado' ? 'enero a '.mb_strtolower($mesNombre) : $mesNombre }})
+        </span>
+    </h3>
+
+    <table class="cmp">
+        <thead>
+            <tr>
+                <th>Concepto</th>
+                <th>{{ $anio }}</th>
+                <th>{{ $comparativo['anio'] }}</th>
+                <th>Variación</th>
+            </tr>
+        </thead>
+        <tbody>
+            @php
+                $filas = [
+                    ['Ingresos',      $totIngresos, $comparativo['ingresos'],   $comparativo['var_ingresos'], true],
+                    ['Costos',        $totCostos,   $comparativo['costos'],     $comparativo['var_costos'],   false],
+                    ['Gastos',        $totGastos,   $comparativo['gastos'],     $comparativo['var_gastos'],   false],
+                    ['Utilidad neta', $utilNeta,    $comparativo['util_neta'],  $comparativo['var_neta'],     true],
+                ];
+            @endphp
+            @foreach($filas as [$label, $act, $ant, $var, $subirEsBueno])
+                @php [$vTxt, $vClase] = $pinta($var, $subirEsBueno); @endphp
+                <tr>
+                    <td>{{ $label }}</td>
+                    <td>{{ $money($act) }}</td>
+                    <td style="color:#9CA3AF">{{ $money($ant) }}</td>
+                    <td class="{{ $vClase }}">{{ $vTxt }}</td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
 
 {{-- ESTADO DE RESULTADOS POR NIVELES --}}
 <div class="card" style="margin-bottom:1rem">
@@ -115,33 +188,28 @@
         </div>
 
         <div id="er-arbol">
-            {{-- INGRESOS --}}
             @foreach($secciones['Ingresos']['nodos'] as $n)
                 @include('financiero.partials.fila-er', ['n' => $n])
             @endforeach
 
-            {{-- COSTOS --}}
             @foreach($secciones['Costos']['nodos'] as $n)
                 @include('financiero.partials.fila-er', ['n' => $n])
             @endforeach
 
-            {{-- UTILIDAD BRUTA --}}
             <div class="er-subtotal">
                 <span class="er-label">= Utilidad bruta {{ $margenBruto !== null ? '('.$margenBruto.'%)' : '' }}</span>
                 <span class="er-dots"></span>
-                <span class="er-valor" style="color:{{ $utilBruta >= 0 ? '#1B3F6E' : '#DC2626' }}">${{ number_format($utilBruta, 0, ',', '.') }}</span>
+                <span class="er-valor" style="color:{{ $utilBruta >= 0 ? '#1B3F6E' : '#DC2626' }}">{{ $money($utilBruta) }}</span>
             </div>
 
-            {{-- GASTOS --}}
             @foreach($secciones['Gastos']['nodos'] as $n)
                 @include('financiero.partials.fila-er', ['n' => $n])
             @endforeach
 
-            {{-- UTILIDAD NETA --}}
             <div class="er-final">
                 <span class="er-label">= Utilidad neta {{ $margenNeto !== null ? '('.$margenNeto.'%)' : '' }}</span>
                 <span class="er-dots"></span>
-                <span class="er-valor">${{ number_format($utilNeta, 0, ',', '.') }}</span>
+                <span class="er-valor">{{ $money($utilNeta) }}</span>
             </div>
         </div>
     </div>

@@ -26,17 +26,20 @@
 
         .module-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 1.25rem; background: transparent; border: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #374151; text-align: left; }
         .module-head:hover { background: #F3F4F6; }
-        .module-ico { width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #6B7280; }
+        .module-ico { width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #6B7280; position: relative; }
         .module-ico svg { width: 20px; height: 20px; }
         .module-name { flex: 1; white-space: nowrap; }
         .chevron { width: 14px; height: 14px; flex-shrink: 0; color: #9CA3AF; transition: transform .2s ease; }
         .module.open .chevron { transform: rotate(90deg); }
 
         .submenu { max-height: 0; overflow: hidden; transition: max-height .2s ease; }
-        .module.open .submenu { max-height: 400px; }
-        .submenu a { display: flex; align-items: center; padding: 8px 1.25rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; white-space: nowrap; }
+        .module.open .submenu { max-height: 500px; }
+        .submenu a { display: flex; align-items: center; gap: 6px; padding: 8px 1.25rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; white-space: nowrap; }
         .submenu a:hover { background: #F3F4F6; color: #1B3F6E; }
         .submenu a.active { background: #D6E4F7; color: #1B3F6E; border-left-color: #1B3F6E; font-weight: 500; }
+
+        .pill { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: #FEF9C3; color: #854D0E; line-height: 1.5; }
+        .dot-alerta { position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: #D97706; border: 1.5px solid #FFFFFF; }
 
         .layout.collapsed .module-head { justify-content: center; padding: 11px 0; }
         .layout.collapsed .module-name,
@@ -55,11 +58,26 @@
 @php
     $usuario   = auth()->user();
     $colapsado = $usuario->menu_colapsado;
+
+    // Las pantallas de Administración que viven bajo /contable/ no deben marcar Contabilidad.
+    $adminEnContable = request()->is('contable/homologaciones')
+                    || request()->is('contable/cierre-obras')
+                    || request()->is('contable/reclasificaciones*');
+
     $finActive = request()->is('dashboard') || request()->is('financiero/*');
     $opActive  = request()->is('operativo/*');
     $comActive = request()->is('comercial/*');
-    $conActive = request()->is('contable/*');
-    $admActive = request()->is('admin/*');
+    $conActive = request()->is('contable/*') && !$adminEnContable;
+    $admActive = request()->is('admin/*') || $adminEnContable;
+
+    // Reclasificaciones pendientes (solo se consulta para admin, que es quien las ve).
+    $reclasPendientes = 0;
+    if ($usuario->esAdmin()) {
+        $reclasPendientes = \App\Models\Homologacion::sinFiltro()
+            ->where('requiere_reclasificacion', true)
+            ->whereNull('reclasificado_at')
+            ->count();
+    }
 @endphp
 
 <nav class="navbar">
@@ -139,8 +157,6 @@
             <div class="submenu">
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
-                <a href="/contable/cierre-obras" class="{{ request()->is('contable/cierre-obras') ? 'active' : '' }}">Cierre de obras</a>
-                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologaciones</a>
             </div>
         </div>
         @endif
@@ -148,7 +164,10 @@
         @if($usuario->esAdmin())
         <div class="module {{ $admActive ? 'open active-mod' : '' }}">
             <button type="button" class="module-head">
-                <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                <span class="module-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    @if($reclasPendientes > 0)<span class="dot-alerta"></span>@endif
+                </span>
                 <span class="module-name">Administración</span>
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
@@ -156,6 +175,12 @@
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
                 <a href="{{ route('admin.terceros-mano-obra.index') }}">Terceros mano de obra</a>
+                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación cuentas</a>
+                <a href="/contable/reclasificaciones" class="{{ request()->is('contable/reclasificaciones*') ? 'active' : '' }}">
+                    Reclasificaciones
+                    @if($reclasPendientes > 0)<span class="pill">{{ $reclasPendientes }}</span>@endif
+                </a>
+                <a href="/contable/cierre-obras" class="{{ request()->is('contable/cierre-obras') ? 'active' : '' }}">Cierre de obras</a>
             </div>
         </div>
         @endif

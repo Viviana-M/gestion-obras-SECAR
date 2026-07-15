@@ -17,7 +17,7 @@
     <form method="POST" action="{{ route('admin.usuarios.update', $usuario->id) }}">
         @csrf
         @method('PUT')
-        @include('admin.usuarios._form', ['modulos' => $modulos, 'marcados' => old('modulos', $marcados), 'usuario' => $usuario])
+        @include('admin.usuarios._form', ['modulos' => $modulos, 'niveles' => $niveles, 'usuario' => $usuario])
         <button type="submit"
             style="margin-top:1rem;padding:8px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">
             Guardar cambios

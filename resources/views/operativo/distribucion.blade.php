@@ -7,6 +7,9 @@
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
     $depPrefijo = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'];
 @endphp
+@php
+    $puedeEditar = auth()->user()->puedeEditarModulo('operacion');
+@endphp
 <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     Distribución de costos
     @if($depEfectivo)
@@ -18,13 +21,23 @@
     @endif
 </h1>
 
+@if(!$puedeEditar)
+<div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
+    👁 Modo solo lectura. Puedes consultar la distribución pero no guardar cambios.
+</div>
+@endif
+
 <div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('operativo.distribucion') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
         {{-- Director/admin: elige el departamento. El supervisor no ve esto (ya está fijo). --}}
+        {{-- Al cambiar el departamento el formulario se envía solo: así el servidor recalcula
+             las opciones de "Tipo de obra" que corresponden a ese departamento. --}}
         <div>
             <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
-            <select name="departamento" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+            <select name="departamento" id="sel-departamento"
+                onchange="cambiarDepartamento(this)"
+                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
                 <option value="">— Elegir —</option>
                 <option value="mantenimiento" {{ $depEfectivo == 'mantenimiento' ? 'selected' : '' }}>Mantenimiento</option>
                 <option value="instalaciones" {{ $depEfectivo == 'instalaciones' ? 'selected' : '' }}>Instalaciones</option>
@@ -65,10 +78,14 @@
                 } else {
                     $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías','otro'=>'Otros'];
                 }
+                // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
+                $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
             @endphp
-            <select name="tipo" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+            <select name="tipo" id="sel-tipo"
+                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}
+                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
                 @foreach($opcionesTipo as $k => $v)
-                    <option value="{{ $k }}" {{ $tipo == $k ? 'selected' : '' }}>{{ $v }}</option>
+                    <option value="{{ $k }}" {{ $tipoSel == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
@@ -123,7 +140,7 @@
 </div>
 @endif
 
-@if($kpiObras > 0 && !$bloqueado)
+@if($kpiObras > 0 && !$bloqueado && $puedeEditar)
 <div style="display:flex;gap:10px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
     <span style="font-size:12px;color:#6B7280">Acciones rápidas:</span>
     <button type="button" onclick="aplicarTodo()" style="font-size:12px;padding:6px 14px;border:1px solid #16A34A;border-radius:8px;background:white;color:#15803D;cursor:pointer">Aplicar todo el pendiente</button>
@@ -395,8 +412,10 @@
 @if($kpiObras > 0 && !$bloqueado)
 <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1rem">
     <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
+    @if($puedeEditar)
     <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
     <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 22px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Enviar a contabilidad</button>
+    @endif
 </div>
 @endif
 </form>
@@ -456,6 +475,18 @@ let provIdx = {};
 let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
 
 const fmt = n => '$' + Math.round(n).toLocaleString('es-CO');
+
+/* ===== Filtro: al cambiar el departamento se recarga solo =====
+   El servidor es el que sabe qué tipos de obra corresponden a cada departamento,
+   así que reiniciamos el tipo a "todos" y enviamos el formulario de inmediato. */
+function cambiarDepartamento(sel){
+    const form = document.getElementById('form-filtros');
+    if(!form) return;
+    const tipo = form.querySelector('select[name="tipo"]');
+    if(tipo){ tipo.value = 'todos'; tipo.disabled = false; }
+    sel.style.opacity = '.6';
+    form.submit();
+}
 
 function toggleObra(cod){ const e=document.getElementById('obra-'+cod); if(e) e.style.display = e.style.display==='none'?'block':'none'; }
 function toggleProvForm(cod){ const e=document.getElementById('provform-'+cod); e.style.display = e.style.display==='none'?'block':'none'; }
@@ -717,7 +748,7 @@ function bloquearForm(){
 
 document.addEventListener('DOMContentLoaded', function(){
     for (const cod in DATOS) { evaluarCerrable(cod); }
-    @if($bloqueado) bloquearForm(); @endif
+    @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 });
 </script>
 @endsection

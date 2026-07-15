@@ -79,8 +79,11 @@ class DistribucionCostosController extends Controller
         $estadoFiltro = $request->get('estado', 'todos');
         $vista        = $request->get('vista', 'todo');
 
-        $homol = Homologacion::get(['cuenta_14', 'cuenta_61', 'nombre', 'estructura'])
-            ->keyBy(fn($h) => (string) $h->cuenta_14);
+        // Período contable (AAAAMM). Define QUÉ VERSIÓN de la homologación aplica:
+        // si contabilidad cambió una cuenta, un período anterior sigue usando la suya.
+        $periodo = Homologacion::periodo($anio, $mes);
+
+        $homol = Homologacion::mapaEn($periodo);
 
         $saldos14Query = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->selectRaw('codigo_proyecto, nombre_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
@@ -245,7 +248,10 @@ class DistribucionCostosController extends Controller
             ($a['orden_sem'] <=> $b['orden_sem']) ?: ($b['total_pendiente'] <=> $a['total_pendiente'])
         );
 
-        $catalogo = Homologacion::orderBy('cuenta_14')->get(['cuenta_14', 'cuenta_61', 'nombre', 'estructura']);
+        // Catálogo para el desplegable de provisiones: las cuentas vigentes EN ESTE PERÍODO.
+        $catalogo = Homologacion::vigentesEn($periodo)
+            ->orderBy('cuenta_14')
+            ->get(['cuenta_14', 'cuenta_61', 'nombre', 'estructura']);
 
         $bloqueado = $distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada;
 
@@ -270,7 +276,10 @@ class DistribucionCostosController extends Controller
     }
 
     public function guardar(Request $request)
-    {
+{
+    abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+        'No tienes permiso para editar en Operación.');
+    
         $accion = $request->input('accion', 'guardar');
         $distId = $request->input('dist');
         $mes    = (int) $request->mes;
@@ -337,8 +346,10 @@ class DistribucionCostosController extends Controller
             );
         }
 
-        $homol = Homologacion::get(['cuenta_14', 'cuenta_61', 'nombre', 'estructura'])
-            ->keyBy(fn($h) => (string) $h->cuenta_14);
+        // IMPORTANTE: la cuenta 61 y la estructura que se copian a AplicacionCosto quedan
+        // CONGELADAS. Deben ser las del período que se está distribuyendo, no las de hoy.
+        $periodo = Homologacion::periodo($anio, $mes);
+        $homol   = Homologacion::mapaEn($periodo);
 
         AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
 
@@ -408,15 +419,18 @@ class DistribucionCostosController extends Controller
         return redirect()->route('operativo.distribucion', ['dist' => $distribucion->id])->with('success', $msg);
     }
 
-    public function eliminar(Distribucion $distribucion)
-    {
-        if ($distribucion->estado === 'enviado') {
-            return back()->with('error', 'No puedes eliminar un borrador ya enviado a contabilidad.');
-        }
-        AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
-        $distribucion->delete();
-        return back()->with('success', 'Borrador eliminado.');
+   public function eliminar(Distribucion $distribucion)
+{
+    abort_unless(request()->user()->puedeEditarModulo('operacion'), 403,
+        'No tienes permiso para editar en Operación.');
+
+    if ($distribucion->estado === 'enviado') {
+        return back()->with('error', 'No puedes eliminar un borrador ya enviado a contabilidad.');
     }
+    AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
+    $distribucion->delete();
+    return back()->with('success', 'Borrador eliminado.');
+}
 
     public function resumen(Request $request)
     {
@@ -452,7 +466,6 @@ class DistribucionCostosController extends Controller
     }
 
     // Lógica compartida: arma la tabla del resumen para un departamento concreto.
-    // Lógica compartida: arma la tabla del resumen para un departamento concreto.
     private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = []): array
     {
         if ($departamento === 'instalaciones') {
@@ -470,9 +483,15 @@ class DistribucionCostosController extends Controller
             return false;
         };
 
-        // Mapa 14 -> estructura y 14 -> cuenta 61 (para mostrar a qué 61 va)
-        $homolAll = Homologacion::get(['cuenta_14', 'cuenta_61', 'estructura']);
-        $mapa14    = $homolAll->keyBy(fn($h) => (string) $h->cuenta_14);
+        // CLAVE: el resumen de un mes pasado debe clasificar los costos con la homologación
+        // que estaba vigente ENTONCES. Si usáramos la de hoy, cambiar una cuenta reclasificaría
+        // retroactivamente informes ya entregados.
+        $periodoContable = Homologacion::periodo($anio, $mes);
+
+        $homolAll = Homologacion::vigentesEn($periodoContable)
+            ->get(['cuenta_14', 'cuenta_61', 'estructura']);
+
+        $mapa14 = $homolAll->keyBy(fn($h) => (string) $h->cuenta_14);
 
         $extraer14 = function ($desc) {
             if (!$desc) return null;

@@ -21,6 +21,8 @@ class CargaFinancieraController extends Controller
 
     public function store(Request $request)
     {
+    abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+    'No tienes permiso para editar en Contabilidad.');
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,csv,xls|max:102400',
             'mes'     => 'required|integer|between:1,12',
@@ -56,9 +58,13 @@ class CargaFinancieraController extends Controller
             'Archivo recibido. Procesando en segundo plano — revisa el historial en unos minutos.');
     }
 
-    public function destroy($id)
-    {
-        $carga = CargaFinanciera::findOrFail($id);
+    
+public function destroy($id)
+{
+    abort_unless(auth()->user()->puedeEditarModulo('contabilidad'), 403,
+        'No tienes permiso para editar en Contabilidad.');
+
+    $carga = CargaFinanciera::findOrFail($id);
 
         RegistroFinanciero::where('mes', $carga->mes)
             ->where('anio', $carga->anio)

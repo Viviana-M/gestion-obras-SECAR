@@ -16,7 +16,7 @@
 <div class="card" style="max-width:640px">
     <form method="POST" action="{{ route('admin.usuarios.store') }}">
         @csrf
-        @include('admin.usuarios._form', ['modulos' => $modulos, 'marcados' => old('modulos', []), 'usuario' => null])
+        @include('admin.usuarios._form', ['modulos' => $modulos, 'niveles' => [], 'usuario' => null])
         <button type="submit"
             style="margin-top:1rem;padding:8px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">
             Crear usuario
