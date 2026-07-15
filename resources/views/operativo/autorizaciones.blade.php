@@ -5,6 +5,8 @@
 @section('content')
 @php
     $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+    $fmt = fn($n) => '$'.number_format((float) $n, 0, ',', '.');
+    $pct = fn($v) => $v === null ? '—' : number_format((float) $v, 1, ',', '.').'%';
 @endphp
 
 <h1 class="page-title">Autorizaciones de distribución</h1>
@@ -29,11 +31,35 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
             <span style="font-weight:700;color:#1B3F6E">{{ $a->codigo_proyecto }}</span>
             <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEF9C3;color:#854D0E">{{ $nombresMes[$a->mes] ?? $a->mes }} {{ $a->anio }}</span>
+            @if(!empty($clientes[$a->codigo_proyecto]))
+                <span style="font-size:12px;color:#6B7280">🏢 {{ $clientes[$a->codigo_proyecto] }}</span>
+            @endif
             <span style="font-size:12px;color:#6B7280">
                 Solicitó: {{ $a->solicitante->name ?? '—' }}
                 @if($a->solicitado_at) · {{ $a->solicitado_at->format('d/m/Y H:i') }} @endif
             </span>
         </div>
+
+        {{-- Impacto financiero de la solicitud --}}
+        <div style="display:flex;gap:18px;flex-wrap:wrap;background:#fff;border:1px solid #FDE68A;border-radius:6px;padding:8px 12px;margin-bottom:10px">
+            <div>
+                <div style="font-size:9px;color:#9CA3AF">Monto a distribuir</div>
+                <div style="font-size:14px;font-weight:700;color:#854D0E">{{ $fmt($a->monto_a_distribuir) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF">Impacto margen del mes</div>
+                <div style="font-size:14px;font-weight:600;color:{{ ($a->margen_mes_pesos ?? 0) >= 0 ? '#15803D' : '#DC2626' }}">
+                    {{ $fmt($a->margen_mes_pesos) }} <span style="font-size:11px;color:#6B7280">({{ $a->margen_mes_pct === null ? 'sin ingreso' : $pct($a->margen_mes_pct) }})</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF">Impacto margen total</div>
+                <div style="font-size:14px;font-weight:600;color:{{ ($a->margen_total_pesos ?? 0) >= 0 ? '#15803D' : '#DC2626' }}">
+                    {{ $fmt($a->margen_total_pesos) }} <span style="font-size:11px;color:#6B7280">({{ $pct($a->margen_total_pct) }})</span>
+                </div>
+            </div>
+        </div>
+
         <div style="font-size:12.5px;color:#374151;margin-bottom:10px"><b>Motivo:</b> {{ $a->motivo }}</div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -69,6 +95,7 @@
         <tr style="color:#9CA3AF;text-align:left">
             <th style="padding:6px 8px">Proyecto</th>
             <th style="padding:6px 8px">Período</th>
+            <th style="padding:6px 8px;text-align:right">Monto</th>
             <th style="padding:6px 8px">Estado</th>
             <th style="padding:6px 8px">Resolvió</th>
             <th style="padding:6px 8px">Fecha</th>
@@ -78,6 +105,7 @@
         <tr style="border-top:1px solid #F3F4F6">
             <td style="padding:6px 8px;font-weight:600;color:#1B3F6E">{{ $a->codigo_proyecto }}</td>
             <td style="padding:6px 8px;color:#6B7280">{{ $nombresMes[$a->mes] ?? $a->mes }} {{ $a->anio }}</td>
+            <td style="padding:6px 8px;text-align:right;color:#854D0E;font-weight:600">{{ $fmt($a->monto_a_distribuir) }}</td>
             <td style="padding:6px 8px">
                 @if($a->estado === 'aprobada')
                     <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">Aprobada</span>

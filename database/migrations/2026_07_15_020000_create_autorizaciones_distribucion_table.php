@@ -21,6 +21,14 @@ return new class extends Migration
             $table->string('estado', 20)->default('pendiente'); // pendiente | aprobada | rechazada
             $table->text('motivo')->nullable();
 
+            // Snapshot financiero al momento de solicitar (lo que el operador pretende
+            // distribuir y su impacto en el margen), para que gerencia decida con contexto.
+            $table->decimal('monto_a_distribuir', 18, 2)->default(0);
+            $table->decimal('margen_mes_pesos', 18, 2)->nullable();
+            $table->decimal('margen_mes_pct', 8, 2)->nullable();     // null = sin ingreso en el mes
+            $table->decimal('margen_total_pesos', 18, 2)->nullable();
+            $table->decimal('margen_total_pct', 8, 2)->nullable();
+
             $table->foreignId('solicitado_por')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('solicitado_at')->nullable();
 

@@ -15,6 +15,11 @@ class AutorizacionDistribucion extends Model
         'anio',
         'estado',
         'motivo',
+        'monto_a_distribuir',
+        'margen_mes_pesos',
+        'margen_mes_pct',
+        'margen_total_pesos',
+        'margen_total_pct',
         'solicitado_por',
         'solicitado_at',
         'resuelto_por',
@@ -25,10 +30,15 @@ class AutorizacionDistribucion extends Model
     protected function casts(): array
     {
         return [
-            'mes'           => 'integer',
-            'anio'          => 'integer',
-            'solicitado_at' => 'datetime',
-            'resuelto_at'   => 'datetime',
+            'mes'                => 'integer',
+            'anio'               => 'integer',
+            'monto_a_distribuir' => 'float',
+            'margen_mes_pesos'   => 'float',
+            'margen_mes_pct'     => 'float',
+            'margen_total_pesos' => 'float',
+            'margen_total_pct'   => 'float',
+            'solicitado_at'      => 'datetime',
+            'resuelto_at'        => 'datetime',
         ];
     }
 

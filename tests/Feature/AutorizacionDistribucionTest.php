@@ -58,17 +58,47 @@ class AutorizacionDistribucionTest extends TestCase
             'codigo_proyecto' => 'C-100',
             'mes'             => 7,
             'anio'            => 2026,
+            'monto'           => 500,
             'motivo'          => 'Costo devengado sin facturación aún.',
         ]);
 
         $resp->assertRedirect();
-        $this->assertDatabaseHas('autorizaciones_distribucion', [
-            'codigo_proyecto' => 'C-100',
-            'mes'             => 7,
-            'anio'            => 2026,
-            'estado'          => 'pendiente',
-            'solicitado_por'  => $op->id,
+
+        $aut = AutorizacionDistribucion::delProyecto('C-100', 7, 2026)->first();
+        $this->assertNotNull($aut);
+        $this->assertSame('pendiente', $aut->estado);
+        $this->assertSame($op->id, $aut->solicitado_por);
+        $this->assertEquals(500.0, $aut->monto_a_distribuir);
+        // Sin ingreso ni costo: margen = 0 − (0 + 500) = −500; el % queda null (sin ingreso).
+        $this->assertEquals(-500.0, $aut->margen_mes_pesos);
+        $this->assertNull($aut->margen_mes_pct);
+        $this->assertEquals(-500.0, $aut->margen_total_pesos);
+    }
+
+    #[Test]
+    public function la_solicitud_calcula_el_impacto_en_margen_con_ingreso(): void
+    {
+        $op = $this->operador();
+
+        // Ingreso del mes = 2000, costo aplicado del mes = 300 (estado_er negativo).
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-110', 'cuenta_contable' => '413501', 'cuenta_mayor' => 'Ingreso',
+            'estado_er' => 2000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
         ]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-110', 'cuenta_contable' => '613501', 'cuenta_mayor' => 'Costos aplicados',
+            'estado_er' => -300, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+        ]);
+
+        $this->actingAs($op)->post(route('operativo.autorizaciones.solicitar'), [
+            'codigo_proyecto' => 'C-110', 'mes' => 7, 'anio' => 2026,
+            'monto' => 700, 'motivo' => 'x',
+        ])->assertRedirect();
+
+        $aut = AutorizacionDistribucion::delProyecto('C-110', 7, 2026)->first();
+        // margen_mes = 2000 − (300 + 700) = 1000; % = 1000/2000 = 50%.
+        $this->assertEquals(1000.0, $aut->margen_mes_pesos);
+        $this->assertEquals(50.0, $aut->margen_mes_pct);
     }
 
     #[Test]
@@ -166,6 +196,25 @@ class AutorizacionDistribucionTest extends TestCase
             'Con autorización aprobada, el costo sí debe guardarse.');
     }
 
+    #[Test]
+    public function la_pantalla_de_gerencia_muestra_monto_e_impacto(): void
+    {
+        AutorizacionDistribucion::create([
+            'codigo_proyecto' => 'C-700', 'mes' => 7, 'anio' => 2026, 'estado' => 'pendiente',
+            'motivo' => 'prueba', 'monto_a_distribuir' => 1500,
+            'margen_mes_pesos' => -1500, 'margen_mes_pct' => null,
+            'margen_total_pesos' => 500, 'margen_total_pct' => 10,
+            'solicitado_por' => $this->operador()->id, 'solicitado_at' => now(),
+        ]);
+
+        $resp = $this->actingAs($this->gerente())->get(route('operativo.autorizaciones.index'));
+
+        $resp->assertStatus(200);
+        $resp->assertSee('Monto a distribuir');
+        $resp->assertSee('C-700');
+        $resp->assertSee('sin ingreso'); // margen_mes_pct null se muestra como "sin ingreso"
+    }
+
     /** Proyecto con saldo en cuenta 14 pero SIN ingreso en el mes. */
     private function seedProyectoSinIngreso(string $cod): void
     {
@@ -193,6 +242,32 @@ class AutorizacionDistribucionTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('Sin ingreso en el mes');
         $resp->assertSee('Solicitar autorización');
+    }
+
+    #[Test]
+    public function la_pantalla_agrupa_con_y_sin_ingreso(): void
+    {
+        // Proyecto CON ingreso (saldo en cuenta 14 + ingreso en el mes).
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-800', 'nombre_proyecto' => 'Obra con ingreso',
+            'cuenta_contable' => '143502', 'cuenta_mayor' => 'Costos por aplicar',
+            'estado_er' => -800, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+        ]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-800', 'cuenta_contable' => '413502', 'cuenta_mayor' => 'Ingreso',
+            'estado_er' => 1000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+        ]);
+        // Proyecto SIN ingreso.
+        $this->seedProyectoSinIngreso('C-801');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('Con ingreso');
+        $resp->assertSee('Sin ingreso');
+        $resp->assertSee('id="card-C-800"', false);
+        $resp->assertSee('id="card-C-801"', false);
     }
 
     #[Test]

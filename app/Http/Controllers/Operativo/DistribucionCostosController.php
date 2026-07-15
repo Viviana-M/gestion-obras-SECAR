@@ -109,8 +109,8 @@ class DistribucionCostosController extends Controller
             ->groupBy('codigo_proyecto')
             ->pluck('saldo', 'codigo_proyecto');
 
-        // Datos comerciales de la ficha: valor de oferta y costo presupuestado.
-        $fichas = FichaProyecto::get(['codigo_proyecto', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+        // Datos comerciales de la ficha: cliente, valor de oferta y costo presupuestado.
+        $fichas = FichaProyecto::get(['codigo_proyecto', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
             ->keyBy('codigo_proyecto');
 
         $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
@@ -171,11 +171,15 @@ class DistribucionCostosController extends Controller
             $g = $guardado[$cod] ?? collect();
             $savedAplicar = $g->where('es_provision', false)->keyBy('cuenta_14');
 
+            // Proyecto sin ingreso en el mes: arranca en 0 (no se propone el pendiente),
+            // salvo que ya tenga un valor guardado en el borrador.
+            $sinIngreso = abs((float) $o['ingreso_mes']) < 0.5;
+
             foreach ($o['cat'] as $k => &$c) {
                 foreach ($c['subs'] as &$sub) {
                     if (isset($savedAplicar[$sub['cuenta_14']])) {
                         $sub['aplicar'] = (float) $savedAplicar[$sub['cuenta_14']]->monto_aplicar;
-                    } elseif ($distribucion) {
+                    } elseif ($distribucion || $sinIngreso) {
                         $sub['aplicar'] = 0;
                     }
                 }
@@ -221,6 +225,7 @@ class DistribucionCostosController extends Controller
             $o['autorizacion_estado']   = $aut->estado ?? null; // pendiente|aprobada|rechazada|null
             $o['autorizacion_motivo']   = $aut->motivo ?? null;
             $o['autorizacion_coment']   = $aut->comentario_gerencia ?? null;
+            $o['autorizacion_monto']    = $aut->monto_a_distribuir ?? null;
             // Bloqueado en la UI = requiere autorización y aún no está aprobado.
             $o['bloqueado_ingreso']     = $o['requiere_autorizacion'] && ! $o['autorizado'];
         }
@@ -734,6 +739,7 @@ class DistribucionCostosController extends Controller
 
         return [
             'codigo' => $cod, 'nombre' => $nombre, 'estado' => $estado, 'cat' => $cat,
+            'cliente' => $fichas[$cod]->cliente ?? null,
             'total_pendiente' => 0, 'total_reversado' => 0,
             'ingreso_mes'    => (float) ($ingresoMes[$cod] ?? 0),
             'ingreso_acum'   => (float) ($ingresoAcum[$cod] ?? 0),
