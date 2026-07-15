@@ -52,7 +52,7 @@
                         Todos
                     @else
                         @php
-                            $suyos = $u->modulos_permitidos ?? $u->modulosLegado();
+                            $suyos = array_keys($u->mapaPermisos());
                             $nombres = array_map(fn($c) => $modulos[$c] ?? $c, $suyos);
                         @endphp
                         {{ count($nombres) ? implode(', ', $nombres) : '—' }}

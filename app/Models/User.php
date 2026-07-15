@@ -24,7 +24,6 @@ class User extends Authenticatable
         'rol',
         'sede',
         'menu_colapsado',
-        'modulos_permitidos',
         'permisos_modulos',
         'activo',
     ];
@@ -35,7 +34,6 @@ class User extends Authenticatable
             'email_verified_at'  => 'datetime',
             'password'           => 'hashed',
             'menu_colapsado'     => 'boolean',
-            'modulos_permitidos' => 'array',
             'permisos_modulos'   => 'array',
             'activo'             => 'boolean',
         ];
@@ -51,38 +49,14 @@ class User extends Authenticatable
         return $this->rol === 'admin';
     }
 
-    public function modulosLegado(): array
-    {
-        return [
-            'financiero' => ['gestion_financiera'],
-            'operativo'  => ['operacion'],
-            'comercial'  => ['comercial'],
-            'contable'   => ['contabilidad'],
-        ][$this->rol] ?? [];
-    }
-
     /**
      * Mapa efectivo de permisos: modulo => 'ver'|'editar'.
-     * Prioridad: permisos_modulos (nuevo) -> modulos_permitidos (viejo) -> rol. Los dos
-     * ultimos se reconstruyen como 'editar' para no quitarle acceso a usuarios existentes.
+     * Fuente única: permisos_modulos. La columna vieja modulos_permitidos se
+     * consolidó a esta y se eliminó (ver migración de consolidación).
      */
     public function mapaPermisos(): array
     {
-        $mapa = $this->permisos_modulos ?? [];
-        if (!empty($mapa)) {
-            return $mapa;
-        }
-
-        $viejos = $this->modulos_permitidos ?? [];
-        if (empty($viejos)) {
-            $viejos = $this->modulosLegado();
-        }
-
-        $recon = [];
-        foreach ($viejos as $m) {
-            $recon[$m] = in_array($m, self::DEPARTAMENTOS, true) ? 'ver' : 'editar';
-        }
-        return $recon;
+        return $this->permisos_modulos ?? [];
     }
 
     // ¿Puede VER este módulo? (ver o editar cuentan como ver)
