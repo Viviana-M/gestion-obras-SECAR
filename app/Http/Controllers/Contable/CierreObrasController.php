@@ -10,7 +10,7 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class CierreObrasController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $proyectosCerrados = ProyectoCerrado::with('usuario')
             ->orderByDesc('fecha_cierre')
@@ -18,7 +18,10 @@ class CierreObrasController extends Controller
 
         $totalCerrados = $proyectosCerrados->count();
 
-        return view('contable.cierre-obras', compact('proyectosCerrados', 'totalCerrados'));
+        // Precarga (derivación desde el módulo de revisión: ?codigo=XXX).
+        $prefillCodigo = trim((string) $request->get('codigo', ''));
+
+        return view('contable.cierre-obras', compact('proyectosCerrados', 'totalCerrados', 'prefillCodigo'));
     }
 
     public function cargarExcel(Request $request)

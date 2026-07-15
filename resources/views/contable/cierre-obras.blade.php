@@ -46,7 +46,8 @@
                 <div>
                     <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Código proyecto</label>
                     <input type="text" name="codigo_proyecto" placeholder="Ej: C1101401"
-                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                        value="{{ $prefillCodigo ?? '' }}" @if(!empty($prefillCodigo)) autofocus @endif
+                        style="width:100%;padding:7px 10px;border:1px solid {{ !empty($prefillCodigo) ? '#1B3F6E' : '#E5E7EB' }};border-radius:8px;font-size:13px">
                 </div>
                 <div>
                     <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Fecha de cierre</label>

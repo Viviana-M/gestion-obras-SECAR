@@ -130,6 +130,7 @@
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Mis distribuciones</a>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
+                <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Obras en revisión</a>
             </div>
         </div>
         @endif

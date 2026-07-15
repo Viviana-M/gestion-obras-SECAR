@@ -98,6 +98,18 @@ class DistribucionCostosController extends Controller
 
         $saldos14 = $saldos14Query->get();
 
+        // Solo obras con saldo NETO real en la cuenta 14 (por proyecto), según la vista.
+        // Evita mostrar obras cuyos movimientos de cuenta 14 se cancelan entre sí
+        // (neto ≈ 0): no hay nada que distribuir y solo hacen ruido.
+        $netoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5');
+        if ($vista === 'mes') {
+            $netoQuery->where('anio', $anio)->where('mes', $mes);
+        }
+        $proyectosConSaldoNeto = $netoQuery->pluck('codigo_proyecto')->flip();
+
         $ingresoMes   = $this->sumaMes('Ingreso', $anio, $mes);
         $ingresoAcum  = $this->sumaAcum('Ingreso', $anio, $mes);
         $costoAplMes  = $this->sumaMes('Costos aplicados', $anio, $mes);
@@ -249,7 +261,9 @@ class DistribucionCostosController extends Controller
             $prefijosDepto = null; // admin sin elegir = ve todo
         }
 
-        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto) {
+        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto) {
+            // Solo obras con saldo neto real en cuenta 14 (por proyecto).
+            if (!isset($proyectosConSaldoNeto[$o['codigo']])) return false;
             if ($tipo !== 'todos' && $o['tipo'] !== $tipo) return false;
             if ($estadoFiltro !== 'todos' && $o['estado'] !== $estadoFiltro) return false;
 
