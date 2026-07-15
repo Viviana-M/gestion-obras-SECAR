@@ -50,6 +50,26 @@ class User extends Authenticatable
     }
 
     /**
+     * ¿Pertenece a gerencia? (puede aprobar/rechazar autorizaciones de distribución)
+     * Cuenta como gerencia: administrador, cargo gerente, o cualquier director
+     * (roles que empiezan por 'dir_' o 'director', p. ej. dir_operaciones,
+     * dir_instalaciones, dir_mantenimiento, director_comercial, director_compras,
+     * dir_admin_auditoria).
+     */
+    public function esGerencia(): bool
+    {
+        if ($this->esAdmin()) {
+            return true;
+        }
+
+        $rol = (string) $this->rol;
+
+        return $rol === 'gerente'
+            || str_starts_with($rol, 'dir_')
+            || str_starts_with($rol, 'director');
+    }
+
+    /**
      * Mapa efectivo de permisos: modulo => 'ver'|'editar'.
      * Fuente única: permisos_modulos. La columna vieja modulos_permitidos se
      * consolidó a esta y se eliminó (ver migración de consolidación).

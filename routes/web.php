@@ -97,7 +97,16 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/operativo/maestro-comercial/manual', [MaestroComercialController::class, 'guardar'])->name('operativo.maestro.guardar');
         Route::put('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'actualizar'])->name('operativo.maestro.actualizar');
         Route::delete('/operativo/maestro-comercial/{ficha}', [MaestroComercialController::class, 'eliminar'])->name('operativo.maestro.eliminar');
+
+        // Solicitar autorización de gerencia para distribuir en un proyecto sin ingreso.
+        Route::post('/operativo/autorizaciones/solicitar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'solicitar'])->name('operativo.autorizaciones.solicitar');
     });
+
+    // ══════════════════════ AUTORIZACIONES (solo gerencia, verificado en el controlador) ══════════════════════
+    // No va bajo modulo:operacion: un director/gerente puede resolver aunque no tenga ese módulo.
+    Route::get('/operativo/autorizaciones', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'index'])->name('operativo.autorizaciones.index');
+    Route::post('/operativo/autorizaciones/{autorizacion}/aprobar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'aprobar'])->name('operativo.autorizaciones.aprobar');
+    Route::post('/operativo/autorizaciones/{autorizacion}/rechazar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'rechazar'])->name('operativo.autorizaciones.rechazar');
 
     // ══════════════════════ COMERCIAL ══════════════════════
     Route::middleware('modulo:comercial')->group(function () {

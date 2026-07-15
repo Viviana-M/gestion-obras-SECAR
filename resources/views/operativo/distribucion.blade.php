@@ -188,6 +188,11 @@
                     <option value="cerrada" {{ $o['estado']=='cerrada'?'selected':'' }}>Cerrada</option>
                 </select>
                 <span style="font-size:12px;color:#9CA3AF">{{ Str::limit($o['nombre'], 40) }}</span>
+                @if($o['bloqueado_ingreso'])
+                    <span onclick="event.stopPropagation()" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#B91C1C">🔒 Sin ingreso{{ $o['autorizacion_estado'] === 'pendiente' ? ' · pendiente' : ($o['autorizacion_estado'] === 'rechazada' ? ' · rechazada' : '') }}</span>
+                @elseif($o['autorizado'])
+                    <span onclick="event.stopPropagation()" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">✅ Autorizado</span>
+                @endif
             </div>
             <div style="font-size:11px;color:#6B7280;margin-top:3px" id="metodo-{{ $cod }}">Método: {{ $o['metodo'] }}</div>
         </div>
@@ -318,6 +323,41 @@
     </div>
 
     <div id="obra-{{ $cod }}" style="display:none;padding:0 16px 14px;border-top:1px solid #F3F4F6">
+        @if($o['bloqueado_ingreso'])
+        <div style="margin-top:12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                <span style="font-size:12px;font-weight:700;color:#B91C1C">🔒 Sin ingreso en el mes — requiere autorización</span>
+                @if($o['autorizacion_estado'] === 'pendiente')
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEF9C3;color:#854D0E">Solicitud pendiente</span>
+                @elseif($o['autorizacion_estado'] === 'rechazada')
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#B91C1C">Rechazada</span>
+                @endif
+            </div>
+            <p style="font-size:11.5px;color:#7F1D1D;line-height:1.5;margin:0 0 8px">
+                Este proyecto no tuvo ingreso en el período, por lo que sus valores a distribuir quedan en 0 y bloqueados.
+                Solo se le puede cargar costo con una autorización de gerencia aprobada.
+            </p>
+            @if($o['autorizacion_estado'] === 'pendiente')
+                <div style="font-size:11px;color:#6B7280">Motivo enviado: <i>{{ $o['autorizacion_motivo'] }}</i></div>
+            @else
+                @if($o['autorizacion_estado'] === 'rechazada' && $o['autorizacion_coment'])
+                    <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Comentario de gerencia: <i>{{ $o['autorizacion_coment'] }}</i></div>
+                @endif
+                @if($puedeEditar)
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+                    <textarea id="motivo-aut-{{ $cod }}" rows="2" placeholder="Motivo de la solicitud (obligatorio)..."
+                        style="flex:1;min-width:220px;padding:7px 10px;border:1px solid #FCA5A5;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
+                    <button type="button" onclick="solicitarAut('{{ $cod }}')"
+                        style="padding:8px 14px;background:#B91C1C;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap">Solicitar autorización</button>
+                </div>
+                @endif
+            @endif
+        </div>
+        @elseif($o['autorizado'])
+        <div style="margin-top:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:8px 12px;font-size:11.5px;color:#15803D">
+            ✅ Autorizado por gerencia para distribuir costos este mes.
+        </div>
+        @endif
         @foreach($categorias as $k => $label)
             @php $c = $o['cat'][$k]; @endphp
             @if($c['pendiente'] > 0)
@@ -344,11 +384,12 @@
                         <td style="padding:4px 6px;text-align:right;color:#854D0E">{{ $fmt($sub['pendiente']) }}</td>
                         <td style="padding:4px 6px;text-align:right">
                             <input type="number" min="0" max="{{ round($sub['pendiente']) }}" step="1"
-                                value="{{ round($sub['aplicar']) }}"
+                                value="{{ $o['bloqueado_ingreso'] ? 0 : round($sub['aplicar']) }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
                                 data-cod="{{ $cod }}" data-tipo="aplicar"
                                 oninput="capear(this);recalc('{{ $cod }}')"
-                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right">
+                                {{ $o['bloqueado_ingreso'] ? 'disabled title=Requiere-autorizacion-de-gerencia' : '' }}
+                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right{{ $o['bloqueado_ingreso'] ? ';background:#F3F4F6;color:#9CA3AF;cursor:not-allowed' : '' }}">
                         </td>
                     </tr>
                     @endif
@@ -361,7 +402,11 @@
         <div style="margin-top:14px;border-top:1px dashed #E5E7EB;padding-top:10px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                 <span style="font-size:12px;font-weight:600;color:#854D0E">Provisiones (costo en tránsito)</span>
+                @if($o['bloqueado_ingreso'])
+                <button type="button" disabled title="Requiere autorización de gerencia" style="font-size:11px;padding:4px 10px;border:1px solid #E5E7EB;border-radius:6px;background:#F3F4F6;color:#9CA3AF;cursor:not-allowed">+ Provisión</button>
+                @else
                 <button type="button" onclick="toggleProvForm('{{ $cod }}')" style="font-size:11px;padding:4px 10px;border:1px solid #1B3F6E;border-radius:6px;background:white;color:#1B3F6E;cursor:pointer">+ Provisión</button>
+                @endif
             </div>
 
             <div id="provs-{{ $cod }}">
@@ -569,6 +614,7 @@ function addProv(cod){
 
 function aplicarTodo(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
+        if (inp.disabled) return; // proyecto bloqueado por falta de ingreso
         inp.value = Math.round(parseFloat(inp.max || 0));
     });
     for (const cod in DATOS) { recalc(cod); }
@@ -576,9 +622,31 @@ function aplicarTodo(){
 
 function ponerEnCero(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
+        if (inp.disabled) return;
         inp.value = 0;
     });
     for (const cod in DATOS) { recalc(cod); }
+}
+
+/* Solicita autorización de gerencia para un proyecto sin ingreso.
+   Se hace con un form dinámico para no anidar formularios dentro de #form-dist. */
+function solicitarAut(cod){
+    const ta = document.getElementById('motivo-aut-' + cod);
+    const motivo = (ta ? ta.value : '').trim();
+    if (!motivo) { alert('Escribe el motivo de la solicitud.'); if (ta) ta.focus(); return; }
+    const f = document.createElement('form');
+    f.method = 'POST';
+    f.action = @json(route('operativo.autorizaciones.solicitar'));
+    f.style.display = 'none';
+    f.innerHTML = '<input type="hidden" name="_token" value="' + @json(csrf_token()) + '">'
+        + '<input type="hidden" name="codigo_proyecto">'
+        + '<input type="hidden" name="mes" value="{{ $mes }}">'
+        + '<input type="hidden" name="anio" value="{{ $anio }}">'
+        + '<input type="hidden" name="motivo">';
+    f.querySelector('[name="codigo_proyecto"]').value = cod;
+    f.querySelector('[name="motivo"]').value = motivo;
+    document.body.appendChild(f);
+    f.submit();
 }
 
 /* ===== Cálculo automático de costo sugerido ===== */
@@ -587,7 +655,7 @@ function cerrarCalculo(){ document.getElementById('modal-calc').style.display='n
 function cerrarAlerta(){ document.getElementById('modal-alerta').style.display='none'; }
 
 function distribuirEnObra(cod, objetivo){
-    const inputs=[...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')];
+    const inputs=[...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')].filter(i=>!i.disabled);
     const maxes=inputs.map(i=>parseFloat(i.max||0));
     const totalMax=maxes.reduce((a,b)=>a+b,0);
     if(totalMax<=0){ inputs.forEach(i=>i.value=0); return; }

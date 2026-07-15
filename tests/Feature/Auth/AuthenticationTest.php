@@ -49,6 +49,7 @@ class AuthenticationTest extends TestCase
         $response = $this->actingAs($user)->post('/logout');
 
         $this->assertGuest();
-        $response->assertRedirect('/');
+        // La app redirige el logout al login (no a la raíz).
+        $response->assertRedirect(route('login'));
     }
 }

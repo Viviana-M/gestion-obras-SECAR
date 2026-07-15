@@ -12,6 +12,7 @@ use App\Models\AplicacionCosto;
 use App\Models\ObraEstado;
 use App\Models\ObservacionObra;
 use App\Models\Distribucion;
+use App\Models\AutorizacionDistribucion;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -124,6 +125,10 @@ class DistribucionCostosController extends Controller
         $observaciones = ObservacionObra::where('anio', $anio)->where('mes', $mes)
             ->pluck('observacion', 'codigo_proyecto');
 
+        // Autorizaciones de gerencia para este mes/año (para proyectos sin ingreso).
+        $autorizaciones = AutorizacionDistribucion::where('mes', $mes)->where('anio', $anio)
+            ->get()->keyBy('codigo_proyecto');
+
         // Líneas guardadas DE ESTE borrador (si estoy editando uno)
         $guardado = $distribucion
             ? AplicacionCosto::where('distribucion_id', $distribucion->id)->get()->groupBy('codigo_proyecto')
@@ -207,6 +212,17 @@ class DistribucionCostosController extends Controller
             $o['metodo'] = $o['estado'] === 'abierta'
                 ? 'Reclasificar OT áreas → OT operación' : 'Cuenta 14 → 61';
             $o['observacion'] = (string) ($observaciones[$cod] ?? '');
+
+            // Bloqueo por falta de ingreso: si el proyecto no tuvo ingreso en el mes,
+            // no se le puede distribuir costo salvo autorización de gerencia aprobada.
+            $aut = $autorizaciones[$cod] ?? null;
+            $o['requiere_autorizacion'] = abs((float) $o['ingreso_mes']) < 0.5;
+            $o['autorizado']            = $aut && $aut->estado === AutorizacionDistribucion::APROBADA;
+            $o['autorizacion_estado']   = $aut->estado ?? null; // pendiente|aprobada|rechazada|null
+            $o['autorizacion_motivo']   = $aut->motivo ?? null;
+            $o['autorizacion_coment']   = $aut->comentario_gerencia ?? null;
+            // Bloqueado en la UI = requiere autorización y aún no está aprobado.
+            $o['bloqueado_ingreso']     = $o['requiere_autorizacion'] && ! $o['autorizado'];
         }
         unset($o);
 
@@ -306,6 +322,16 @@ class DistribucionCostosController extends Controller
             return back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
         }
 
+        // Refuerzo del bloqueo por falta de ingreso: un proyecto sin ingreso en el mes
+        // NO puede recibir costos salvo autorización de gerencia aprobada. Esto impide
+        // saltarse el bloqueo manipulando el formulario desde el navegador.
+        $ingresoMesG = $this->sumaMes('Ingreso', $anio, $mes);
+        $aprobados   = AutorizacionDistribucion::aprobadosEn($mes, $anio);
+        $requiereAut = function ($cod) use ($ingresoMesG, $aprobados) {
+            $sinIngreso = abs((float) ($ingresoMesG[$cod] ?? 0)) < 0.5;
+            return $sinIngreso && ! in_array((string) $cod, $aprobados, true);
+        };
+
         // Todo el guardado (crear/actualizar el borrador, estados de obra, borrar y
         // reinsertar las líneas de AplicacionCosto, observaciones y la versión) va en
         // una sola transacción: si algo falla a mitad, no queda un plano parcial.
@@ -314,7 +340,7 @@ class DistribucionCostosController extends Controller
 
         DB::transaction(function () use (
             &$distribucion, &$noCerradas, &$msg,
-            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request
+            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $requiereAut
         ) {
             if (!$distribucion) {
                 // Numeración separada por departamento
@@ -365,6 +391,7 @@ class DistribucionCostosController extends Controller
             AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
 
             foreach ($aplicar as $cod => $cuentas) {
+                if ($requiereAut($cod)) continue; // proyecto sin ingreso y sin autorización aprobada
                 foreach ($cuentas as $c14 => $monto) {
                     $monto = (float) $monto;
                     if ($monto <= 0) continue;
@@ -381,6 +408,7 @@ class DistribucionCostosController extends Controller
             }
 
             foreach ($provision as $cod => $items) {
+                if ($requiereAut($cod)) continue; // proyecto sin ingreso y sin autorización aprobada
                 foreach ($items as $p) {
                     $monto = (float) ($p['monto'] ?? 0);
                     $c14   = $p['cuenta'] ?? null;
