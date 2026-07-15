@@ -95,6 +95,33 @@ class TopeFacturacionFifoTest extends TestCase
     }
 
     #[Test]
+    public function salta_la_cuenta_que_no_cabe_y_sigue_distribuyendo_lo_que_si_cabe(): void
+    {
+        // Tope 1000. Antiguo 600 (cabe), siguiente 800 (no cabe en 400 restante),
+        // último 100 (cabe). Debe aplicar 600 + 100 = 700 (salta el 800, no corta).
+        $this->rf('Ingreso', 1000, 7, 2026, '41350100');
+        $this->rf('Costos por aplicar', -600, 4, 2026, '14350104');
+        $this->rf('Costos por aplicar', -800, 5, 2026, '14350205');
+        $this->rf('Costos por aplicar', -100, 6, 2026, '14350306');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertStatus(200);
+        $resp->assertSee('data-tope="600"', false);   // antiguo, completo
+        $resp->assertSee('data-tope="100"', false);   // se sigue distribuyendo
+        $resp->assertDontSee('data-tope="800"', false); // el que no cabe queda abierto
+
+        // guardar: mismo comportamiento (600 + 100, salta 800).
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14350104' => 600, '14350205' => 800, '14350306' => 100]],
+        ])->assertRedirect();
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350104')->sum('monto_aplicar'), 0.5);
+        $this->assertSame(0, AplicacionCosto::where('cuenta_14', '14350205')->count());
+        $this->assertEqualsWithDelta(100, (float) AplicacionCosto::where('cuenta_14', '14350306')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
     public function guardar_no_aplica_mas_que_el_saldo_abierto_de_la_cuenta(): void
     {
         $this->seedFifo(); // 14350105 pendiente 600

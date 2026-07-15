@@ -926,11 +926,11 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Reparte un tope entre cuentas 14 de MÁS ANTIGUO a MÁS NUEVO (FIFO), aplicando
-     * el SALDO COMPLETO de cada cuenta (nunca una fracción, para no dejar poquitos)
-     * y sin exceder el saldo abierto. Se detiene ante la primera cuenta cuyo saldo no
-     * cabe en el tope restante; esa cuenta (y las siguientes) quedan abiertas para un
-     * mes con más facturación.
+     * Reparte un tope entre cuentas 14 dando prioridad a las MÁS ANTIGUAS (FIFO),
+     * aplicando el SALDO COMPLETO de cada cuenta (nunca una fracción, para no dejar
+     * poquitos) y sin exceder el saldo abierto. Una cuenta cuyo saldo no cabe entero
+     * en el tope restante se SALTA (queda abierta para un mes con más facturación),
+     * pero se sigue distribuyendo con las siguientes que sí caben.
      * $lineas: [ ['cuenta_14'=>string, 'periodo'=>int (anio*100+mes), 'monto'=>float (saldo abierto)], ... ].
      * Devuelve [cuenta_14 => monto_asignado].
      */
@@ -940,10 +940,11 @@ class DistribucionCostosController extends Controller
         $restante = max(0.0, $tope);
         $asignado = [];
         foreach ($lineas as $l) {
+            if ($restante <= 0.5) break; // tope agotado
             $monto = (float) $l['monto'];
             if ($monto <= 0.5) continue;
             if ($monto > $restante + 0.5) {
-                break; // no cabe completo: no se parte, queda abierto (FIFO estricto)
+                continue; // no cabe entera: se salta y se sigue distribuyendo lo que sí cabe
             }
             $asignado[$l['cuenta_14']] = ($asignado[$l['cuenta_14']] ?? 0) + $monto;
             $restante -= $monto;
