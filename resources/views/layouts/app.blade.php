@@ -171,6 +171,7 @@
             <div class="submenu">
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
+                <a href="{{ route('contable.autoliquidacion.index') }}" class="{{ request()->is('contable/autoliquidacion') ? 'active' : '' }}">Autoliquidación (PILA)</a>
             </div>
         </div>
         @endif
