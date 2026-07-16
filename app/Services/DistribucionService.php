@@ -1,0 +1,375 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Homologacion;
+use App\Models\RegistroFinanciero;
+use App\Models\UnBolsa;
+
+/**
+ * Lógica de cálculo de la Distribución de costos, extraída del controlador para
+ * que este no siga engordando y para poder reutilizarla (obras y bolsas de área).
+ *
+ * No toca base de datos de escritura: solo consulta saldos y hace aritmética de
+ * márgenes / reparto FIFO. La persistencia queda en el controlador.
+ */
+class DistribucionService
+{
+    /** Estructuras de costo (cuenta 14) que maneja la distribución. */
+    public const CATEGORIAS = [
+        'EQU-MAT-SUM' => 'Equipos y materiales',
+        'MOI'         => 'M.O. interna',
+        'MOE'         => 'M.O. externa',
+        'OTROS COSTO' => 'Otros costos',
+        'MOFIJAOPER'  => 'M.O. fija (supervisores)',
+    ];
+
+    /**
+     * Componentes con que se resume una bolsa de área en el panel superior.
+     * Se agrupan las estructuras de cuenta 14 en tres cubetas legibles:
+     *  - MO directa: mano de obra interna y fija (nómina propia).
+     *  - Terceros:   mano de obra externa (proveedores, la que se cruza con SIESA).
+     *  - Otros costos: equipos/materiales y demás.
+     */
+    public const COMPONENTES = [
+        'mo_directa' => ['label' => 'MO directa',   'estructuras' => ['MOI', 'MOFIJAOPER'], 'color' => '#1D9E75'],
+        'terceros'   => ['label' => 'Terceros',     'estructuras' => ['MOE'],               'color' => '#7F77DD'],
+        'otros'      => ['label' => 'Otros costos', 'estructuras' => ['EQU-MAT-SUM', 'OTROS COSTO'], 'color' => '#EF9F27'],
+    ];
+
+    // ───────────────────────── Bolsas de área ─────────────────────────
+
+    /**
+     * Bolsas activas de un departamento (o todas si no se especifica), cada una con
+     * su saldo por cuenta 14, el total y el desglose por componente. Solo se
+     * devuelven las bolsas que tienen algo por repartir (total > 0).
+     *
+     * @return array<int, array{codigo:string,nombre:string,departamento:string,total:float,componentes:array,lineas:array}>
+     */
+    public function bolsasDelDepartamento(?string $departamento, int $periodo): array
+    {
+        $query = UnBolsa::where('activo', true);
+        if ($departamento) {
+            $query->where('departamento', $departamento);
+        }
+        $bolsas = $query->orderBy('codigo')->get();
+        if ($bolsas->isEmpty()) {
+            return [];
+        }
+
+        $saldos = $this->saldosBolsasPorCuenta($bolsas->pluck('codigo')->all(), $periodo);
+
+        $resultado = [];
+        foreach ($bolsas as $b) {
+            $lineas = $saldos[$b->codigo] ?? [];
+            $total  = array_sum(array_column($lineas, 'pendiente'));
+            if ($total <= 0.5) {
+                continue; // sin nada por repartir: no ensucia el panel
+            }
+            $resultado[] = [
+                'codigo'       => $b->codigo,
+                'nombre'       => (string) $b->nombre,
+                'departamento' => (string) $b->departamento,
+                'total'        => round($total, 2),
+                'componentes'  => $this->componentesDe($lineas),
+                'lineas'       => $lineas,
+            ];
+        }
+        return $resultado;
+    }
+
+    /**
+     * Saldo de varias bolsas desglosado por cuenta 14 (con su cuenta 61 destino y
+     * estructura), en un solo barrido. En las bolsas de área un saldo POSITIVO es
+     * costo por repartir; el negativo (reversado de más) se ignora aquí.
+     *
+     * @return array<string, array<int, array>>  [codigo_bolsa => [ líneas ]]
+     */
+    public function saldosBolsasPorCuenta(array $codigos, int $periodo): array
+    {
+        if (empty($codigos)) {
+            return [];
+        }
+        $homol = Homologacion::mapaEn($periodo);
+
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->havingRaw('SUM(estado_er) > 0.5')
+            ->get();
+
+        $out = [];
+        foreach ($filas as $f) {
+            $saldo = round((float) $f->saldo, 2);
+            if ($saldo <= 0.5) {
+                continue;
+            }
+            $h = $homol[(string) $f->cuenta_contable] ?? null;
+            $estructura = $h->estructura ?? 'OTROS COSTO';
+            if (!isset(self::CATEGORIAS[$estructura])) {
+                $estructura = 'OTROS COSTO';
+            }
+            $out[$f->codigo_proyecto][] = [
+                'cuenta_14'  => (string) $f->cuenta_contable,
+                'cuenta_61'  => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
+                'nombre'     => $h->nombre ?? $f->descripcion,
+                'estructura' => $estructura,
+                'periodo'    => 0,
+                'pendiente'  => $saldo,
+            ];
+        }
+
+        // Antigüedad (período más viejo) de cada cuenta, para repartir FIFO al guardar.
+        $per = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+        $mapaPer = [];
+        foreach ($per as $p) {
+            $mapaPer[$p->codigo_proyecto.'|'.$p->cuenta_contable] = (int) $p->periodo;
+        }
+        foreach ($out as $cod => &$lineas) {
+            foreach ($lineas as &$l) {
+                $l['periodo'] = $mapaPer[$cod.'|'.$l['cuenta_14']] ?? 0;
+            }
+            unset($l);
+        }
+        unset($lineas);
+
+        return $out;
+    }
+
+    /** Desglose de un conjunto de líneas de bolsa en los tres componentes. */
+    public function componentesDe(array $lineas): array
+    {
+        $comp = [];
+        foreach (self::COMPONENTES as $key => $def) {
+            $comp[$key] = ['label' => $def['label'], 'color' => $def['color'], 'monto' => 0.0];
+        }
+        foreach ($lineas as $l) {
+            $est = $l['estructura'] ?? 'OTROS COSTO';
+            $bucket = 'otros';
+            foreach (self::COMPONENTES as $key => $def) {
+                if (in_array($est, $def['estructuras'], true)) {
+                    $bucket = $key;
+                    break;
+                }
+            }
+            $comp[$bucket]['monto'] += (float) $l['pendiente'];
+        }
+        foreach ($comp as &$c) {
+            $c['monto'] = round($c['monto'], 2);
+        }
+        unset($c);
+        return $comp;
+    }
+
+    // ───────────────────────── Reparto FIFO ─────────────────────────
+
+    /**
+     * Reparte un tope entre cuentas 14 dando prioridad a las MÁS ANTIGUAS (FIFO),
+     * aplicando el SALDO COMPLETO de cada cuenta (nunca una fracción) y sin exceder
+     * el saldo abierto. Una cuenta que no cabe entera en el tope restante se SALTA y
+     * se sigue distribuyendo con las siguientes que sí caben.
+     *
+     * @param array $lineas  [ ['cuenta_14'=>string,'periodo'=>int,'monto'=>float], ... ]
+     * @return array [cuenta_14 => monto_asignado]
+     */
+    public function repartoFifo(array $lineas, float $tope): array
+    {
+        usort($lineas, fn ($a, $b) => $a['periodo'] <=> $b['periodo']);
+        $restante = max(0.0, $tope);
+        $asignado = [];
+        foreach ($lineas as $l) {
+            if ($restante <= 0.5) {
+                break;
+            }
+            $monto = (float) $l['monto'];
+            if ($monto <= 0.5) {
+                continue;
+            }
+            if ($monto > $restante + 0.5) {
+                continue; // no cabe entera: se salta y se sigue distribuyendo
+            }
+            $asignado[$l['cuenta_14']] = ($asignado[$l['cuenta_14']] ?? 0) + $monto;
+            $restante -= $monto;
+        }
+        return $asignado;
+    }
+
+    /**
+     * Reparte un monto entre cuentas 14 en FIFO, permitiendo consumir la ÚLTIMA
+     * cuenta de forma PARCIAL (para no perder pesos cuando el monto no calza justo
+     * con ningún saldo). Se usa al bajar una asignación de bolsa a cuentas reales.
+     *
+     * @return array [cuenta_14 => monto_asignado]
+     */
+    public function repartoFifoParcial(array $lineas, float $monto): array
+    {
+        usort($lineas, fn ($a, $b) => $a['periodo'] <=> $b['periodo']);
+        $restante = max(0.0, $monto);
+        $asignado = [];
+        foreach ($lineas as $l) {
+            if ($restante <= 0.005) {
+                break;
+            }
+            $disp = (float) $l['monto'];
+            if ($disp <= 0.005) {
+                continue;
+            }
+            $usar = min($disp, $restante);
+            $asignado[$l['cuenta_14']] = ($asignado[$l['cuenta_14']] ?? 0) + $usar;
+            $restante -= $usar;
+        }
+        return $asignado;
+    }
+
+    /**
+     * Drena $monto de un pool de saldos por cuenta (FIFO, la última parcial),
+     * MUTANDO el pool (se pasa por referencia) para consumir el saldo de forma
+     * acumulada entre varias llamadas. Devuelve [cuenta_14 => monto_drenado].
+     */
+    public function drenarFifo(array &$pool, float $monto): array
+    {
+        usort($pool, fn ($a, $b) => $a['periodo'] <=> $b['periodo']);
+        $restante = max(0.0, $monto);
+        $out = [];
+        foreach ($pool as $i => $l) {
+            if ($restante <= 0.005) {
+                break;
+            }
+            $disp = (float) $l['monto'];
+            if ($disp <= 0.005) {
+                continue;
+            }
+            $usar = min($disp, $restante);
+            $out[$l['cuenta_14']] = ($out[$l['cuenta_14']] ?? 0) + $usar;
+            $pool[$i]['monto'] = $disp - $usar;
+            $restante -= $usar;
+        }
+        return $out;
+    }
+
+    // ───────────────────────── Sumas de saldos ─────────────────────────
+
+    public function sumaMes(string $cuentaMayor, int $anio, int $mes, ?array $codigos = null)
+    {
+        $q = RegistroFinanciero::where('cuenta_mayor', $cuentaMayor)
+            ->where('anio', $anio)->where('mes', $mes);
+        if ($codigos !== null) {
+            $q->whereIn('codigo_proyecto', $codigos);
+        }
+        return $q->selectRaw('codigo_proyecto, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+    }
+
+    public function sumaAcum(string $cuentaMayor, int $anio, int $mes, ?array $codigos = null)
+    {
+        $q = RegistroFinanciero::where('cuenta_mayor', $cuentaMayor);
+        if ($codigos !== null) {
+            $q->whereIn('codigo_proyecto', $codigos);
+        }
+        return $q->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            })
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+    }
+
+    // ───────────────────────── Márgenes y semáforo ─────────────────────────
+
+    /**
+     * Calcula todos los indicadores de margen y el semáforo de una obra. Recibe el
+     * arreglo por referencia (mismo contrato que tenían los controladores).
+     */
+    public function calcularMargenes(array &$o): void
+    {
+        $ingMes  = $o['ingreso_mes'];
+        $ingAcum = $o['ingreso_acum'];
+        // Costo que se está moviendo 14→6 este mes: aplicaciones propias + provisiones
+        // + lo asignado desde bolsas de área a esta obra.
+        $sumBolsa = (float) ($o['sum_bolsa'] ?? 0);
+
+        $o['margen_mes'] = $ingMes != 0
+            ? round(($ingMes - $o['costo_apl_mes']) / $ingMes * 100, 1) : null;
+        $o['margen_acum'] = $ingAcum != 0
+            ? round(($ingAcum - $o['costo_apl_acum']) / $ingAcum * 100, 1) : null;
+        $o['margen_proy'] = $ingAcum != 0
+            ? round(($ingAcum - ($o['costo_apl_acum'] + $o['sum_aplicar'] + $o['sum_prov'] + $sumBolsa)) / $ingAcum * 100, 1) : null;
+
+        // Estado de avance (acumulado al mes anterior)
+        $o['fact_acum_rec']     = $ingAcum - $ingMes;
+        $o['costo_acum_rec']    = $o['costo_apl_acum'] - $o['costo_apl_mes'];
+        $o['margen_acum_pesos'] = $o['fact_acum_rec'] - $o['costo_acum_rec'];
+        $o['mc_pct_acum']       = $o['fact_acum_rec'] != 0
+            ? round((1 - $o['costo_acum_rec'] / $o['fact_acum_rec']) * 100, 1) : null;
+
+        // Rentabilidad del mes (el JS recalcula MC al aplicar 14→6 y al asignar bolsas)
+        $o['costo_mes_c6'] = $o['costo_apl_mes'];
+        $aplicadoIni       = $o['sum_aplicar'] + $o['sum_prov'] + $sumBolsa;
+        $o['aplicado_mes'] = $aplicadoIni;
+        $costoMesTotal     = $o['costo_apl_mes'] + $aplicadoIni;
+        $o['mc_mes_pesos'] = $ingMes - $costoMesTotal;
+        $o['mc_mes_pct']   = $ingMes != 0 ? round($o['mc_mes_pesos'] / $ingMes * 100, 1) : null;
+
+        // Proyección (oferta comercial vs realidad)
+        $valorOferta  = $o['valor_oferta'];
+        $costoPresup  = $o['costo_presup'];
+        $factTotal    = $ingAcum;
+        $costoAcumTot = $o['costo_apl_acum'];
+        $costoTotal   = $costoAcumTot + $o['inventario_obra'] + $o['inventario_almacen'];
+
+        $o['pr_valor_oferta'] = $valorOferta;
+        $o['pr_dif_facturar'] = $valorOferta - $factTotal;
+        $o['pr_avance_fact']  = $valorOferta != 0 ? round($factTotal / $valorOferta * 100, 1) : null;
+        $o['pr_inv_obra']     = $o['inventario_obra'];
+        $o['pr_inv_almacen']  = $o['inventario_almacen'];
+        $o['pr_costo_total']  = $costoTotal;
+        $o['pr_mc_ofertado']  = $o['ofertado'];
+        $o['pr_mc_proy']      = $valorOferta != 0 ? round(($valorOferta - $costoTotal) / $valorOferta * 100, 1) : null;
+        $o['pr_costo_presup'] = $costoPresup;
+        $o['pr_avance_ejec']  = $costoPresup != 0 ? round($costoTotal / $costoPresup * 100, 1) : null;
+
+        $of = $o['ofertado'];
+        if ($of === null || $o['margen_acum'] === null) {
+            $o['semaforo'] = 'gris';  $o['orden_sem'] = 3;
+        } elseif ($o['margen_acum'] < $of) {
+            $o['semaforo'] = 'rojo';  $o['orden_sem'] = 0;
+        } elseif ($o['margen_proy'] !== null && $o['margen_proy'] < $of) {
+            $o['semaforo'] = 'ambar'; $o['orden_sem'] = 1;
+        } else {
+            $o['semaforo'] = 'verde'; $o['orden_sem'] = 2;
+        }
+    }
+
+    public function normalizarMargen($v): ?float
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        $v = (float) $v;
+        if (abs($v) <= 1.5) {
+            $v = $v * 100;
+        }
+        return round($v, 1);
+    }
+
+    public function tipoObra(string $cod): string
+    {
+        $c = strtoupper($cod);
+        // Mantenimiento
+        if (str_starts_with($c, 'GM')) return 'garantia';
+        if (str_starts_with($c, 'MO')) return 'obras';
+        if (str_starts_with($c, 'R'))  return 'reparacion';
+        if (str_starts_with($c, 'C'))  return 'contrato';
+        // Instalaciones
+        if (str_starts_with($c, 'GI')) return 'garantia';
+        if (str_starts_with($c, 'O'))  return 'obras';
+        return 'otro';
+    }
+}

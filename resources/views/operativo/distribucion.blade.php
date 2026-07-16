@@ -126,8 +126,49 @@
 @endif
 
 @if($kpiObras > 0)
-{{-- BARRA SUPERIOR FIJA: totales + buscador + acciones --}}
+{{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones --}}
 <div style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
+    @if(!empty($bolsas))
+    {{-- Panel de bolsas de área: origen del costo por repartir --}}
+    <div style="margin-bottom:10px;border-bottom:1px solid #F3F4F6;padding-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:8px">
+            BOLSAS DE ÁREA · ORIGEN DEL COSTO POR DISTRIBUIR
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+            @foreach($bolsas as $b)
+            @php
+                $pct = $b['total'] > 0 ? round($b['disponible'] / $b['total'] * 100) : 0;
+            @endphp
+            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:250px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+                    <div style="font-weight:700;color:#854D0E;font-size:13px">{{ $b['codigo'] }}</div>
+                    <div style="font-size:11px;color:#9CA3AF">Total {{ number_format($b['total'], 0, ',', '.') }}</div>
+                </div>
+                <div style="font-size:11px;color:#B45309;margin:1px 0 6px">{{ Str::limit($b['nombre'], 34) }}</div>
+                {{-- Desglose por componente --}}
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px">
+                    @foreach($b['componentes'] as $c)
+                        @if($c['monto'] > 0.5)
+                        <span style="font-size:10px;padding:2px 7px;border-radius:8px;background:#fff;border:1px solid {{ $c['color'] }};color:{{ $c['color'] }}">
+                            {{ $c['label'] }} · {{ number_format($c['monto'], 0, ',', '.') }}
+                        </span>
+                        @endif
+                    @endforeach
+                </div>
+                {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:3px">
+                    <span style="color:#6B7280">Disponible por distribuir</span>
+                    <b id="bolsa-disp-{{ $b['codigo'] }}" style="color:#B45309">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
+                </div>
+                <div style="height:8px;border-radius:4px;background:#FDE68A;overflow:hidden">
+                    <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
+                </div>
+                <div id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;margin-top:4px;display:{{ $b['disponible'] <= 0.5 ? 'block' : 'none' }}">✓ Bolsa distribuida</div>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
         <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
             <div>
@@ -285,7 +326,13 @@
 <script>
 const CTA = @json($ctaJs);
 const DATOS = @json($datosJs);
+const BOLSAS = @json(collect($bolsas)->keyBy('codigo'));
 const PERIODO = @json($mesNombre);
+// Disponible en vivo por bolsa (arranca en lo que dejó el servidor, ya descontadas
+// las asignaciones guardadas). Se decrementa al asignar y se repone al quitar.
+const dispBolsa = {};
+Object.keys(BOLSAS).forEach(c => { dispBolsa[c] = Number(BOLSAS[c].disponible || 0); });
+let asignIdx = {};
 const ESTCOL = {abierta:['#F0FDF4','#15803D'], parcial:['#FEF9C3','#854D0E'], cerrada:['#EFF6FF','#1B3F6E']};
 let provIdx = {};
 let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
@@ -362,11 +409,12 @@ function evaluarCerrable(cod){
 
 function recalc(cod){
     const card=document.getElementById('card-'+cod);
-    let sumA=0, sumP=0;
+    let sumA=0, sumP=0, sumB=0;
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=parseFloat(i.value||0));
     card.querySelectorAll('input[data-tipo="prov"]').forEach(i=>sumP+=parseFloat(i.value||0));
+    card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
-    const aplicado = sumA + sumP;
+    const aplicado = sumA + sumP + sumB;
 
     const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado);
     const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado);
@@ -410,6 +458,58 @@ function addProv(cod){
     document.getElementById('provs-'+cod).appendChild(div);
     document.getElementById('prov-monto-'+cod).value='';
     document.getElementById('prov-desc-'+cod).value='';
+    recalc(cod);
+}
+
+/* ===== Asignación desde bolsas de área ===== */
+function fmtBolsaDisp(c){
+    const disp = Math.max(0, dispBolsa[c] || 0);
+    const total = Number(BOLSAS[c] ? BOLSAS[c].total : 0) || 0;
+    const pct = total > 0 ? Math.round(disp / total * 100) : 0;
+    const dispEl = document.getElementById('bolsa-disp-'+c); if(dispEl) dispEl.textContent = fmt(disp);
+    const barEl  = document.getElementById('bolsa-bar-'+c);  if(barEl)  barEl.style.width = pct + '%';
+    const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'block' : 'none';
+}
+
+function asignarBolsa(cod){
+    const sel = document.getElementById('asignbolsa-cta-'+cod);
+    const inp = document.getElementById('asignbolsa-monto-'+cod);
+    if(!sel || !inp) return;
+    const bolsa = sel.value;
+    let monto = Math.round(parseFloat(inp.value||0));
+    if(!bolsa){ alert('Elige una bolsa.'); return; }
+    if(!(monto>0)){ alert('Escribe un monto mayor a 0.'); return; }
+    const disp = Math.max(0, dispBolsa[bolsa] || 0);
+    if(disp <= 0.5){ alert('Esa bolsa ya no tiene disponible por distribuir.'); return; }
+    if(monto > disp){
+        alert('Solo puedes asignar hasta '+fmt(disp)+' de la bolsa '+bolsa+'. Se ajustó a ese máximo.');
+        monto = Math.round(disp);
+    }
+    const info = BOLSAS[bolsa] || {nombre:''};
+    asignIdx[cod] = (asignIdx[cod]||0) + 1; const i = 'n'+asignIdx[cod];
+    const div = document.createElement('div');
+    div.style.cssText='display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+    div.dataset.bolsa = bolsa; div.dataset.monto = monto;
+    div.innerHTML = '<span>🡒 Desde <b>'+bolsa+'</b> · '+(info.nombre||'')+'</span>'
+        + '<span style="display:flex;align-items:center;gap:8px"><b>'+fmt(monto)+'</b>'
+        + '<a href="#" onclick="quitarBolsa(this,\''+cod+'\');return false" style="color:#DC2626;text-decoration:none">✕</a></span>'
+        + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][bolsa]" value="'+bolsa+'">'
+        + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][monto]" value="'+monto+'" data-cod="'+cod+'" data-tipo="bolsa" data-bolsa="'+bolsa+'">';
+    document.getElementById('asigns-'+cod).appendChild(div);
+    dispBolsa[bolsa] = disp - monto;
+    fmtBolsaDisp(bolsa);
+    inp.value='';
+    recalc(cod);
+}
+
+function quitarBolsa(el, cod){
+    const chip = el.closest('div[data-bolsa]');
+    if(!chip) return;
+    const bolsa = chip.dataset.bolsa;
+    const monto = parseFloat(chip.dataset.monto||0);
+    dispBolsa[bolsa] = (dispBolsa[bolsa]||0) + monto;
+    chip.remove();
+    fmtBolsaDisp(bolsa);
     recalc(cod);
 }
 

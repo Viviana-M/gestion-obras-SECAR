@@ -273,6 +273,47 @@
             </div>
         </div>
 
+        {{-- ASIGNAR DESDE BOLSA DE ÁREA (origen del costo) --}}
+        @if(!empty($bolsas) && !$o['bloqueado_ingreso'])
+        <div style="margin-top:14px;border-top:1px dashed #FDE68A;padding-top:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="width:9px;height:9px;border-radius:2px;background:#D97706;display:inline-block"></span>
+                <span style="font-size:12px;font-weight:600;color:#854D0E">Asignar desde bolsa de área</span>
+            </div>
+
+            <div id="asigns-{{ $cod }}">
+                @foreach($o['asignaciones_bolsa'] as $i => $ab)
+                <div data-bolsa="{{ $ab['bolsa'] }}" data-monto="{{ round($ab['monto']) }}" style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px">
+                    <span>🡒 Desde <b>{{ $ab['bolsa'] }}</b></span>
+                    <span style="display:flex;align-items:center;gap:8px"><b>{{ $fmt($ab['monto']) }}</b>
+                        <a href="#" onclick="quitarBolsa(this,'{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][s{{ $i }}][bolsa]" value="{{ $ab['bolsa'] }}">
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][s{{ $i }}][monto]" value="{{ round($ab['monto']) }}" data-cod="{{ $cod }}" data-tipo="bolsa" data-bolsa="{{ $ab['bolsa'] }}">
+                </div>
+                @endforeach
+            </div>
+
+            @if($puedeEditar)
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+                <div style="flex:2;min-width:200px">
+                    <label style="font-size:10px;color:#6B7280;display:block">Bolsa (UN)</label>
+                    <select id="asignbolsa-cta-{{ $cod }}" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
+                        <option value="">— Elegir bolsa —</option>
+                        @foreach($bolsas as $b)
+                            <option value="{{ $b['codigo'] }}">{{ $b['codigo'] }} · {{ Str::limit($b['nombre'], 26) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div style="flex:1;min-width:110px">
+                    <label style="font-size:10px;color:#6B7280;display:block">Monto</label>
+                    <input type="number" id="asignbolsa-monto-{{ $cod }}" min="0" step="1" placeholder="0" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
+                </div>
+                <button type="button" onclick="asignarBolsa('{{ $cod }}')" style="padding:7px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Asignar</button>
+            </div>
+            @endif
+        </div>
+        @endif
+
         @if($o['total_reversado'] > 0)
         <div style="margin-top:12px;background:#FEF2F2;border-radius:8px;padding:8px 12px;font-size:11px;color:#DC2626">
             ⚠ Reversado de más (alerta, no editable): {{ $fmt($o['total_reversado']) }}

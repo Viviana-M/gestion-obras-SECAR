@@ -163,6 +163,15 @@ class PlanoContableController extends Controller
                     continue;
                 }
 
+                // Costo que viene de una bolsa de area: se ACREDITA la cuenta 14 en la OT
+                // de la bolsa (origen) y se DEBITA la cuenta 61 en la OT de la obra destino,
+                // con su centro de costos. Son bolsas internas: el tercero es SECAR.
+                if (!empty($l->origen_bolsa)) {
+                    $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
+                    $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
+                    continue;
+                }
+
                 foreach ($reparto->repartir((string) $obra, $c14, $monto) as $p) {
                     $creditos[] = $this->fila($numeroDoc, $c14, $p['tercero'], (string) $obra, null, 0, $p['monto']);
                     $debitos[]  = $this->fila($numeroDoc, $c61, $p['tercero'], (string) $obra, $centroCostos, $p['monto'], 0);
