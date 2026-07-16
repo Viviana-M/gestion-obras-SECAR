@@ -49,8 +49,11 @@ class PlanoContableController extends Controller
 
         $data = $versiones->map(function ($d) use ($aplican, $usuarios) {
             $lineas = AplicacionCosto::where('distribucion_id', $d->id)
-                ->whereIn('codigo_proyecto', $aplican)
                 ->where('monto_aplicar', '>', 0)
+                ->where(function ($q) use ($aplican) {
+                    $q->whereIn('codigo_proyecto', $aplican)
+                      ->orWhereNotNull('origen_bolsa');
+                })
                 ->orderBy('codigo_proyecto')->get();
             return [
                 'id'           => $d->id,
@@ -92,11 +95,18 @@ class PlanoContableController extends Controller
             return back()->with('error', "No se que centro de costos usar para el departamento '{$depto}'.");
         }
 
-        $aplican = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
+        $aplican    = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
+        $aplicanSet = array_flip($aplican->all());
 
+        // Las líneas normales solo se exportan para obras cerradas/parciales. Las de
+        // bolsa (origen_bolsa) se exportan SIEMPRE: si la obra está abierta se reclasifica
+        // 14→14 (cambia la UN); si está cerrada/parcial se aplica 14→61.
         $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)
-            ->whereIn('codigo_proyecto', $aplican)
             ->where('monto_aplicar', '>', 0)
+            ->where(function ($q) use ($aplican) {
+                $q->whereIn('codigo_proyecto', $aplican)
+                  ->orWhereNotNull('origen_bolsa');
+            })
             ->orderBy('codigo_proyecto')
             ->orderBy('cuenta_14')
             ->get();
@@ -108,7 +118,7 @@ class PlanoContableController extends Controller
         $obras   = $lineas->pluck('codigo_proyecto')->unique()->values()->all();
         $reparto = new RepartoFifoTerceros($obras);
 
-        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos);
+        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
 
         // Control de cuadre: si no cuadra, no se exporta.
         $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
@@ -139,7 +149,8 @@ class PlanoContableController extends Controller
      *   Provision    -> CR 26050604 (sin tercero) / DB cuenta 61 (tercero SECAR).
      * El centro de costos va SOLO en las lineas de cuenta 6.
      */
-    private function construirMovimientos($lineas, RepartoFifoTerceros $reparto, int $numeroDoc, string $centroCostos): array
+    /** Público para poder probar el armado del movimiento (14→61 vs 14→14 de bolsa). */
+    public function construirMovimientos($lineas, RepartoFifoTerceros $reparto, int $numeroDoc, string $centroCostos, array $cerradasParciales = []): array
     {
         $porObra = $lineas->groupBy('codigo_proyecto');
         $mov = [];
@@ -153,21 +164,31 @@ class PlanoContableController extends Controller
                 $c14   = (string) $l->cuenta_14;
                 $c61   = (string) $l->cuenta_61;
 
+                // Costo que viene de una bolsa de área. El tercero es SECAR (bolsa interna)
+                // y el crédito de la cuenta 14 va en la OT de la bolsa (origen).
+                //   - Obra cerrada/parcial: 14 → 61 (débito 61 en la OT destino, con centro).
+                //   - Obra abierta:         14 → 14 misma cuenta, reclasificando la UN
+                //                           (de la bolsa a la obra destino).
+                if (!empty($l->origen_bolsa)) {
+                    if (isset($cerradasParciales[(string) $obra])) {
+                        if ($c61 === 'SIN HOMOLOGAR' || $c61 === '') {
+                            continue; // sin cuenta 61 no se puede aplicar a la 6
+                        }
+                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
+                        $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
+                    } else {
+                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
+                        $debitos[]  = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $obra, null, $monto, 0);
+                    }
+                    continue;
+                }
+
                 if ($c61 === 'SIN HOMOLOGAR' || $c61 === '') {
                     continue;   // no se puede mandar a SIESA sin cuenta destino
                 }
 
                 if ($l->es_provision) {
                     $creditos[] = $this->fila($numeroDoc, self::CUENTA_PROVISION, null, (string) $obra, null, 0, $monto);
-                    $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
-                    continue;
-                }
-
-                // Costo que viene de una bolsa de area: se ACREDITA la cuenta 14 en la OT
-                // de la bolsa (origen) y se DEBITA la cuenta 61 en la OT de la obra destino,
-                // con su centro de costos. Son bolsas internas: el tercero es SECAR.
-                if (!empty($l->origen_bolsa)) {
-                    $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
                     $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
                     continue;
                 }

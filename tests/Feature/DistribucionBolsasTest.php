@@ -145,6 +145,74 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function consume_las_cuentas_14_mas_antiguas_primero_y_guarda_la_trazabilidad(): void
+    {
+        // Bolsa con dos cuentas de distintos períodos: 300 en 2026-04 (más antigua) y
+        // 500 en 2026-06 (más nueva). Asignar 400 debe consumir primero la de abril
+        // (300 completo) y 100 de la de junio.
+        $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MTO00099', 'Costos por aplicar', 300, 4, 2026, '14200530'); // antigua
+        $this->rf('MTO00099', 'Costos por aplicar', 500, 6, 2026, '14200536'); // nueva
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'MTO00099', 'monto' => 400]]],
+        ])->assertRedirect();
+
+        // La cuenta antigua se consume completa; la nueva solo lo que falta.
+        $this->assertEqualsWithDelta(300, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->where('cuenta_14', '14200530')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(100, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->where('cuenta_14', '14200536')->sum('monto_aplicar'), 0.5);
+
+        // Trazabilidad persistida con las cuentas y períodos de origen.
+        $asig = BolsaAsignacion::where('bolsa_codigo', 'MTO00099')->where('codigo_proyecto', 'C-700')->first();
+        $this->assertNotNull($asig);
+        $det = collect($asig->detalle);
+        $this->assertSame(202604, (int) $det->firstWhere('cuenta_14', '14200530')['periodo']);
+        $this->assertEqualsWithDelta(300, (float) $det->firstWhere('cuenta_14', '14200530')['monto'], 0.5);
+        $this->assertEqualsWithDelta(100, (float) $det->firstWhere('cuenta_14', '14200536')['monto'], 0.5);
+    }
+
+    #[Test]
+    public function obra_cerrada_genera_14_a_61_y_obra_abierta_genera_14_a_14_reclasificando_un(): void
+    {
+        // Dos líneas origen_bolsa iguales, una a obra cerrada y otra a obra abierta.
+        // (La cuenta 61 va directa en la línea, no hace falta homologación.)
+        $dist = Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento', 'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false]);
+        foreach ([['C-CERR', 500], ['C-ABIE', 400]] as [$cod, $monto]) {
+            AplicacionCosto::create([
+                'distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026, 'codigo_proyecto' => $cod,
+                'cuenta_14' => '14200530', 'origen_bolsa' => 'MTO00099', 'cuenta_61' => '61200530',
+                'categoria' => 'MOI', 'nombre' => 'MO', 'monto_aplicar' => $monto, 'es_provision' => false, 'estado' => 'borrador',
+            ]);
+        }
+        $lineas = AplicacionCosto::where('distribucion_id', $dist->id)->orderBy('codigo_proyecto')->get();
+
+        $ctrl = new \App\Http\Controllers\Contable\PlanoContableController();
+        $reparto = new \App\Services\RepartoFifoTerceros([]);
+        // Solo C-CERR está cerrada/parcial.
+        $mov = $ctrl->construirMovimientos($lineas, $reparto, 99, '30020105', ['C-CERR' => true]);
+
+        // Obra CERRADA: débito en cuenta 61, UN = obra destino.
+        $debCerr = collect($mov)->first(fn ($m) => $m['unidad'] === 'C-CERR' && $m['debito'] > 0);
+        $this->assertSame('61200530', $debCerr['cuenta']);
+        // Crédito de esa obra: cuenta 14 en la UN de la bolsa (origen).
+        $creCerr = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0 && abs($m['credito'] - 500) < 0.5);
+        $this->assertSame('14200530', $creCerr['cuenta']);
+
+        // Obra ABIERTA: débito 14→14 (misma cuenta 14) en la UN de la obra destino.
+        $debAbie = collect($mov)->first(fn ($m) => $m['unidad'] === 'C-ABIE' && $m['debito'] > 0);
+        $this->assertSame('14200530', $debAbie['cuenta']);
+        $this->assertNull($debAbie['centro_costos']); // en cuenta 14 no va centro de costos
+        // Crédito de la abierta: cuenta 14 en la UN de la bolsa.
+        $creAbie = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0 && abs($m['credito'] - 400) < 0.5);
+        $this->assertSame('14200530', $creAbie['cuenta']);
+
+        // El plano cuadra.
+        $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 0.5);
+    }
+
+    #[Test]
     public function el_servicio_agrupa_los_componentes_de_la_bolsa(): void
     {
         $svc = new DistribucionService();

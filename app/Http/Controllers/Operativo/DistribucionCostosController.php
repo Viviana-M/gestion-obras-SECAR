@@ -273,8 +273,13 @@ class DistribucionCostosController extends Controller
             $o['sum_prov']    = array_sum(array_column($o['provisiones'], 'monto'));
 
             // Asignaciones de bolsa guardadas para esta obra: cuentan como costo del mes.
+            // Se arrastra el detalle (cuentas 14 y períodos) para mostrar trazabilidad.
             $o['asignaciones_bolsa'] = ($asignPorObra[$cod] ?? collect())
-                ->map(fn ($a) => ['bolsa' => $a->bolsa_codigo, 'monto' => (float) $a->monto])
+                ->map(fn ($a) => [
+                    'bolsa'   => $a->bolsa_codigo,
+                    'monto'   => (float) $a->monto,
+                    'detalle' => is_array($a->detalle) ? $a->detalle : [],
+                ])
                 ->values()->all();
             $o['sum_bolsa'] = array_sum(array_column($o['asignaciones_bolsa'], 'monto'));
 
@@ -366,6 +371,26 @@ class DistribucionCostosController extends Controller
         foreach ($bolsas as &$bp) {
             $bp['asignado']   = (float) ($asignPorBolsa[$bp['codigo']] ?? 0);
             $bp['disponible'] = max(0.0, round($bp['total'] - $bp['asignado'], 2));
+
+            // Saldo RESTANTE por cuenta 14 (para el consumo FIFO en vivo del front): se
+            // parte del saldo real de la bolsa y se descuenta lo ya consumido (según el
+            // detalle guardado), de modo que una nueva asignación no proponga cuentas ya
+            // agotadas por asignaciones previas del borrador.
+            $rest = [];
+            foreach ($bp['lineas'] as $l) {
+                $rest[$l['cuenta_14']] = [
+                    'cuenta_14' => $l['cuenta_14'], 'cuenta_61' => $l['cuenta_61'],
+                    'periodo'   => $l['periodo'],   'pendiente' => (float) $l['pendiente'],
+                ];
+            }
+            foreach ($asignBolsa->where('bolsa_codigo', $bp['codigo']) as $a) {
+                foreach ((array) (is_array($a->detalle) ? $a->detalle : []) as $d) {
+                    if (isset($rest[$d['cuenta_14']])) {
+                        $rest[$d['cuenta_14']]['pendiente'] -= (float) $d['monto'];
+                    }
+                }
+            }
+            $bp['lineas'] = array_values(array_filter($rest, fn ($r) => $r['pendiente'] > 0.5));
         }
         unset($bp);
 
@@ -621,23 +646,31 @@ class DistribucionCostosController extends Controller
 
             foreach ($asignFinal as $cod => $porBolsa) {
                 foreach ($porBolsa as $bolsa => $monto) {
-                    BolsaAsignacion::create([
-                        'distribucion_id' => $distribucion->id,
-                        'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
-                        'bolsa_codigo' => $bolsa, 'codigo_proyecto' => $cod,
-                        'monto' => $monto, 'user_id' => $request->user()?->id,
-                    ]);
-
                     $info    = collect($saldoBolsaCuentas[$bolsa] ?? [])->keyBy('cuenta_14');
+                    // Consumo FIFO real (más antiguo primero) sobre el pool de la bolsa.
                     $reparto = $this->svc->drenarFifo($poolBolsa[$bolsa], (float) $monto);
+
+                    $detalle = [];
                     foreach ($reparto as $c14 => $m) {
                         if ($m <= 0.005) continue;
-                        $h = $homol[(string) $c14] ?? null;
+                        $h  = $homol[(string) $c14] ?? null;
+                        $c61 = $h->cuenta_61 ?? ($info[$c14]['cuenta_61'] ?? 'SIN HOMOLOGAR');
+                        $per = (int) ($info[$c14]['periodo'] ?? 0);
+
+                        // Trazabilidad: de qué cuenta 14 y período salió cada porción.
+                        $detalle[] = [
+                            'cuenta_14' => (string) $c14,
+                            'cuenta_61' => (string) $c61,
+                            'periodo'   => $per,
+                            'monto'     => round($m, 2),
+                        ];
+
+                        // Reflejo en el costo del proyecto y en el plano (línea origen_bolsa).
                         AplicacionCosto::create([
                             'distribucion_id' => $distribucion->id,
                             'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
                             'cuenta_14' => $c14, 'origen_bolsa' => $bolsa,
-                            'cuenta_61' => $h->cuenta_61 ?? ($info[$c14]['cuenta_61'] ?? 'SIN HOMOLOGAR'),
+                            'cuenta_61' => $c61,
                             'categoria' => $h->estructura ?? ($info[$c14]['estructura'] ?? null),
                             'nombre'    => $h->nombre ?? ($info[$c14]['nombre'] ?? null),
                             'monto_aplicar' => round($m, 2), 'es_provision' => false,
@@ -645,6 +678,14 @@ class DistribucionCostosController extends Controller
                             'estado' => 'borrador', 'user_id' => $request->user()?->id,
                         ]);
                     }
+
+                    BolsaAsignacion::create([
+                        'distribucion_id' => $distribucion->id,
+                        'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
+                        'bolsa_codigo' => $bolsa, 'codigo_proyecto' => $cod,
+                        'monto' => round((float) $monto, 2), 'detalle' => $detalle,
+                        'user_id' => $request->user()?->id,
+                    ]);
                 }
             }
 

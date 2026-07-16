@@ -20,10 +20,12 @@ class BolsaAsignacion extends Model
         'bolsa_codigo',
         'codigo_proyecto',
         'monto',
+        'detalle',
         'user_id',
     ];
 
     protected $casts = [
-        'monto' => 'decimal:2',
+        'monto'   => 'decimal:2',
+        'detalle' => 'array',
     ];
 }

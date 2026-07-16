@@ -331,8 +331,48 @@ const PERIODO = @json($mesNombre);
 // Disponible en vivo por bolsa (arranca en lo que dejó el servidor, ya descontadas
 // las asignaciones guardadas). Se decrementa al asignar y se repone al quitar.
 const dispBolsa = {};
-Object.keys(BOLSAS).forEach(c => { dispBolsa[c] = Number(BOLSAS[c].disponible || 0); });
+// Pool de saldo RESTANTE por cuenta 14 de cada bolsa (para el consumo FIFO en vivo).
+const poolBolsa = {};
+Object.keys(BOLSAS).forEach(c => {
+    dispBolsa[c] = Number(BOLSAS[c].disponible || 0);
+    poolBolsa[c] = (BOLSAS[c].lineas || []).map(l => ({
+        cuenta_14: l.cuenta_14, cuenta_61: l.cuenta_61,
+        periodo: Number(l.periodo || 0), pendiente: Number(l.pendiente || 0),
+    }));
+});
 let asignIdx = {};
+
+function fmtPeriodo(p){ p = Number(p||0); if(!p) return '—'; const y = Math.floor(p/100), m = p%100; return String(m).padStart(2,'0')+'/'+y; }
+
+// Consume 'monto' del pool de una bolsa en FIFO (período más antiguo primero, la última
+// porción parcial). Muta el pool y devuelve el detalle [{cuenta_14,cuenta_61,periodo,monto}].
+function drenarFifoJS(pool, monto){
+    pool.sort((a,b) => a.periodo - b.periodo);
+    let rem = Math.max(0, monto); const out = [];
+    for(const l of pool){
+        if(rem <= 0.005) break;
+        if(l.pendiente <= 0.005) continue;
+        const usar = Math.min(l.pendiente, rem);
+        out.push({cuenta_14:l.cuenta_14, cuenta_61:l.cuenta_61, periodo:l.periodo, monto:Math.round(usar)});
+        l.pendiente -= usar; rem -= usar;
+    }
+    return out;
+}
+// Repone al pool lo que devolvía un chip quitado (según su detalle).
+function restaurarPool(bolsa, detalle){
+    const pool = poolBolsa[bolsa]; if(!pool || !detalle) return;
+    detalle.forEach(d => {
+        const ln = pool.find(x => x.cuenta_14 === d.cuenta_14);
+        if(ln) ln.pendiente += Number(d.monto||0);
+        else pool.push({cuenta_14:d.cuenta_14, cuenta_61:d.cuenta_61, periodo:Number(d.periodo||0), pendiente:Number(d.monto||0)});
+    });
+}
+function detalleHtml(detalle){
+    return (detalle||[]).map(d =>
+        '<div style="font-size:10px;color:#92400E">· <span style="font-family:monospace">'+d.cuenta_14+'</span> '
+        + fmtPeriodo(d.periodo) + ' → <span style="font-family:monospace">'+d.cuenta_61+'</span>: '+fmt(d.monto)+'</div>'
+    ).join('');
+}
 const ESTCOL = {abierta:['#F0FDF4','#15803D'], parcial:['#FEF9C3','#854D0E'], cerrada:['#EFF6FF','#1B3F6E']};
 let provIdx = {};
 let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
@@ -486,13 +526,17 @@ function asignarBolsa(cod){
         monto = Math.round(disp);
     }
     const info = BOLSAS[bolsa] || {nombre:''};
+    // Consumo FIFO en vivo: de qué cuentas 14 (y períodos) sale este monto.
+    const detalle = drenarFifoJS(poolBolsa[bolsa], monto);
     asignIdx[cod] = (asignIdx[cod]||0) + 1; const i = 'n'+asignIdx[cod];
     const div = document.createElement('div');
-    div.style.cssText='display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
-    div.dataset.bolsa = bolsa; div.dataset.monto = monto;
-    div.innerHTML = '<span>🡒 Desde <b>'+bolsa+'</b> · '+(info.nombre||'')+'</span>'
+    div.style.cssText='font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+    div.dataset.bolsa = bolsa; div.dataset.monto = monto; div.dataset.detalle = JSON.stringify(detalle);
+    div.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between">'
+        + '<span>🡒 Desde <b>'+bolsa+'</b> · '+(info.nombre||'')+'</span>'
         + '<span style="display:flex;align-items:center;gap:8px"><b>'+fmt(monto)+'</b>'
-        + '<a href="#" onclick="quitarBolsa(this,\''+cod+'\');return false" style="color:#DC2626;text-decoration:none">✕</a></span>'
+        + '<a href="#" onclick="quitarBolsa(this,\''+cod+'\');return false" style="color:#DC2626;text-decoration:none">✕</a></span></div>'
+        + '<div style="margin-top:2px">'+detalleHtml(detalle)+'</div>'
         + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][bolsa]" value="'+bolsa+'">'
         + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][monto]" value="'+monto+'" data-cod="'+cod+'" data-tipo="bolsa" data-bolsa="'+bolsa+'">';
     document.getElementById('asigns-'+cod).appendChild(div);
@@ -507,6 +551,8 @@ function quitarBolsa(el, cod){
     if(!chip) return;
     const bolsa = chip.dataset.bolsa;
     const monto = parseFloat(chip.dataset.monto||0);
+    let detalle = []; try { detalle = JSON.parse(chip.dataset.detalle || '[]'); } catch(e){}
+    restaurarPool(bolsa, detalle);          // devuelve el saldo a las cuentas de la bolsa
     dispBolsa[bolsa] = (dispBolsa[bolsa]||0) + monto;
     chip.remove();
     fmtBolsaDisp(bolsa);

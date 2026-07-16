@@ -283,10 +283,18 @@
 
             <div id="asigns-{{ $cod }}">
                 @foreach($o['asignaciones_bolsa'] as $i => $ab)
-                <div data-bolsa="{{ $ab['bolsa'] }}" data-monto="{{ round($ab['monto']) }}" style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px">
-                    <span>🡒 Desde <b>{{ $ab['bolsa'] }}</b></span>
-                    <span style="display:flex;align-items:center;gap:8px"><b>{{ $fmt($ab['monto']) }}</b>
-                        <a href="#" onclick="quitarBolsa(this,'{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
+                <div data-bolsa="{{ $ab['bolsa'] }}" data-monto="{{ round($ab['monto']) }}" data-detalle="{{ json_encode($ab['detalle'] ?? []) }}" style="font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                        <span>🡒 Desde <b>{{ $ab['bolsa'] }}</b></span>
+                        <span style="display:flex;align-items:center;gap:8px"><b>{{ $fmt($ab['monto']) }}</b>
+                            <a href="#" onclick="quitarBolsa(this,'{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
+                    </div>
+                    <div style="margin-top:2px">
+                        @foreach(($ab['detalle'] ?? []) as $d)
+                            @php $per = (int)($d['periodo'] ?? 0); $mm = $per % 100; $yy = intdiv($per, 100); @endphp
+                            <div style="font-size:10px;color:#92400E">· <span style="font-family:monospace">{{ $d['cuenta_14'] }}</span> {{ $per ? sprintf('%02d/%d', $mm, $yy) : '—' }} → <span style="font-family:monospace">{{ $d['cuenta_61'] }}</span>: {{ $fmt($d['monto']) }}</div>
+                        @endforeach
+                    </div>
                     <input type="hidden" name="asignacion_bolsa[{{ $cod }}][s{{ $i }}][bolsa]" value="{{ $ab['bolsa'] }}">
                     <input type="hidden" name="asignacion_bolsa[{{ $cod }}][s{{ $i }}][monto]" value="{{ round($ab['monto']) }}" data-cod="{{ $cod }}" data-tipo="bolsa" data-bolsa="{{ $ab['bolsa'] }}">
                 </div>
