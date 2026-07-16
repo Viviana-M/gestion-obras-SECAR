@@ -50,7 +50,7 @@ class DistribucionAreasController extends Controller
         $bolsaSel = $request->get('bolsa');
         $saldoBolsa = [];
         if ($bolsaSel) {
-            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel, $periodo);
+            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel, $periodo, $anio, $mes);
         }
 
         // OT del departamento (proyectos reales, excluyendo las bolsas)
@@ -76,12 +76,20 @@ class DistribucionAreasController extends Controller
     // La cuenta 61 destino y la estructura se toman de la homologación VIGENTE EN EL
     // PERÍODO que se está distribuyendo, no de la de hoy. Así, si contabilidad cambió
     // una cuenta, un período anterior sigue mostrando la cuenta que le correspondía.
-    private function saldoBolsaPorCuenta(string $bolsa, int $periodo): array
+    private function saldoBolsaPorCuenta(string $bolsa, int $periodo, int $anio, int $mes): array
     {
         $homol = Homologacion::mapaEn($periodo);
 
+        // Saldo ACUMULADO AL MES FILTRADO (mismo corte que sumaAcum): no se cuentan los
+        // movimientos de meses posteriores al seleccionado.
         $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('codigo_proyecto', $bolsa)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            })
             ->selectRaw('cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('cuenta_contable')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')

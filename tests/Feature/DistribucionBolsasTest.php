@@ -213,6 +213,32 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_disponible_es_el_acumulado_al_mes_filtrado_no_los_periodos_posteriores(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        // Bolsa: 300 hasta el mes filtrado (jul) y 900 en un mes POSTERIOR (ago).
+        $this->rf('MTO00099', 'Costos por aplicar', 300, 6, 2026, '14200530'); // dentro del corte
+        $this->rf('MTO00099', 'Costos por aplicar', 900, 8, 2026, '14200530'); // posterior a jul
+
+        // El panel del mes 7 debe mostrar solo 300 disponible (no 1.200).
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertStatus(200);
+        $resp->assertSee('id="bolsa-box-MTO00099"', false);
+        $resp->assertSee('$300', false);
+        $resp->assertDontSee('$1.200', false);
+
+        // Y el servidor no deja asignar más que ese disponible acumulado (300).
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'MTO00099', 'monto' => 1000]]],
+        ])->assertRedirect();
+        $this->assertEqualsWithDelta(300, (float) BolsaAsignacion::where('bolsa_codigo', 'MTO00099')->sum('monto'), 0.5);
+        $this->assertEqualsWithDelta(300, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
     public function el_servicio_agrupa_los_componentes_de_la_bolsa(): void
     {
         $svc = new DistribucionService();

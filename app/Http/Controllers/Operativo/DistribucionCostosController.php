@@ -367,7 +367,7 @@ class DistribucionCostosController extends Controller
 
         // Panel de bolsas de área (origen del costo): total, desglose por componente y
         // disponible por distribuir = total − lo ya asignado en este borrador.
-        $bolsas = $this->svc->bolsasDelDepartamento($depEfectivo, $periodo);
+        $bolsas = $this->svc->bolsasDelDepartamento($depEfectivo, $periodo, $anio, $mes);
         foreach ($bolsas as &$bp) {
             $bp['asignado']   = (float) ($asignPorBolsa[$bp['codigo']] ?? 0);
             $bp['disponible'] = max(0.0, round($bp['total'] - $bp['asignado'], 2));
@@ -512,7 +512,7 @@ class DistribucionCostosController extends Controller
             $bolsaCods = array_merge($bolsaCods, array_keys($porBolsa));
         }
         $bolsaCods = array_values(array_unique($bolsaCods));
-        $saldoBolsaCuentas = $this->svc->saldosBolsasPorCuenta($bolsaCods, $periodoG); // [bolsa => líneas]
+        $saldoBolsaCuentas = $this->svc->saldosBolsasPorCuenta($bolsaCods, $periodoG, $anio, $mes); // [bolsa => líneas]
 
         // Pool mutable de saldo por cuenta de cada bolsa: se va drenando FIFO a medida
         // que se reparte a las obras, para no acreditar una cuenta 14 más de su saldo.

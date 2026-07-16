@@ -46,7 +46,7 @@ class DistribucionService
      *
      * @return array<int, array{codigo:string,nombre:string,departamento:string,total:float,componentes:array,lineas:array}>
      */
-    public function bolsasDelDepartamento(?string $departamento, int $periodo): array
+    public function bolsasDelDepartamento(?string $departamento, int $periodo, int $anio, int $mes): array
     {
         $query = UnBolsa::where('activo', true);
         if ($departamento) {
@@ -57,7 +57,7 @@ class DistribucionService
             return [];
         }
 
-        $saldos = $this->saldosBolsasPorCuenta($bolsas->pluck('codigo')->all(), $periodo);
+        $saldos = $this->saldosBolsasPorCuenta($bolsas->pluck('codigo')->all(), $periodo, $anio, $mes);
 
         $resultado = [];
         foreach ($bolsas as $b) {
@@ -83,17 +83,30 @@ class DistribucionService
      * estructura), en un solo barrido. En las bolsas de área un saldo POSITIVO es
      * costo por repartir; el negativo (reversado de más) se ignora aquí.
      *
+     * El saldo es el ACUMULADO AL MES FILTRADO (mismo corte que sumaAcum): se suman
+     * los movimientos hasta (anio, mes), no todos los períodos. Así un movimiento de la
+     * bolsa posterior al mes seleccionado no infla el disponible de ese mes.
+     *
      * @return array<string, array<int, array>>  [codigo_bolsa => [ líneas ]]
      */
-    public function saldosBolsasPorCuenta(array $codigos, int $periodo): array
+    public function saldosBolsasPorCuenta(array $codigos, int $periodo, int $anio, int $mes): array
     {
         if (empty($codigos)) {
             return [];
         }
         $homol = Homologacion::mapaEn($periodo);
 
+        // Corte "acumulado al mes": anio anterior, o mismo anio hasta el mes filtrado.
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where('anio', '<', $anio)
+              ->orWhere(function ($q2) use ($anio, $mes) {
+                  $q2->where('anio', $anio)->where('mes', '<=', $mes);
+              });
+        };
+
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
+            ->where($corteAcum)
             ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->havingRaw('SUM(estado_er) > 0.5')
@@ -121,8 +134,10 @@ class DistribucionService
         }
 
         // Antigüedad (período más viejo) de cada cuenta, para repartir FIFO al guardar.
+        // Mismo corte acumulado al mes filtrado.
         $per = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
+            ->where($corteAcum)
             ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->get();
