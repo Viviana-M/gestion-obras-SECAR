@@ -305,7 +305,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
                 <div style="flex:2;min-width:200px">
                     <label style="font-size:10px;color:#6B7280;display:block">Bolsa (UN)</label>
-                    <select id="asignbolsa-cta-{{ $cod }}" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
+                    <select id="asignbolsa-cta-{{ $cod }}" onchange="actualizarDispObra('{{ $cod }}')" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
                         <option value="">— Elegir bolsa —</option>
                         @foreach($bolsas as $b)
                             <option value="{{ $b['codigo'] }}">{{ $b['codigo'] }} · {{ Str::limit($b['nombre'], 26) }}</option>
@@ -317,6 +317,10 @@
                     <input type="number" id="asignbolsa-monto-{{ $cod }}" min="0" step="1" placeholder="0" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
                 </div>
                 <button type="button" onclick="asignarBolsa('{{ $cod }}')" style="padding:7px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Asignar</button>
+            </div>
+            {{-- Disponible de la bolsa elegida (acumulado al mes), en vivo, sin subir al panel --}}
+            <div id="disp-obra-wrap-{{ $cod }}" style="font-size:11px;color:#92400E;margin-top:6px;display:none">
+                Disponible en <b id="disp-obra-bolsa-{{ $cod }}">—</b>: <b id="disp-obra-{{ $cod }}">$0</b>
             </div>
             @endif
         </div>

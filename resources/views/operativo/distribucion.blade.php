@@ -509,6 +509,29 @@ function fmtBolsaDisp(c){
     const dispEl = document.getElementById('bolsa-disp-'+c); if(dispEl) dispEl.textContent = fmt(disp);
     const barEl  = document.getElementById('bolsa-bar-'+c);  if(barEl)  barEl.style.width = pct + '%';
     const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'block' : 'none';
+    // El disponible cambió: refrescar el indicador dentro de cada obra que muestre esta bolsa.
+    refrescarDispObras();
+}
+
+/* Disponible de la bolsa elegida, mostrado DENTRO de cada obra (junto a "Asignar
+   desde bolsa"), para no tener que subir al panel. Refleja el disponible acumulado
+   al mes y se actualiza en vivo con cada asignación. */
+function actualizarDispObra(cod){
+    const sel  = document.getElementById('asignbolsa-cta-'+cod);
+    const wrap = document.getElementById('disp-obra-wrap-'+cod);
+    if(!sel || !wrap) return;
+    const bolsa = sel.value;
+    if(!bolsa){ wrap.style.display = 'none'; return; }
+    const disp = Math.max(0, dispBolsa[bolsa] || 0);
+    const bEl = document.getElementById('disp-obra-bolsa-'+cod); if(bEl) bEl.textContent = bolsa;
+    const dEl = document.getElementById('disp-obra-'+cod);
+    if(dEl){ dEl.textContent = fmt(disp); dEl.style.color = disp <= 0.5 ? '#DC2626' : '#92400E'; }
+    wrap.style.display = 'block';
+}
+function refrescarDispObras(){
+    document.querySelectorAll('[id^="asignbolsa-cta-"]').forEach(sel => {
+        actualizarDispObra(sel.id.slice('asignbolsa-cta-'.length));
+    });
 }
 
 function asignarBolsa(cod){
@@ -780,6 +803,7 @@ function bloquearForm(){
 
 document.addEventListener('DOMContentLoaded', function(){
     for (const cod in DATOS) { evaluarCerrable(cod); }
+    refrescarDispObras();   // disponible por bolsa dentro de cada obra
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 
     // Enlaces por addEventListener (además de los inline): garantizan que el
