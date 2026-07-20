@@ -187,7 +187,7 @@
             </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="buscador" placeholder="🔎 Código o cliente…" autocomplete="off"
+            <input type="text" id="buscador" placeholder="🔎 Código, proyecto o cliente…" autocomplete="off"
                 style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
             <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
             <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
@@ -416,11 +416,17 @@ function expandirTodo(abrir){
     if(abrir){ abrirGrupo('con'); abrirGrupo('sin'); }
     document.querySelectorAll('[id^="obra-"]').forEach(e => { e.style.display = abrir ? 'block' : 'none'; });
 }
-/* Buscador por código o cliente. */
+/* Normaliza para buscar: minúsculas y SIN acentos (á→a), para que "valle"
+   encuentre "FUNDACIÓN VALLE DEL LILI". */
+function normalizaBuscar(s){
+    return (s == null ? '' : String(s)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+/* Buscador por código, nombre del proyecto o cliente (coincidencia parcial,
+   insensible a mayúsculas y acentos). Encuentra también dentro de grupos colapsados. */
 function filtrarObras(q){
-    q = (q||'').trim().toLowerCase();
+    q = normalizaBuscar(q).trim();
     document.querySelectorAll('.obra-card').forEach(card => {
-        const hay = !q || (card.dataset.buscar||'').includes(q);
+        const hay = !q || normalizaBuscar(card.dataset.buscar).includes(q);
         card.style.display = hay ? '' : 'none';
     });
     if(q){ abrirGrupo('con'); abrirGrupo('sin'); } // al buscar, abre ambos grupos

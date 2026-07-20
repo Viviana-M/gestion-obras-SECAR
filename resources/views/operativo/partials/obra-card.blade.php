@@ -5,11 +5,12 @@
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span id="dot-{{ $cod }}" style="width:9px;height:9px;border-radius:50%;background:{{ $colSem[$o['semaforo']] }};display:inline-block"></span>
-                {{-- Encabezado: código - nombre del proyecto · cliente --}}
+                {{-- Encabezado: código - nombre del proyecto · cliente.
+                     Nombre completo (hace wrap si es largo) + title como tooltip; no se pierde texto. --}}
                 <span style="font-weight:600;color:#1B3F6E">{{ $cod }}</span>
-                <span style="font-size:12px;color:#374151">- {{ Str::limit($o['nombre'], 40) }}</span>
+                <span style="font-size:12px;color:#374151;word-break:break-word" title="{{ $o['nombre'] }}">- {{ $o['nombre'] }}</span>
                 @if(!empty($o['cliente']))
-                    <span style="font-size:11px;color:#6B7280">· 🏢 {{ Str::limit($o['cliente'], 40) }}</span>
+                    <span style="font-size:11px;color:#6B7280;word-break:break-word" title="{{ $o['cliente'] }}">· 🏢 {{ $o['cliente'] }}</span>
                 @endif
                 <select name="estado_obra[{{ $cod }}]" onclick="event.stopPropagation()" onchange="cambiarEstado('{{ $cod }}', this.value)"
                     style="font-size:11px;padding:3px 8px;border-radius:8px;border:1px solid {{ $ce[1] }};background:{{ $ce[0] }};color:{{ $ce[1] }};font-weight:500;cursor:pointer">

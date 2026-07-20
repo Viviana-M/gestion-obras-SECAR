@@ -54,6 +54,27 @@ class DistribucionEncabezadoTest extends TestCase
     }
 
     #[Test]
+    public function el_buscador_indexa_codigo_nombre_y_cliente(): void
+    {
+        FichaProyecto::create([
+            'codigo_proyecto' => 'O-2201',
+            'nombre_obra'     => 'FUNDACION VALLE DEL LILI',
+            'cliente'         => 'CLINICA VALLE DEL LILI',
+        ]);
+        $this->rf('O-2201', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('O-2201', 'Costos por aplicar', -100, 6, 2026, '14350105');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=instalaciones');
+
+        $resp->assertStatus(200);
+        // Placeholder ampliado.
+        $resp->assertSee('Código, proyecto o cliente', false);
+        // El índice de búsqueda de la tarjeta incluye código, nombre y cliente (en minúsculas).
+        $resp->assertSee('data-buscar="o-2201 fundacion valle del lili clinica valle del lili"', false);
+    }
+
+    #[Test]
     public function usa_el_nombre_de_los_movimientos_si_la_ficha_no_tiene_nombre(): void
     {
         // Sin ficha: cae al nombre_proyecto de los movimientos ("Proy MOB08657").
