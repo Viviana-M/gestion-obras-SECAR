@@ -117,9 +117,13 @@
     {{-- Encabezado de la OT --}}
     <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #F3F4F6;flex-wrap:wrap">
         <span style="width:9px;height:9px;border-radius:50%;background:{{ $sc[1] }}"></span>
+        {{-- Encabezado: código - nombre del proyecto · cliente --}}
         <span style="font-weight:700;color:#1B3F6E">{{ $o['codigo'] }}</span>
+        <span style="color:#374151;font-size:13px">- {{ \Illuminate\Support\Str::limit($o['nombre'], 45) }}</span>
+        @if(!empty($o['cliente']))
+            <span style="color:#6B7280;font-size:12px">· 🏢 {{ \Illuminate\Support\Str::limit($o['cliente'], 40) }}</span>
+        @endif
         <span style="font-size:11px;padding:2px 10px;border-radius:8px;background:{{ $sc[0] }};color:{{ $sc[1] }}">{{ ucfirst($o['estado']) }}</span>
-        <span style="color:#9CA3AF;font-size:13px">{{ \Illuminate\Support\Str::limit($o['nombre'], 45) }}</span>
     </div>
 
     {{-- Bloque 1: Estado de avance --}}

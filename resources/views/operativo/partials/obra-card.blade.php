@@ -1,21 +1,22 @@
 @php $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280']; @endphp
-<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ $o['requiere_autorizacion'] ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
+<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['nombre'] ?? '').' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ $o['requiere_autorizacion'] ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
 
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span id="dot-{{ $cod }}" style="width:9px;height:9px;border-radius:50%;background:{{ $colSem[$o['semaforo']] }};display:inline-block"></span>
+                {{-- Encabezado: código - nombre del proyecto · cliente --}}
                 <span style="font-weight:600;color:#1B3F6E">{{ $cod }}</span>
+                <span style="font-size:12px;color:#374151">- {{ Str::limit($o['nombre'], 40) }}</span>
+                @if(!empty($o['cliente']))
+                    <span style="font-size:11px;color:#6B7280">· 🏢 {{ Str::limit($o['cliente'], 40) }}</span>
+                @endif
                 <select name="estado_obra[{{ $cod }}]" onclick="event.stopPropagation()" onchange="cambiarEstado('{{ $cod }}', this.value)"
                     style="font-size:11px;padding:3px 8px;border-radius:8px;border:1px solid {{ $ce[1] }};background:{{ $ce[0] }};color:{{ $ce[1] }};font-weight:500;cursor:pointer">
                     <option value="abierta" {{ $o['estado']=='abierta'?'selected':'' }}>Abierta</option>
                     <option value="parcial" {{ $o['estado']=='parcial'?'selected':'' }}>Parcial</option>
                     <option value="cerrada" {{ $o['estado']=='cerrada'?'selected':'' }}>Cerrada</option>
                 </select>
-                <span style="font-size:12px;color:#9CA3AF">{{ Str::limit($o['nombre'], 36) }}</span>
-                @if(!empty($o['cliente']))
-                    <span style="font-size:11px;color:#6B7280">· 🏢 {{ Str::limit($o['cliente'], 28) }}</span>
-                @endif
                 @if($o['bloqueado_ingreso'])
                     <span onclick="event.stopPropagation()" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#B91C1C">🔒 Sin ingreso{{ $o['autorizacion_estado'] === 'pendiente' ? ' · pendiente' : ($o['autorizacion_estado'] === 'rechazada' ? ' · rechazada' : '') }}</span>
                 @elseif($o['autorizado'])

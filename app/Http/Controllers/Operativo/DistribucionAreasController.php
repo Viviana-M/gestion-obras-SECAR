@@ -144,7 +144,7 @@ class DistribucionAreasController extends Controller
             ->groupBy('codigo_proyecto')->pluck('saldo', 'codigo_proyecto');
 
         $fichas = FichaProyecto::whereIn('codigo_proyecto', $codigos)
-            ->get(['codigo_proyecto', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+            ->get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
             ->keyBy('codigo_proyecto');
 
         $nombres = RegistroFinanciero::whereIn('codigo_proyecto', $codigos)
@@ -164,7 +164,9 @@ class DistribucionAreasController extends Controller
 
             $o = [
                 'codigo'         => $cod,
-                'nombre'         => $nombres[$cod] ?? '',
+                // Nombre del proyecto de la ficha; si no hay, el de los movimientos.
+                'nombre'         => ($fichas[$cod]->nombre_obra ?? null) ?: ($nombres[$cod] ?? ''),
+                'cliente'        => $fichas[$cod]->cliente ?? null,
                 'estado'         => $estadoManual[$cod] ?? (isset($cerradas[$cod]) ? 'cerrada' : 'abierta'),
                 'ingreso_mes'    => (float) ($ingresoMes[$cod] ?? 0),
                 'ingreso_acum'   => (float) ($ingresoAcum[$cod] ?? 0),

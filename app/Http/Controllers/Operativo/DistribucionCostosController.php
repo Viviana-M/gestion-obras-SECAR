@@ -139,8 +139,9 @@ class DistribucionCostosController extends Controller
             ->groupBy('codigo_proyecto')
             ->pluck('saldo', 'codigo_proyecto');
 
-        // Datos comerciales de la ficha: cliente, valor de oferta y costo presupuestado.
-        $fichas = FichaProyecto::get(['codigo_proyecto', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+        // Datos comerciales de la ficha: nombre del proyecto, cliente, valor de oferta
+        // y costo presupuestado.
+        $fichas = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
             ->keyBy('codigo_proyecto');
 
         $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
@@ -999,7 +1000,9 @@ class DistribucionCostosController extends Controller
         }
 
         return [
-            'codigo' => $cod, 'nombre' => $nombre, 'estado' => $estado, 'cat' => $cat,
+            // Nombre del proyecto de la ficha; si no hay, el que ya venía (razón social /
+            // nombre_proyecto de los movimientos), para no dejarlo vacío.
+            'codigo' => $cod, 'nombre' => ($fichas[$cod]->nombre_obra ?? null) ?: $nombre, 'estado' => $estado, 'cat' => $cat,
             'cliente' => $fichas[$cod]->cliente ?? null,
             'total_pendiente' => 0, 'total_reversado' => 0,
             'ingreso_mes'    => (float) ($ingresoMes[$cod] ?? 0),
