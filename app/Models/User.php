@@ -97,6 +97,31 @@ class User extends Authenticatable
         return ($this->mapaPermisos()[$clave] ?? null) === 'editar';
     }
 
+    /**
+     * Página de inicio del usuario: el PRIMER módulo que pueda ver, en el orden del
+     * menú lateral. Los roles son cargos, así que el inicio NO depende del rol sino
+     * de los permisos: cada quien aterriza donde tiene acceso (el admin ve todo, así
+     * que cae en el primero, el financiero). Sin ningún módulo → a un lugar seguro.
+     */
+    public function paginaInicio(): string
+    {
+        $modulos = [
+            'gestion_financiera' => '/dashboard',
+            'operacion'          => '/operativo/distribucion',
+            'comercial'          => '/comercial/cotizaciones',
+            'contabilidad'       => '/contable/homologaciones',
+        ];
+
+        foreach ($modulos as $clave => $ruta) {
+            if ($this->puedeVerModulo($clave)) {
+                return $ruta;
+            }
+        }
+
+        // Sin acceso a ningún módulo: al perfil (siempre disponible para autenticados).
+        return '/profile';
+    }
+
     // Nivel de un modulo: 'editar' | 'ver' | null (sin acceso). Admin -> 'editar'.
     public function nivelModulo(string $clave): ?string
     {

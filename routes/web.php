@@ -12,6 +12,11 @@ use App\Http\Middleware\UsuarioActivo;
 use App\Http\Controllers\Contable\PlanoReclasificacionController;
 
 Route::get('/', function () {
+    // Si ya inició sesión, llévalo a su página de inicio (primer módulo con permiso);
+    // si no, la portada pública.
+    if (auth()->check()) {
+        return redirect(auth()->user()->paginaInicio());
+    }
     return view('welcome');
 });
 
