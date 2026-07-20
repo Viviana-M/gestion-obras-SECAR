@@ -149,5 +149,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/admin/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'store'])->name('admin.mano-obra-directa.store');
     Route::put('/admin/mano-obra-directa/{manoObraDirecta}', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'update'])->name('admin.mano-obra-directa.update');
     Route::put('/admin/mano-obra-directa/{manoObraDirecta}/toggle', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'toggle'])->name('admin.mano-obra-directa.toggle');
+    Route::get('/admin/llave-items', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'index'])->name('admin.llave-items.index');
+    Route::post('/admin/llave-items', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'store'])->name('admin.llave-items.store');
+    Route::post('/admin/llave-items/importar', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'importar'])->name('admin.llave-items.importar');
+    Route::put('/admin/llave-items/{llaveItemCuenta}', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'update'])->name('admin.llave-items.update');
+    Route::put('/admin/llave-items/{llaveItemCuenta}/toggle', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'toggle'])->name('admin.llave-items.toggle');
 });
 require __DIR__.'/auth.php';
