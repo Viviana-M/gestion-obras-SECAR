@@ -80,8 +80,10 @@ class DistribucionService
 
     /**
      * Saldo de varias bolsas desglosado por cuenta 14 (con su cuenta 61 destino y
-     * estructura), en un solo barrido. En las bolsas de área un saldo POSITIVO es
-     * costo por repartir; el negativo (reversado de más) se ignora aquí.
+     * estructura), en un solo barrido. Igual que en los proyectos: el costo por aplicar
+     * se guarda con estado_er NEGATIVO (el importador pone signo -1 a las cuentas 1420),
+     * así que el "por repartir" es el lado NEGATIVO (pendiente = abs(saldo)); el positivo
+     * sería un reversado de más y no cuenta como por repartir.
      *
      * El saldo es el ACUMULADO AL MES FILTRADO (mismo corte que sumaAcum): se suman
      * los movimientos hasta (anio, mes), no todos los períodos. Así un movimiento de la
@@ -109,14 +111,14 @@ class DistribucionService
             ->where($corteAcum)
             ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
-            ->havingRaw('SUM(estado_er) > 0.5')
+            ->havingRaw('SUM(estado_er) < -0.5') // lado negativo = costo por repartir
             ->get();
 
         $out = [];
         foreach ($filas as $f) {
             $saldo = round((float) $f->saldo, 2);
-            if ($saldo <= 0.5) {
-                continue;
+            if ($saldo >= -0.5) {
+                continue; // solo el lado negativo (por repartir)
             }
             $h = $homol[(string) $f->cuenta_contable] ?? null;
             $estructura = $h->estructura ?? 'OTROS COSTO';
@@ -129,7 +131,7 @@ class DistribucionService
                 'nombre'     => $h->nombre ?? $f->descripcion,
                 'estructura' => $estructura,
                 'periodo'    => 0,
-                'pendiente'  => $saldo,
+                'pendiente'  => abs($saldo), // el saldo viene negativo
             ];
         }
 

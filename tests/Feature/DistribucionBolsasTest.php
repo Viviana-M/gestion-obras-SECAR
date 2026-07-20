@@ -37,15 +37,21 @@ class DistribucionBolsasTest extends TestCase
         ]);
     }
 
+    /** Movimiento de cuenta 14 de una BOLSA: el costo por repartir va NEGATIVO (como en proyectos). */
+    private function bolsa(string $codigo, float $monto, int $mes, int $anio, string $cc = '14200530'): void
+    {
+        $this->rf($codigo, 'Costos por aplicar', -abs($monto), $mes, $anio, $cc);
+    }
+
     /**
      * Obra C-700 (mantenimiento) con ingreso y un pendiente propio de cuenta 14, más
-     * la bolsa MTO00099 con +1000 por repartir (saldo positivo = costo por distribuir).
+     * la bolsa MTO00099 con 1000 por repartir (estado_er negativo = costo por distribuir).
      */
     private function seedBase(): void
     {
         $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105'); // pendiente propio
-        $this->rf('MTO00099', 'Costos por aplicar', 1000, 6, 2026, '14200530'); // bolsa: por repartir
+        $this->bolsa('MTO00099', 1000, 6, 2026); // bolsa: por repartir
     }
 
     #[Test]
@@ -152,8 +158,8 @@ class DistribucionBolsasTest extends TestCase
         // (300 completo) y 100 de la de junio.
         $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
-        $this->rf('MTO00099', 'Costos por aplicar', 300, 4, 2026, '14200530'); // antigua
-        $this->rf('MTO00099', 'Costos por aplicar', 500, 6, 2026, '14200536'); // nueva
+        $this->bolsa('MTO00099', 300, 4, 2026, '14200530'); // antigua
+        $this->bolsa('MTO00099', 500, 6, 2026, '14200536'); // nueva
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
@@ -218,8 +224,8 @@ class DistribucionBolsasTest extends TestCase
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
         // Bolsa: 300 hasta el mes filtrado (jul) y 900 en un mes POSTERIOR (ago).
-        $this->rf('MTO00099', 'Costos por aplicar', 300, 6, 2026, '14200530'); // dentro del corte
-        $this->rf('MTO00099', 'Costos por aplicar', 900, 8, 2026, '14200530'); // posterior a jul
+        $this->bolsa('MTO00099', 300, 6, 2026, '14200530'); // dentro del corte
+        $this->bolsa('MTO00099', 900, 8, 2026, '14200530'); // posterior a jul
 
         // El panel del mes 7 debe mostrar solo 300 disponible (no 1.200).
         $resp = $this->actingAs($this->operador())
@@ -242,12 +248,12 @@ class DistribucionBolsasTest extends TestCase
     public function el_panel_trae_todas_las_un_activas_del_departamento_con_saldo_acumulado(): void
     {
         // Mantenimiento: dos UN con saldo hasta jul; una solo con saldo POSTERIOR (ago).
-        $this->rf('MTO00001', 'Costos por aplicar', 300, 5, 2026, '14200530');
-        $this->rf('MTO00001', 'Costos por aplicar', 200, 6, 2026, '14200536');
-        $this->rf('MTO00002', 'Costos por aplicar', 400, 6, 2026, '14200530');
-        $this->rf('MTO00003', 'Costos por aplicar', 900, 8, 2026, '14200530'); // posterior a jul
+        $this->bolsa('MTO00001', 300, 5, 2026, '14200530');
+        $this->bolsa('MTO00001', 200, 6, 2026, '14200536');
+        $this->bolsa('MTO00002', 400, 6, 2026, '14200530');
+        $this->bolsa('MTO00003', 900, 8, 2026, '14200530'); // posterior a jul
         // Instalaciones: una UN con saldo.
-        $this->rf('INS00001', 'Costos por aplicar', 700, 6, 2026, '14200530');
+        $this->bolsa('INS00001', 700, 6, 2026, '14200530');
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 7);
@@ -270,11 +276,31 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_por_repartir_de_la_bolsa_es_el_lado_negativo_no_el_positivo(): void
+    {
+        // El costo por aplicar se guarda NEGATIVO. Una cuenta con saldo positivo es un
+        // reversado y NO cuenta como por repartir.
+        $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                       // -41M = por repartir
+        $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');        // +500K reversado
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 7);
+        $b = collect($svc->bolsasDelDepartamento('mantenimiento', $periodo, 2026, 7))->keyBy('codigo');
+
+        $this->assertTrue($b->has('MTO00099'));
+        // Toma el saldo real (~41M), no el lado positivo (500K).
+        $this->assertEqualsWithDelta(41000000, $b['MTO00099']['total'], 0.5);
+        $cuentas = collect($b['MTO00099']['lineas'])->pluck('cuenta_14')->all();
+        $this->assertContains('14200530', $cuentas);      // negativa: por repartir
+        $this->assertNotContains('14200536', $cuentas);   // positiva (reversado): no cuenta
+    }
+
+    #[Test]
     public function el_panel_de_bolsas_se_muestra_aunque_no_haya_obras(): void
     {
         // Solo bolsas con saldo, ninguna obra con cuenta 14 propia.
-        $this->rf('MTO00001', 'Costos por aplicar', 500, 6, 2026, '14200530');
-        $this->rf('MTO00002', 'Costos por aplicar', 400, 6, 2026, '14200530');
+        $this->bolsa('MTO00001', 500, 6, 2026, '14200530');
+        $this->bolsa('MTO00002', 400, 6, 2026, '14200530');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
