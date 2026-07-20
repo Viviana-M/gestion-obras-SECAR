@@ -45,6 +45,7 @@ class PlanoContableController extends Controller
 
         $versiones = Distribucion::where('mes', $mes)->where('anio', $anio)
             ->where('estado', 'enviado')
+            ->where('reemplazada', false) // solo la versión vigente (no las reemplazadas por reenvío)
             ->orderBy('departamento')->orderByDesc('version')->get();
 
         $data = $versiones->map(function ($d) use ($aplican, $usuarios) {
@@ -93,6 +94,10 @@ class PlanoContableController extends Controller
         $centroCostos = self::CENTRO_COSTOS[$depto] ?? null;
         if ($centroCostos === null) {
             return back()->with('error', "No se que centro de costos usar para el departamento '{$depto}'.");
+        }
+
+        if ($distribucion->reemplazada) {
+            return back()->with('error', 'Esta version fue reemplazada por un reenvio posterior. Exporta la version vigente.');
         }
 
         $aplican    = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');

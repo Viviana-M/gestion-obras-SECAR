@@ -95,6 +95,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
+        // Informe: facturado por tipo de obra
+        Route::get('/operativo/facturado', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'facturado'])->name('operativo.facturado');
         Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
         Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
         Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');

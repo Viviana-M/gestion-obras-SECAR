@@ -131,6 +131,7 @@
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Mis distribuciones</a>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
                 <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Obras en revisión</a>
+                <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturado por tipo</a>
             </div>
         </div>
         @endif

@@ -33,6 +33,19 @@
             <input type="hidden" name="anio" value="{{ $anio }}">
             <input type="hidden" name="departamento" value="{{ $departamento ?? '' }}">
             <input type="hidden" name="descargar" value="1">
+            {{-- Mismo payload que produjo esta pantalla: aplicar + asignaciones de bolsa.
+                 Garantiza que el Excel traiga EXACTAMENTE los mismos totales. --}}
+            @foreach(($aplicar ?? []) as $cod => $cuentas)
+                @foreach((array) $cuentas as $c14 => $m)
+                    <input type="hidden" name="aplicar[{{ $cod }}][{{ $c14 }}]" value="{{ $m }}">
+                @endforeach
+            @endforeach
+            @foreach(($asignBolsa ?? []) as $cod => $porBolsa)
+                @foreach((array) $porBolsa as $bolsa => $m)
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][{{ $loop->parent->index }}_{{ $loop->index }}][bolsa]" value="{{ $bolsa }}">
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][{{ $loop->parent->index }}_{{ $loop->index }}][monto]" value="{{ $m }}">
+                @endforeach
+            @endforeach
             <button type="submit" style="padding:8px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;cursor:pointer">⬇ Descargar Excel</button>
         </form>
     </div>
@@ -120,6 +133,8 @@
                                 <td style="padding:4px 6px">
                                     @if($ln['origen'] === 'aplic')
                                         <span style="font-size:10px;background:#DCFCE7;color:#15803D;padding:1px 7px;border-radius:6px">Aplicado ahora</span>
+                                    @elseif($ln['origen'] === 'bolsa')
+                                        <span style="font-size:10px;background:#FFFBEB;color:#B45309;padding:1px 7px;border-radius:6px">Desde bolsa</span>
                                     @else
                                         <span style="font-size:10px;background:#EFF6FF;color:#1B3F6E;padding:1px 7px;border-radius:6px">Ya en cuenta 6</span>
                                     @endif

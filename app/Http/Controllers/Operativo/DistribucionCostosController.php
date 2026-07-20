@@ -20,6 +20,7 @@ use App\Services\DistribucionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Exports\ResumenDistribucionExport;
+use App\Exports\FacturadoTipoExport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\DistribucionVersion;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -702,6 +703,7 @@ class DistribucionCostosController extends Controller
 
             if ($accion === 'enviar') {
                 $distribucion->estado = 'enviado';
+                $distribucion->reemplazada = false; // esta pasa a ser la vigente
                 $distribucion->edicion_habilitada = false;
                 $distribucion->enviado_at = now();
                 $distribucion->enviado_por = $request->user()?->id;
@@ -710,6 +712,18 @@ class DistribucionCostosController extends Controller
                 $msg = 'Borrador guardado.';
             }
             $distribucion->save();
+
+            // Reenvío: cualquier OTRA versión enviada del mismo mes/año/departamento queda
+            // reemplazada, para que el plano de contabilidad no tenga dudas de cuál es la
+            // vigente (evita que un reenvío se lea contra una versión anterior).
+            if ($accion === 'enviar') {
+                Distribucion::where('mes', $distribucion->mes)
+                    ->where('anio', $distribucion->anio)
+                    ->where('departamento', $distribucion->departamento)
+                    ->where('id', '!=', $distribucion->id)
+                    ->where('estado', 'enviado')
+                    ->update(['reemplazada' => true]);
+            }
 
             // Registrar la versión en la bitácora (foto congelada de este momento)
             $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
@@ -751,7 +765,14 @@ class DistribucionCostosController extends Controller
             $departamento = 'mantenimiento';
         }
 
-        $datos = $this->construirResumen($mes, $anio, $departamento, $request->input('aplicar', []));
+        // El resumen (pantalla y Excel) se arma con EXACTAMENTE los mismos datos: lo que
+        // el operador escribió en "aplicar" y las asignaciones de bolsa. El botón de
+        // descarga reenvía este mismo payload (ver los hidden en la vista), así el Excel
+        // no recalcula con datos distintos.
+        $aplicar    = $request->input('aplicar', []);
+        $asignBolsa = $this->agruparAsignBolsa($request->input('asignacion_bolsa', []));
+
+        $datos = $this->construirResumen($mes, $anio, $departamento, $aplicar, $asignBolsa);
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? '').' '.$anio;
@@ -769,11 +790,98 @@ class DistribucionCostosController extends Controller
             'departamento' => $departamento,
             'periodo'      => $periodo,
             'descargar'    => false,
+            'aplicar'      => $aplicar,     // para reenviar el mismo payload en la descarga
+            'asignBolsa'   => $asignBolsa,
         ]));
     }
 
+    /**
+     * Informe: total FACTURADO del período agrupado por tipo de obra (según tipoObra()).
+     * Filtrable por mes/año y (para director/admin) por departamento. Descargable en Excel.
+     */
+    public function facturado(Request $request)
+    {
+        $mes  = (int) $request->input('mes', date('n'));
+        $anio = (int) $request->input('anio', date('Y'));
+
+        $usuario     = $request->user();
+        $depUsuario  = $usuario?->departamentoUnico();
+        $depElegido  = $request->input('departamento');
+        $depEfectivo = $depUsuario ?: ($depElegido ?: null);
+        $prefijos    = $depEfectivo ? User::prefijosDeDepartamento($depEfectivo) : null;
+
+        $labels = [
+            'obras'      => 'Obras',
+            'contrato'   => 'Contratos',
+            'reparacion' => 'Reparaciones',
+            'garantia'   => 'Garantías',
+            'otro'       => 'Otros',
+        ];
+        $porTipo = array_fill_keys(array_keys($labels), 0.0);
+        $total   = 0.0;
+
+        $bolsaCodigos = array_flip(UnBolsa::codigos()); // las bolsas no son facturación
+        $ingresoMes   = $this->sumaMes('Ingreso', $anio, $mes);
+
+        foreach ($ingresoMes as $cod => $val) {
+            if (isset($bolsaCodigos[$cod])) continue;
+            if ($prefijos !== null) {
+                $c = strtoupper((string) $cod); $ok = false;
+                foreach ($prefijos as $p) if (str_starts_with($c, $p)) { $ok = true; break; }
+                if (!$ok) continue;
+            }
+            $tk = $this->tipoObra((string) $cod);
+            if (!isset($porTipo[$tk])) $porTipo[$tk] = 0.0;
+            $porTipo[$tk] += (float) $val;
+            $total += (float) $val;
+        }
+
+        // Filas para la vista/Excel: solo los tipos con facturación (orden del menú).
+        $filas = [];
+        foreach ($labels as $tk => $label) {
+            if (abs($porTipo[$tk]) > 0.5) {
+                $filas[] = ['tipo' => $tk, 'label' => $label, 'total' => $porTipo[$tk]];
+            }
+        }
+
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? '').' '.$anio;
+
+        if ($request->input('descargar') == '1') {
+            $suf = $depEfectivo ? '_'.ucfirst($depEfectivo) : '';
+            $archivo = 'Facturado_por_tipo'.$suf.'_'.str_replace(' ', '_', $periodo).'.xlsx';
+            return Excel::download(new FacturadoTipoExport($filas, $total, $periodo), $archivo);
+        }
+
+        return view('operativo.facturado', [
+            'mes'         => $mes,
+            'anio'        => $anio,
+            'periodo'     => $periodo,
+            'depUsuario'  => $depUsuario,
+            'depEfectivo' => $depEfectivo,
+            'filas'       => $filas,
+            'total'       => $total,
+        ]);
+    }
+
+    /** Convierte el input del form (asignacion_bolsa[cod][idx]=['bolsa','monto']) a [cod => [bolsa => monto]]. */
+    private function agruparAsignBolsa($input): array
+    {
+        $out = [];
+        foreach ((array) $input as $cod => $items) {
+            foreach ((array) $items as $it) {
+                $bolsa = trim((string) ($it['bolsa'] ?? ''));
+                $monto = (float) ($it['monto'] ?? 0);
+                if ($bolsa === '' || $monto <= 0.5) continue;
+                $out[$cod][$bolsa] = ($out[$cod][$bolsa] ?? 0) + $monto;
+            }
+        }
+        return $out;
+    }
+
     // Lógica compartida: arma la tabla del resumen para un departamento concreto.
-    private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = []): array
+    // $asignBolsa = [cod => [bolsa => monto]] (costo asignado desde bolsas de área).
+    private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = [], array $asignBolsa = []): array
     {
         if ($departamento === 'instalaciones') {
             $tipos = ['obras' => 'Obras', 'garantia' => 'Garantías'];
@@ -871,6 +979,46 @@ class DistribucionCostosController extends Controller
                     'monto'    => $monto,
                     'origen'   => 'aplic',  // se aplica ahora
                 ];
+            }
+        }
+
+        // 4) Costo asignado desde bolsas de área (14 -> 6), repartido a las cuentas 14
+        //    reales de la bolsa por FIFO (mismo criterio que al guardar) y clasificado
+        //    por su estructura. Así el resumen incluye lo que se ve en la pantalla.
+        if (!empty($asignBolsa)) {
+            $bolsaCods = [];
+            foreach ($asignBolsa as $porBolsa) {
+                $bolsaCods = array_merge($bolsaCods, array_keys($porBolsa));
+            }
+            $bolsaCods = array_values(array_unique($bolsaCods));
+            $saldos = $this->svc->saldosBolsasPorCuenta($bolsaCods, $periodoContable, $anio, $mes);
+            $pool = [];
+            foreach ($saldos as $b => $ls) {
+                $pool[$b] = array_map(fn ($l) => [
+                    'cuenta_14' => $l['cuenta_14'], 'periodo' => $l['periodo'], 'monto' => (float) $l['pendiente'],
+                ], $ls);
+            }
+            foreach ($asignBolsa as $cod => $porBolsa) {
+                if (!$esDelDepto($cod)) continue;
+                $tk = $this->tipoObra((string) $cod);
+                if (!isset($tabla[$tk])) continue;
+                foreach ($porBolsa as $bolsa => $monto) {
+                    if (!isset($pool[$bolsa])) continue;
+                    foreach ($this->svc->drenarFifo($pool[$bolsa], (float) $monto) as $c14 => $m) {
+                        if ($m <= 0.005) continue;
+                        $h  = $mapa14[(string) $c14] ?? null;
+                        $ck = $h->estructura ?? 'OTROS COSTO';
+                        if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
+                        $tabla[$tk]['cat'][$ck] += $m;
+                        $tabla[$tk]['detalle'][$ck][] = [
+                            'proyecto'  => (string) $cod,
+                            'cuenta_14' => (string) $c14,
+                            'cuenta_61' => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
+                            'monto'     => $m,
+                            'origen'    => 'bolsa',  // asignado desde una bolsa de área
+                        ];
+                    }
+                }
             }
         }
 
