@@ -125,8 +125,9 @@
 </div>
 @endif
 
-@if($kpiObras > 0)
-{{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones --}}
+@if($kpiObras > 0 || !empty($bolsas))
+{{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones.
+     Se muestra aunque no haya obras, para que el panel de bolsas siempre esté visible. --}}
 <div style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
     @if(!empty($bolsas))
     {{-- Panel de bolsas de área: origen del costo por repartir --}}
@@ -169,6 +170,7 @@
         </div>
     </div>
     @endif
+    @if($kpiObras > 0)
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
         <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
             <div>
@@ -198,6 +200,7 @@
         <button type="button" onclick="ponerEnCero()" style="font-size:12px;padding:6px 14px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;cursor:pointer">Poner todo en 0</button>
         <button type="button" onclick="abrirCalculo()" style="font-size:12px;padding:6px 14px;border:1px solid #4338CA;border-radius:8px;background:#EEF2FF;color:#4338CA;font-weight:500;cursor:pointer">✨ Calcular costo sugerido</button>
     </div>
+    @endif
     @endif
 </div>
 @endif

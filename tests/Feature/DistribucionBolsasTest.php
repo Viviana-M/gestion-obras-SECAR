@@ -239,6 +239,53 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_panel_trae_todas_las_un_activas_del_departamento_con_saldo_acumulado(): void
+    {
+        // Mantenimiento: dos UN con saldo hasta jul; una solo con saldo POSTERIOR (ago).
+        $this->rf('MTO00001', 'Costos por aplicar', 300, 5, 2026, '14200530');
+        $this->rf('MTO00001', 'Costos por aplicar', 200, 6, 2026, '14200536');
+        $this->rf('MTO00002', 'Costos por aplicar', 400, 6, 2026, '14200530');
+        $this->rf('MTO00003', 'Costos por aplicar', 900, 8, 2026, '14200530'); // posterior a jul
+        // Instalaciones: una UN con saldo.
+        $this->rf('INS00001', 'Costos por aplicar', 700, 6, 2026, '14200530');
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 7);
+
+        // Filtro Mantenimiento: trae TODAS las UN de mantenimiento con saldo acumulado a jul.
+        $mant = collect($svc->bolsasDelDepartamento('mantenimiento', $periodo, 2026, 7))->keyBy('codigo');
+        $this->assertTrue($mant->has('MTO00001'));
+        $this->assertTrue($mant->has('MTO00002'));
+        $this->assertFalse($mant->has('MTO00003')); // su único movimiento es en agosto → oculta
+        $this->assertFalse($mant->has('INS00001')); // otro departamento
+        $this->assertEqualsWithDelta(500, $mant['MTO00001']['total'], 0.5); // 300+200 acumulado a jul
+        $this->assertEqualsWithDelta(400, $mant['MTO00002']['total'], 0.5);
+
+        // Filtro "Todos" (sin departamento): UN de ambos departamentos.
+        $todas = collect($svc->bolsasDelDepartamento(null, $periodo, 2026, 7))->keyBy('codigo');
+        $this->assertTrue($todas->has('MTO00001'));
+        $this->assertTrue($todas->has('MTO00002'));
+        $this->assertTrue($todas->has('INS00001'));
+        $this->assertFalse($todas->has('MTO00003'));
+    }
+
+    #[Test]
+    public function el_panel_de_bolsas_se_muestra_aunque_no_haya_obras(): void
+    {
+        // Solo bolsas con saldo, ninguna obra con cuenta 14 propia.
+        $this->rf('MTO00001', 'Costos por aplicar', 500, 6, 2026, '14200530');
+        $this->rf('MTO00002', 'Costos por aplicar', 400, 6, 2026, '14200530');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('BOLSAS DE ÁREA', false);
+        $resp->assertSee('id="bolsa-box-MTO00001"', false);
+        $resp->assertSee('id="bolsa-box-MTO00002"', false);
+    }
+
+    #[Test]
     public function el_servicio_agrupa_los_componentes_de_la_bolsa(): void
     {
         $svc = new DistribucionService();
