@@ -991,9 +991,16 @@ class DistribucionCostosController extends Controller
             $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => abs((float) $t->total), 'reconocido_total' => 0.0, 'items' => []];
         }
 
-        // Ítems del período por (obra, cuenta).
+        // Ítems ACUMULADOS al mes filtrado por (obra, cuenta): mismo corte que el saldo
+        // de la cuenta 14, para que la suma de ítems pendientes cuadre con el saldo
+        // acumulado de la cuenta (no solo con el movimiento del propio mes).
         $items = ItemDistribucion::whereIn('codigo_obra', $codigos)
-            ->where('mes', $mes)->where('anio', $anio)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
             ->orderBy('cuenta')->orderBy('fecha')->orderBy('id')
             ->get();
         foreach ($items as $it) {

@@ -209,8 +209,15 @@
                     </tr>
                     @foreach($c['subs'] as $sub)
                     @if($sub['pendiente'] > 0)
-                    <tr style="border-top:1px solid #F3F4F6">
-                        <td style="padding:4px 6px;font-family:monospace;color:#9CA3AF">{{ $sub['cuenta_14'] }}</td>
+                    @php
+                        // Ítems que componen esta cuenta 14 (cruzados por su cuenta 61 = cuenta del ítem).
+                        $grupoIt   = $o['items_por_cuenta'][$sub['cuenta_61']] ?? null;
+                        $tieneItems = $grupoIt && !empty($grupoIt['items']);
+                        $itcId     = 'itc-'.$cod.'-'.\Illuminate\Support\Str::slug($sub['cuenta_14']);
+                    @endphp
+                    <tr style="border-top:1px solid #F3F4F6{{ $tieneItems ? ';cursor:pointer' : '' }}"
+                        @if($tieneItems) onclick="toggleItemsCuenta('{{ $itcId }}', this)" title="Ver ítems que componen esta cuenta 14" @endif>
+                        <td style="padding:4px 6px;font-family:monospace;color:#9CA3AF;white-space:nowrap">@if($tieneItems)<span class="caret-itc" style="color:#6366F1;display:inline-block;width:10px">▸</span> @endif{{ $sub['cuenta_14'] }}</td>
                         <td style="padding:4px 6px;text-align:center;color:#D1D5DB">→</td>
                         <td style="padding:4px 6px;font-family:monospace;color:{{ $sub['cuenta_61'] === 'SIN HOMOLOGAR' ? '#DC2626' : '#1B3F6E' }}">{{ $sub['cuenta_61'] }}</td>
                         <td style="padding:4px 6px;color:#6B7280">{{ Str::limit($sub['nombre'], 26) }}</td>
@@ -219,6 +226,7 @@
                             <input type="number" min="0" max="{{ round($sub['pendiente']) }}" step="1"
                                 value="{{ round($sub['aplicar']) }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
+                                onclick="event.stopPropagation()"
                                 data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ $o['bloqueado_ingreso'] ? '1' : '0' }}"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="capear(this);recalc('{{ $cod }}')"
@@ -226,6 +234,83 @@
                                 style="width:100px;padding:3px 6px;border:1px solid {{ $o['bloqueado_ingreso'] ? '#FCA5A5' : '#E5E7EB' }};border-radius:4px;font-size:11px;text-align:right">
                         </td>
                     </tr>
+                    @if($tieneItems)
+                    @php
+                        // Conciliación contra la CUENTA 14: la suma de ítems pendientes debe
+                        // igualar el saldo (pendiente) acumulado de esta cuenta 14.
+                        $saldo14   = (float) $sub['pendiente'];
+                        $pendItems = (float) $grupoIt['pendiente_total'];
+                        $difItc    = round($saldo14 - $pendItems, 2);
+                        $cuadraItc = abs($difItc) <= 0.5;
+                    @endphp
+                    <tr id="{{ $itcId }}" style="display:none">
+                        <td colspan="6" style="padding:0 2px 10px;background:#FBFCFE">
+                            <div style="overflow-x:auto;border:1px solid #E5E7EB;border-radius:8px">
+                                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px;background:#fff">
+                                    <tr style="color:#9CA3AF;text-align:left;background:#F9FAFB">
+                                        <td style="padding:4px 8px">Ítem</td>
+                                        <td style="padding:4px 8px">Tipo inventario</td>
+                                        <td style="padding:4px 8px">Movimiento</td>
+                                        <td style="padding:4px 8px">Tercero</td>
+                                        <td style="padding:4px 8px;text-align:right">Cantidad</td>
+                                        <td style="padding:4px 8px">Fecha</td>
+                                        <td style="padding:4px 8px">N° documento</td>
+                                        <td style="padding:4px 8px;text-align:right">Costo</td>
+                                        <td style="padding:4px 8px">Estado</td>
+                                        <td style="padding:4px 8px"></td>
+                                    </tr>
+                                    @foreach($grupoIt['items'] as $it)
+                                    <tr style="border-top:1px solid #F3F4F6;{{ $it['reintegro'] ? 'color:#DC2626' : '' }}">
+                                        <td style="padding:4px 8px">{{ $it['item'] }}</td>
+                                        <td style="padding:4px 8px">{{ $it['tipo_inventario'] }}</td>
+                                        <td style="padding:4px 8px">{{ $it['movimiento'] }}</td>
+                                        <td style="padding:4px 8px">{{ Str::limit($it['tercero'], 26) }}</td>
+                                        <td style="padding:4px 8px;text-align:right">{{ $it['cantidad'] !== null ? rtrim(rtrim(number_format($it['cantidad'], 2, '.', ''), '0'), '.') : '' }}</td>
+                                        <td style="padding:4px 8px;white-space:nowrap">{{ $it['fecha'] }}</td>
+                                        <td style="padding:4px 8px;font-family:monospace">{{ $it['numero_documento'] }}</td>
+                                        <td style="padding:4px 8px;text-align:right;font-weight:600">{{ $it['reintegro'] ? '−'.$fmt($it['costo']) : $fmt($it['costo']) }}</td>
+                                        <td style="padding:4px 8px;white-space:nowrap">
+                                            @if($it['reconocido'])
+                                                <span style="font-size:10px;color:#15803D">✅ Reconocido</span>
+                                            @elseif($it['monto_reconocido'] > 0.5)
+                                                <span style="font-size:10px;color:#B45309" title="Reconocido {{ $fmt($it['monto_reconocido']) }} de {{ $fmt($it['costo']) }}">⏳ Parcial · pend. {{ $fmt($it['pendiente']) }}</span>
+                                            @else
+                                                <span style="font-size:10px;color:#6B7280">⏳ Pendiente</span>
+                                            @endif
+                                        </td>
+                                        <td style="padding:4px 8px;text-align:right">
+                                            <button type="button" onclick="event.stopPropagation();abrirReasignar({{ $it['id'] }}, '{{ $cod }}')" style="font-size:10px;padding:3px 8px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;background:white;cursor:pointer;white-space:nowrap">Reasignar</button>
+                                        </td>
+                                    </tr>
+                                    @endforeach
+                                    {{-- CONCILIACIÓN contra el saldo de la cuenta 14 --}}
+                                    <tr style="border-top:2px solid #E5E7EB;background:#F9FAFB">
+                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#6B7280">Suma de ítems (salidas − reintegros)</td>
+                                        <td colspan="2" style="padding:6px 8px;text-align:right">{{ $fmt($grupoIt['suma_items']) }}</td>
+                                    </tr>
+                                    <tr style="background:#EFF6FF">
+                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#1B3F6E">Reconocido (reclasificado 14→61)</td>
+                                        <td colspan="2" style="padding:6px 8px;text-align:right;color:#1B3F6E">{{ $fmt($grupoIt['reconocido_total']) }}</td>
+                                    </tr>
+                                    <tr style="font-weight:600;background:#EFF6FF">
+                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#1B3F6E">Pendiente por reconocer (ítems)</td>
+                                        <td colspan="2" style="padding:6px 8px;text-align:right;color:#1B3F6E">{{ $fmt($grupoIt['pendiente_total']) }}</td>
+                                    </tr>
+                                    <tr style="font-weight:600;background:#F9FAFB">
+                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#6B7280">Saldo de la cuenta 14 (pendiente)</td>
+                                        <td colspan="2" style="padding:6px 8px;text-align:right;color:#854D0E">{{ $fmt($saldo14) }}</td>
+                                    </tr>
+                                    <tr style="font-weight:700;background:{{ $cuadraItc ? '#F0FDF4' : '#FEF2F2' }}">
+                                        <td colspan="8" style="padding:7px 8px;text-align:right;color:{{ $cuadraItc ? '#15803D' : '#B91C1C' }}">
+                                            {{ $cuadraItc ? '✓ Cuadra con la cuenta 14' : '⚠ Diferencia — revisar (ítems faltantes o sin cruzar)' }}
+                                        </td>
+                                        <td colspan="2" style="padding:7px 8px;text-align:right;color:{{ $cuadraItc ? '#15803D' : '#B91C1C' }}">{{ $fmt($difItc) }}</td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+                    @endif
                     @endif
                     @endforeach
                 </table>
@@ -325,103 +410,6 @@
                 Disponible en <b id="disp-obra-bolsa-{{ $cod }}">—</b>: <b id="disp-obra-{{ $cod }}">$0</b>
             </div>
             @endif
-        </div>
-        @endif
-
-        {{-- DETALLE DE ÍTEMS POR CUENTA (Fase C) — vista de CONCILIACIÓN, no aditiva.
-             El costo ya está en la cuenta; al hacer clic se listan los ítems que la
-             componen y se contrasta la suma de ítems contra el total de la cuenta. --}}
-        @if(!empty($o['items_por_cuenta']))
-        <div style="margin-top:14px;border-top:1px dashed #C7D2FE;padding-top:10px">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                <span style="width:9px;height:9px;border-radius:2px;background:#6366F1;display:inline-block"></span>
-                <span style="font-size:12px;font-weight:600;color:#4338CA">Detalle de ítems por cuenta</span>
-                <span style="font-size:10px;color:#9CA3AF">(conciliación: suma de ítems vs total de la cuenta)</span>
-            </div>
-            @foreach($o['items_por_cuenta'] as $cta => $grupo)
-            @php $itcId = 'itc-'.$cod.'-'.\Illuminate\Support\Str::slug($cta); @endphp
-            <div style="margin-top:6px;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden">
-                <div onclick="toggleItemsCuenta('{{ $itcId }}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;background:#F9FAFB">
-                    <span style="font-size:12px"><span style="color:#6366F1">▸</span> Cuenta <b style="font-family:monospace">{{ $cta }}</b> <span style="color:#9CA3AF">· {{ count($grupo['items']) }} ítem{{ count($grupo['items']) == 1 ? '' : 's' }}</span></span>
-                    <span style="display:flex;align-items:center;gap:10px;font-size:12px">
-                        <span style="color:#6B7280">Total cuenta <b style="color:#1B3F6E">{{ $fmt($grupo['total_cuenta']) }}</b></span>
-                        @if($grupo['cuadra'])
-                            <span style="font-weight:600;padding:1px 8px;border-radius:8px;background:#DCFCE7;color:#15803D">✓ Cuadra</span>
-                        @else
-                            <span style="font-weight:600;padding:1px 8px;border-radius:8px;background:#FEE2E2;color:#B91C1C">⚠ Dif. {{ $fmt($grupo['diferencia']) }}</span>
-                        @endif
-                    </span>
-                </div>
-                <div id="{{ $itcId }}" style="display:none;overflow-x:auto">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px">
-                        <tr style="color:#9CA3AF;text-align:left;background:#fff">
-                            <td style="padding:4px 8px">Ítem</td>
-                            <td style="padding:4px 8px">Tipo inventario</td>
-                            <td style="padding:4px 8px">Movimiento</td>
-                            <td style="padding:4px 8px">Tercero</td>
-                            <td style="padding:4px 8px;text-align:right">Cantidad</td>
-                            <td style="padding:4px 8px">Fecha</td>
-                            <td style="padding:4px 8px">N° documento</td>
-                            <td style="padding:4px 8px;text-align:right">Costo</td>
-                            <td style="padding:4px 8px">Estado</td>
-                            <td style="padding:4px 8px"></td>
-                        </tr>
-                        @forelse($grupo['items'] as $it)
-                        <tr style="border-top:1px solid #F3F4F6;{{ $it['reintegro'] ? 'color:#DC2626' : '' }}">
-                            <td style="padding:4px 8px">{{ $it['item'] }}</td>
-                            <td style="padding:4px 8px">{{ $it['tipo_inventario'] }}</td>
-                            <td style="padding:4px 8px">{{ $it['movimiento'] }}</td>
-                            <td style="padding:4px 8px">{{ Str::limit($it['tercero'], 26) }}</td>
-                            <td style="padding:4px 8px;text-align:right">{{ $it['cantidad'] !== null ? rtrim(rtrim(number_format($it['cantidad'], 2, '.', ''), '0'), '.') : '' }}</td>
-                            <td style="padding:4px 8px;white-space:nowrap">{{ $it['fecha'] }}</td>
-                            <td style="padding:4px 8px;font-family:monospace">{{ $it['numero_documento'] }}</td>
-                            <td style="padding:4px 8px;text-align:right;font-weight:600">{{ $it['reintegro'] ? '−'.$fmt($it['costo']) : $fmt($it['costo']) }}</td>
-                            <td style="padding:4px 8px;white-space:nowrap">
-                                @if($it['reconocido'])
-                                    <span style="font-size:10px;color:#15803D">✅ Reconocido</span>
-                                @elseif($it['monto_reconocido'] > 0.5)
-                                    <span style="font-size:10px;color:#B45309" title="Reconocido {{ $fmt($it['monto_reconocido']) }} de {{ $fmt($it['costo']) }}">⏳ Parcial · pend. {{ $fmt($it['pendiente']) }}</span>
-                                @else
-                                    <span style="font-size:10px;color:#6B7280">⏳ Pendiente</span>
-                                @endif
-                            </td>
-                            <td style="padding:4px 8px;text-align:right">
-                                <button type="button" onclick="abrirReasignar({{ $it['id'] }}, '{{ $cod }}')" style="font-size:10px;padding:3px 8px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;background:white;cursor:pointer;white-space:nowrap">Reasignar</button>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr style="border-top:1px solid #F3F4F6;color:#B91C1C">
-                            <td colspan="10" style="padding:6px 8px">Sin ítems cruzados para esta cuenta — revisar.</td>
-                        </tr>
-                        @endforelse
-                        {{-- CONCILIACIÓN --}}
-                        <tr style="border-top:2px solid #E5E7EB;font-weight:600;background:#F9FAFB">
-                            <td colspan="8" style="padding:6px 8px;text-align:right;color:#6B7280">Suma de ítems (salidas − reintegros)</td>
-                            <td colspan="2" style="padding:6px 8px;text-align:right">{{ $fmt($grupo['suma_items']) }}</td>
-                        </tr>
-                        <tr style="font-weight:600;background:#F9FAFB">
-                            <td colspan="8" style="padding:6px 8px;text-align:right;color:#6B7280">Total de la cuenta</td>
-                            <td colspan="2" style="padding:6px 8px;text-align:right">{{ $fmt($grupo['total_cuenta']) }}</td>
-                        </tr>
-                        <tr style="font-weight:700;background:{{ $grupo['cuadra'] ? '#F0FDF4' : '#FEF2F2' }}">
-                            <td colspan="8" style="padding:7px 8px;text-align:right;color:{{ $grupo['cuadra'] ? '#15803D' : '#B91C1C' }}">
-                                {{ $grupo['cuadra'] ? '✓ Cuadra' : 'Diferencia — revisar (ítems faltantes o sin cruzar)' }}
-                            </td>
-                            <td colspan="2" style="padding:7px 8px;text-align:right;color:{{ $grupo['cuadra'] ? '#15803D' : '#B91C1C' }}">{{ $fmt($grupo['diferencia']) }}</td>
-                        </tr>
-                        {{-- Reconocido (14→61) vs pendiente (aún en cuenta 14) --}}
-                        <tr style="background:#EFF6FF">
-                            <td colspan="8" style="padding:6px 8px;text-align:right;color:#1B3F6E">Reconocido (reclasificado 14→61)</td>
-                            <td colspan="2" style="padding:6px 8px;text-align:right;color:#1B3F6E">{{ $fmt($grupo['reconocido_total']) }}</td>
-                        </tr>
-                        <tr style="font-weight:700;background:#EFF6FF">
-                            <td colspan="8" style="padding:7px 8px;text-align:right;color:#1B3F6E">Pendiente por reconocer (cuenta 14)</td>
-                            <td colspan="2" style="padding:7px 8px;text-align:right;color:#1B3F6E">{{ $fmt($grupo['pendiente_total']) }}</td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-            @endforeach
         </div>
         @endif
 

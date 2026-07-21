@@ -454,8 +454,14 @@ function filtrarObras(q){
     if(q){ abrirGrupo('con'); abrirGrupo('sin'); } // al buscar, abre ambos grupos
 }
 function toggleProvForm(cod){ const e=document.getElementById('provform-'+cod); e.style.display = e.style.display==='none'?'block':'none'; }
-/* Detalle de ítems por cuenta (Fase C): expandir/colapsar la tabla de ítems. */
-function toggleItemsCuenta(id){ const e=document.getElementById(id); if(e) e.style.display = (e.style.display==='none'||!e.style.display) ? 'block' : 'none'; }
+/* Ítems inline (Fase C): expandir/colapsar el detalle bajo la fila de la cuenta 14. */
+function toggleItemsCuenta(id, row){
+    const e = document.getElementById(id);
+    if(!e) return;
+    const mostrar = (e.style.display === 'none' || !e.style.display);
+    e.style.display = mostrar ? '' : 'none';   // '' = fila de tabla por defecto
+    if(row){ const c = row.querySelector('.caret-itc'); if(c) c.textContent = mostrar ? '▾' : '▸'; }
+}
 
 /* ===== Fase D: reasignar ítem a otra obra ===== */
 const REASIG_DESTINOS = @json($destinos ?? []);

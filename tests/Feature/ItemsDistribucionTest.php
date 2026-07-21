@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Homologacion;
 use App\Models\ItemDistribucion;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
@@ -9,6 +10,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
+/**
+ * Detalle de ítems INLINE bajo cada fila de cuenta 14 (conciliación contra el saldo
+ * de la cuenta 14, con ítems acumulados al mes filtrado).
+ */
 class ItemsDistribucionTest extends TestCase
 {
     use RefreshDatabase;
@@ -41,13 +46,22 @@ class ItemsDistribucionTest extends TestCase
         ], $attrs));
     }
 
-    #[Test]
-    public function concilia_la_suma_de_items_contra_el_total_de_la_cuenta_cuando_cuadra(): void
+    /** Homologa la cuenta 14 con su cuenta 61 (para que la fila 14→61 se pinte y cruce ítems). */
+    private function homologar(): void
     {
+        Homologacion::create([
+            'cuenta_14' => '14350105', 'cuenta_61' => '73950505',
+            'nombre' => 'Materiales', 'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 200001,
+        ]);
+    }
+
+    #[Test]
+    public function el_detalle_se_despliega_inline_y_cuadra_contra_la_cuenta_14(): void
+    {
+        $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
-        // Costo YA en la cuenta 73950505: 600.000 (total real de la cuenta).
-        $this->rf('C-700', 'Costos aplicados', -600000, 7, 2026, '73950505');
+        // Saldo pendiente de la cuenta 14 = 600.000 (neto de ítems, nada reclasificado aún).
+        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14350105');
 
         // Dos salidas (suman) y un reintegro (resta): neto 500+300−200 = 600.000.
         $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
@@ -59,56 +73,66 @@ class ItemsDistribucionTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('Detalle de ítems por cuenta', false);
-        $resp->assertSee('73950505', false);
+        // Ya NO existe la sección separada; el detalle va inline bajo la fila de la cuenta 14.
+        $resp->assertDontSee('Detalle de ítems por cuenta', false);
+        // La fila expandible de la cuenta 14 y su detalle inline.
+        $resp->assertSee('14350105', false);          // fila de la cuenta 14
+        $resp->assertSee('caret-itc', false);          // el ▸ para expandir
         $resp->assertSee('Cemento', false);
         $resp->assertSee('FERRETERIA X', false);
         $resp->assertSee('Reasignar', false);
         $resp->assertSee('Suma de ítems', false);
-        $resp->assertSee('Total de la cuenta', false);
-        // Suma de ítems 600.000 == total de la cuenta 600.000 → cuadra.
-        $resp->assertSee('✓ Cuadra', false);
+        $resp->assertSee('Saldo de la cuenta 14', false);
+        // Ítems pendientes 600.000 == saldo cuenta 14 600.000 → cuadra.
+        $resp->assertSee('Cuadra con la cuenta 14', false);
         // El reintegro se muestra con signo −.
         $resp->assertSee('−$200.000', false);
     }
 
     #[Test]
-    public function marca_la_diferencia_cuando_faltan_items(): void
+    public function marca_la_diferencia_cuando_no_cuadra_con_la_cuenta_14(): void
     {
+        $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
-        // Total real de la cuenta: 1.000.000, pero solo hay 600.000 en ítems → dif 400.000.
-        $this->rf('C-700', 'Costos aplicados', -1000000, 7, 2026, '73950505');
+        // Saldo cuenta 14 = 1.000.000, pero los ítems solo suman 600.000 → dif 400.000.
+        $this->rf('C-700', 'Costos por aplicar', -1000000, 6, 2026, '14350105');
 
         $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
         $this->item(['item' => 'Arena', 'costo' => 300000, 'naturaleza' => 'Débito']);
-        $this->item(['item' => 'Cemento devuelto', 'naturaleza' => 'Crédito', 'costo' => 200000]);
+        $this->item(['item' => 'Cemento devuelto', 'codigo_movimiento' => '15',
+            'tipo_movimiento' => 'Reintegro salida directa', 'naturaleza' => 'Crédito', 'costo' => 200000]);
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertDontSee('✓ Cuadra', false);
-        $resp->assertSee('revisar', false);
+        $resp->assertDontSee('Cuadra con la cuenta 14', false);
+        $resp->assertSee('Diferencia — revisar', false);
         // Diferencia = 1.000.000 − 600.000 = 400.000.
         $resp->assertSee('$400.000', false);
     }
 
     #[Test]
-    public function solo_trae_los_items_del_periodo_filtrado(): void
+    public function acumula_los_items_hasta_el_mes_filtrado_y_excluye_los_posteriores(): void
     {
+        $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14350105');
 
-        $this->item(['item' => 'DelMes', 'mes' => 7, 'anio' => 2026, 'costo' => 111111]);
-        $this->item(['item' => 'OtroMes', 'mes' => 8, 'anio' => 2026, 'costo' => 999999]);
+        // Ítem de un mes anterior (junio): SÍ entra en el acumulado a julio.
+        $this->item(['item' => 'ItemJunio', 'mes' => 6, 'anio' => 2026, 'costo' => 111111]);
+        // Ítem del mes filtrado (julio): entra.
+        $this->item(['item' => 'ItemJulio', 'mes' => 7, 'anio' => 2026, 'costo' => 222222]);
+        // Ítem de un mes posterior (agosto): NO entra.
+        $this->item(['item' => 'ItemAgosto', 'mes' => 8, 'anio' => 2026, 'costo' => 999999]);
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('DelMes', false);
-        $resp->assertDontSee('OtroMes', false); // ítem de agosto no aparece en julio
+        $resp->assertSee('ItemJunio', false);   // acumulado (mes anterior)
+        $resp->assertSee('ItemJulio', false);
+        $resp->assertDontSee('ItemAgosto', false); // mes posterior, excluido por el corte
     }
 
     #[Test]
