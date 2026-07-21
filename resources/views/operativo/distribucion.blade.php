@@ -307,6 +307,28 @@
     </div>
 </div>
 
+{{-- MODAL: reasignar ítem a otra obra (Fase D) --}}
+<div id="modal-reasignar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:12px;padding:20px 22px;max-width:540px;width:92%;max-height:85vh;overflow:auto">
+        <h3 style="font-size:15px;font-weight:600;color:#1B3F6E;margin-bottom:6px">Reasignar ítem a otra obra</h3>
+        <p style="font-size:12px;color:#6B7280;margin-bottom:12px">Origen: <b id="reasig-origen"></b>. Elige la obra destino; el costo baja en el origen y sube en el destino, y se refleja en el plano (reclasificación 14→14).</p>
+        <input type="hidden" id="reasig-item">
+        <input type="hidden" id="reasig-destino">
+        <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Obra destino (código, nombre o cliente)</label>
+        <input type="text" id="reasig-buscar" oninput="filtrarDestinos(this.value)" autocomplete="off" placeholder="🔎 Buscar obra…"
+            style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;margin-bottom:6px">
+        <div id="reasig-lista" style="max-height:200px;overflow:auto;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:8px"></div>
+        <div id="reasig-sel" style="font-size:12px;color:#374151;margin-bottom:10px">Destino: <b>—</b></div>
+        <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Justificación (opcional)</label>
+        <textarea id="reasig-motivo" rows="2" placeholder="Motivo de la reasignación…"
+            style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;margin-bottom:14px"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" onclick="cerrarReasignar()" style="padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;cursor:pointer">Cancelar</button>
+            <button type="button" id="reasig-confirm" onclick="confirmarReasignar()" style="padding:8px 18px;background:#4338CA;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Reasignar</button>
+        </div>
+    </div>
+</div>
+
 @php
     $ctaJs = $catalogo->keyBy('cuenta_14');
     $datosJs = [];
@@ -434,8 +456,55 @@ function filtrarObras(q){
 function toggleProvForm(cod){ const e=document.getElementById('provform-'+cod); e.style.display = e.style.display==='none'?'block':'none'; }
 /* Detalle de ítems por cuenta (Fase C): expandir/colapsar la tabla de ítems. */
 function toggleItemsCuenta(id){ const e=document.getElementById(id); if(e) e.style.display = (e.style.display==='none'||!e.style.display) ? 'block' : 'none'; }
-/* Reasignar ítem: la acción se implementa en la Fase D. */
-function reasignarItem(){ alert('La reasignación de ítems se habilita en la siguiente fase.'); }
+
+/* ===== Fase D: reasignar ítem a otra obra ===== */
+const REASIG_DESTINOS = @json($destinos ?? []);
+let reasigOrigen = '';
+function abrirReasignar(itemId, origen){
+    reasigOrigen = origen;
+    document.getElementById('reasig-item').value = itemId;
+    document.getElementById('reasig-origen').textContent = origen;
+    document.getElementById('reasig-destino').value = '';
+    document.getElementById('reasig-buscar').value = '';
+    document.getElementById('reasig-motivo').value = '';
+    document.getElementById('reasig-sel').innerHTML = 'Destino: <b>—</b>';
+    document.getElementById('reasig-confirm').disabled = true;
+    filtrarDestinos('');
+    document.getElementById('modal-reasignar').style.display = 'flex';
+}
+function cerrarReasignar(){ document.getElementById('modal-reasignar').style.display = 'none'; }
+function filtrarDestinos(q){
+    q = normalizaBuscar(q).trim();
+    const cont = document.getElementById('reasig-lista');
+    const matches = REASIG_DESTINOS
+        .filter(d => d.codigo !== reasigOrigen && (!q || normalizaBuscar(d.codigo+' '+d.nombre+' '+d.cliente).includes(q)))
+        .slice(0, 40);
+    cont.innerHTML = matches.map(d =>
+        '<div onclick="seleccionarDestino(\''+d.codigo+'\')" style="padding:6px 8px;border-bottom:1px solid #F3F4F6;cursor:pointer;font-size:12px">'
+        + '<b style="color:#1B3F6E">'+d.codigo+'</b>'+(d.nombre?' · '+d.nombre:'')+(d.cliente?' · 🏢 '+d.cliente:'')+'</div>'
+    ).join('') || '<div style="padding:8px;color:#9CA3AF;font-size:12px">Sin coincidencias</div>';
+}
+function seleccionarDestino(cod){
+    document.getElementById('reasig-destino').value = cod;
+    document.getElementById('reasig-sel').innerHTML = 'Destino: <b>'+cod+'</b>';
+    document.getElementById('reasig-confirm').disabled = false;
+}
+function confirmarReasignar(){
+    const item = document.getElementById('reasig-item').value;
+    const destino = document.getElementById('reasig-destino').value;
+    if(!destino){ alert('Elige una obra destino.'); return; }
+    const f = document.createElement('form');
+    f.method = 'POST';
+    f.action = @json(url('operativo/items')) + '/' + item + '/reasignar';
+    f.style.display = 'none';
+    const add = (name, val) => { const i = document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; f.appendChild(i); };
+    add('_token', @json(csrf_token()));
+    add('destino', destino);
+    add('dist', @json($distId));
+    add('motivo', document.getElementById('reasig-motivo').value || '');
+    document.body.appendChild(f);
+    f.submit();
+}
 function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.value||0); if(v>max){inp.value=Math.round(max);} if(v<0){inp.value=0;} }
 
 function sumAplicar(cod){

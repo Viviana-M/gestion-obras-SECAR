@@ -28,13 +28,26 @@ class ItemDistribucion extends Model
         'fecha',
         'numero_documento',
         'costo',
+        'reconocido',
+        'monto_reconocido',
+        'reconocido_at',
+        'distribucion_id',
     ];
 
     protected $casts = [
-        'cantidad' => 'decimal:2',
-        'costo'    => 'decimal:2',
-        'fecha'    => 'date',
+        'cantidad'         => 'decimal:2',
+        'costo'            => 'decimal:2',
+        'fecha'            => 'date',
+        'reconocido'       => 'boolean',
+        'monto_reconocido' => 'decimal:2',
+        'reconocido_at'    => 'datetime',
     ];
+
+    /** Parte del costo aún NO reconocida (pendiente de reclasificar 14→61). */
+    public function pendiente(): float
+    {
+        return max(0.0, abs((float) $this->costo) - (float) $this->monto_reconocido);
+    }
 
     /** ¿Es un reintegro? (naturaleza Crédito → resta del neto de la cuenta). */
     public function esReintegro(): bool

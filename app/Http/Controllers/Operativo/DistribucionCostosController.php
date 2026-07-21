@@ -15,6 +15,7 @@ use App\Models\Distribucion;
 use App\Models\AutorizacionDistribucion;
 use App\Models\BolsaAsignacion;
 use App\Models\ItemDistribucion;
+use App\Models\ReasignacionItem;
 use App\Models\UnBolsa;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -401,9 +402,15 @@ class DistribucionCostosController extends Controller
         }
         unset($bp);
 
+        // Candidatos destino para reasignar ítems (búsqueda por código/nombre/cliente).
+        $destinos = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente'])
+            ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
+            ->values();
+
         return view('operativo.distribucion', [
             'obras'        => $obras,
             'bolsas'       => $bolsas,
+            'destinos'     => $destinos,
             'categorias'   => $this->categorias,
             'catalogo'     => $catalogo,
             'mes'          => $mes,
@@ -696,6 +703,10 @@ class DistribucionCostosController extends Controller
                 }
             }
 
+            // Conciliación FIFO: marcar reconocidos los ítems comerciales que cubre esta
+            // reclasificación 14→61 (los más antiguos primero, por obra y cuenta).
+            $this->reconocerItemsFifo($distribucion, $mes, $anio);
+
             // Guardar observaciones del coordinador (por obra, mes y año)
             $observacionesInput = $request->input('observacion', []);
             foreach ($observacionesInput as $cod => $texto) {
@@ -757,6 +768,53 @@ class DistribucionCostosController extends Controller
     $distribucion->delete();
     return back()->with('success', 'Borrador eliminado.');
 }
+
+    /**
+     * Fase D: reasignar un ítem de una obra a otra. Mueve el ítem (cambia codigo_obra:
+     * baja el costo en el origen y sube en el destino), deja trazabilidad y se refleja
+     * en el plano como una reclasificación 14→14 (misma cuenta, cambia la UN).
+     */
+    public function reasignarItem(Request $request, ItemDistribucion $item)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'destino' => 'required|string|max:60',
+            'motivo'  => 'nullable|string|max:500',
+        ]);
+
+        $origen  = $item->codigo_obra;
+        $destino = trim($datos['destino']);
+        if ($destino === '' || strcasecmp($destino, $origen) === 0) {
+            return back()->with('error', 'La obra destino debe ser distinta de la de origen.');
+        }
+
+        DB::transaction(function () use ($item, $origen, $destino, $datos, $request) {
+            ReasignacionItem::create([
+                'item_distribucion_id' => $item->id,
+                'mes' => $item->mes, 'anio' => $item->anio,
+                'codigo_obra_origen' => $origen, 'codigo_obra_destino' => $destino,
+                'cuenta' => $item->cuenta, 'item' => $item->item,
+                'costo' => abs((float) $item->costo), 'naturaleza' => $item->naturaleza,
+                'motivo' => $datos['motivo'] ?? null,
+                'user_id' => $request->user()?->id, 'user_nombre' => $request->user()?->name,
+            ]);
+
+            // Mover el ítem a la obra destino. Se reinicia el reconocimiento: ahora
+            // pertenece a otra obra y deberá reconocerse con la distribución del destino.
+            $item->codigo_obra      = $destino;
+            $item->reconocido       = false;
+            $item->monto_reconocido = 0;
+            $item->reconocido_at    = null;
+            $item->distribucion_id  = null;
+            $item->save();
+        });
+
+        return redirect()->route('operativo.distribucion', array_filter([
+            'mes' => $item->mes, 'anio' => $item->anio, 'dist' => $request->input('dist'),
+        ]))->with('success', "Ítem reasignado de {$origen} a {$destino}. Reclasificación de UN (14→14) reflejada en el plano.");
+    }
 
     public function resumen(Request $request)
     {
@@ -900,7 +958,7 @@ class DistribucionCostosController extends Controller
             $cod = $t->codigo_proyecto;
             if (!isset($obras[$cod])) continue;
             $cta = (string) $t->cuenta_contable;
-            $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => abs((float) $t->total), 'items' => []];
+            $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => abs((float) $t->total), 'reconocido_total' => 0.0, 'items' => []];
         }
 
         // Ítems del período por (obra, cuenta).
@@ -914,10 +972,12 @@ class DistribucionCostosController extends Controller
             $cta = (string) $it->cuenta;
             if ($cta === '') continue; // ítem sin cuenta (no cruzó la llave): se reporta en el cargue, no en la conciliación
             if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
-                $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'items' => []];
+                $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'reconocido_total' => 0.0, 'items' => []];
             }
-            $obras[$cod]['items_por_cuenta'][$cta]['suma_items'] += $it->costoNeto();
+            $obras[$cod]['items_por_cuenta'][$cta]['suma_items']       += $it->costoNeto();
+            $obras[$cod]['items_por_cuenta'][$cta]['reconocido_total'] += (float) $it->monto_reconocido;
             $obras[$cod]['items_por_cuenta'][$cta]['items'][] = [
+                'id'               => $it->id,
                 'item'             => (string) $it->item,
                 'tipo_inventario'  => (string) $it->tipo_inventario,
                 'movimiento'       => trim((string) $it->codigo_movimiento . ' ' . (string) $it->tipo_movimiento),
@@ -927,21 +987,72 @@ class DistribucionCostosController extends Controller
                 'numero_documento' => (string) $it->numero_documento,
                 'costo'            => abs((float) $it->costo),
                 'reintegro'        => $it->esReintegro(),
+                'reconocido'       => (bool) $it->reconocido,
+                'monto_reconocido' => (float) $it->monto_reconocido,
+                'pendiente'        => $it->pendiente(),
             ];
         }
 
         // Conciliación: diferencia total_cuenta − suma_items; cuadra si ~0.
+        // Pendiente (cuenta 14) = suma neta de ítems − lo reconocido (reclasificado 14→61).
         foreach ($obras as $cod => &$o) {
             if (empty($o['items_por_cuenta'])) continue;
             ksort($o['items_por_cuenta']);
             foreach ($o['items_por_cuenta'] as $cta => &$g) {
-                $g['suma_items']  = round($g['suma_items'], 2);
-                $g['diferencia']  = round($g['total_cuenta'] - $g['suma_items'], 2);
-                $g['cuadra']      = abs($g['diferencia']) <= 0.5;
+                $g['suma_items']      = round($g['suma_items'], 2);
+                $g['reconocido_total'] = round($g['reconocido_total'], 2);
+                $g['pendiente_total'] = round($g['suma_items'] - $g['reconocido_total'], 2);
+                $g['diferencia']      = round($g['total_cuenta'] - $g['suma_items'], 2);
+                $g['cuadra']          = abs($g['diferencia']) <= 0.5;
             }
             unset($g);
         }
         unset($o);
+    }
+
+    /**
+     * Conciliación FIFO: al reclasificar 14→61, marca reconocidos los ítems comerciales
+     * pendientes de cada (obra, cuenta) del período, del más antiguo al más nuevo, hasta
+     * cubrir el monto aplicado. Reconocimiento parcial vía monto_reconocido. Idempotente:
+     * al re-guardar/reenviar deshace primero lo que esta distribución había reconocido.
+     */
+    private function reconocerItemsFifo(Distribucion $distribucion, int $mes, int $anio): void
+    {
+        ItemDistribucion::where('distribucion_id', $distribucion->id)->update([
+            'reconocido' => false, 'monto_reconocido' => 0, 'reconocido_at' => null, 'distribucion_id' => null,
+        ]);
+
+        // Monto reclasificado (14→61) por (obra, cuenta 61): solo aplicaciones PROPIAS de
+        // la obra (no provisiones ni costo de bolsas, que no salen del inventario de ítems).
+        $aplicado = AplicacionCosto::where('distribucion_id', $distribucion->id)
+            ->where('es_provision', false)->whereNull('origen_bolsa')
+            ->selectRaw('codigo_proyecto, cuenta_61, SUM(monto_aplicar) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_61')
+            ->get();
+
+        foreach ($aplicado as $ap) {
+            $restante = (float) $ap->total;
+            if ($restante <= 0.5) continue;
+
+            $items = ItemDistribucion::where('codigo_obra', $ap->codigo_proyecto)
+                ->where('cuenta', $ap->cuenta_61)
+                ->where('mes', $mes)->where('anio', $anio)
+                ->orderBy('fecha')->orderBy('id')
+                ->get();
+
+            foreach ($items as $it) {
+                if ($restante <= 0.005) break;
+                $pendiente = abs((float) $it->costo) - (float) $it->monto_reconocido;
+                if ($pendiente <= 0.005) continue; // ya reconocido (por otra distribución)
+                $usar = min($pendiente, $restante);
+                $it->monto_reconocido = (float) $it->monto_reconocido + $usar;
+                $it->reconocido       = $it->monto_reconocido >= abs((float) $it->costo) - 0.005;
+                $it->reconocido_at    = now();
+                $it->distribucion_id  = $distribucion->id;
+                $it->save();
+                $restante -= $usar;
+            }
+        }
     }
 
     /** Convierte el input del form (asignacion_bolsa[cod][idx]=['bolsa','monto']) a [cod => [bolsa => monto]]. */

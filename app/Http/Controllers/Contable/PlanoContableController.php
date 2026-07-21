@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AplicacionCosto;
 use App\Models\ObraEstado;
 use App\Models\Distribucion;
+use App\Models\ReasignacionItem;
 use App\Models\User;
 use App\Services\RepartoFifoTerceros;
 use Illuminate\Http\Request;
@@ -125,6 +126,12 @@ class PlanoContableController extends Controller
 
         $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
 
+        // Reasignaciones de ítems del período (Fase D): reclasificación de UN — misma
+        // cuenta contable, cambia el codigo_proyecto (origen → destino).
+        foreach ($this->movimientosReasignaciones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
+
         // Control de cuadre: si no cuadra, no se exporta.
         $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
         $credito = round(array_sum(array_column($movimientos, 'credito')), 2);
@@ -210,6 +217,34 @@ class PlanoContableController extends Controller
         }
 
         return $mov;
+    }
+
+    /**
+     * Movimientos 14→14 de las reasignaciones de ítems del período cuyo DESTINO pertenece
+     * al departamento (así cada reasignación aparece una sola vez): crédito de la cuenta en
+     * la OT origen, débito de la misma cuenta en la OT destino. Público para poder probarlo.
+     */
+    public function movimientosReasignaciones(int $mes, int $anio, string $depto, int $numeroDoc): array
+    {
+        $prefijos = User::prefijosDeDepartamento($depto);
+        $mov = [];
+        foreach (ReasignacionItem::where('mes', $mes)->where('anio', $anio)->get() as $r) {
+            if (!$this->empiezaPor((string) $r->codigo_obra_destino, $prefijos)) continue;
+            $monto = round((float) $r->costo, 2);
+            if ($monto <= 0.005 || $r->cuenta === '' || $r->cuenta === null) continue;
+            $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_origen, null, 0, $monto);
+            $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_destino, null, $monto, 0);
+        }
+        return $mov;
+    }
+
+    private function empiezaPor(string $cod, array $prefijos): bool
+    {
+        $c = strtoupper($cod);
+        foreach ($prefijos as $p) {
+            if (str_starts_with($c, strtoupper($p))) return true;
+        }
+        return false;
     }
 
     private function fila(int $numeroDoc, string $cuenta, ?string $tercero, string $obra, ?string $centroCostos, float $debito, float $credito): array

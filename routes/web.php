@@ -100,6 +100,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
         // Informe: facturado por tipo de obra
         Route::get('/operativo/facturado', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'facturado'])->name('operativo.facturado');
+        // Fase D: reasignar un ítem de una obra a otra
+        Route::post('/operativo/items/{item}/reasignar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reasignarItem'])->name('operativo.items.reasignar');
         Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
         Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
         Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');
