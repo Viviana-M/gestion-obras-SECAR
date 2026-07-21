@@ -16,6 +16,7 @@ class LlaveItemCuenta extends Model
     protected $fillable = [
         'tipo_inventario',
         'nombre_tipo_inventario',
+        'codigo_movimiento',
         'tipo_movimiento',
         'cuenta',
         'naturaleza',
@@ -31,12 +32,15 @@ class LlaveItemCuenta extends Model
         return $q->where('activo', true);
     }
 
-    /** Resuelve la llave (y su cuenta) para un par tipo de inventario + tipo de movimiento. */
-    public static function resolver(string $tipoInventario, string $tipoMovimiento): ?self
+    /**
+     * Resuelve la llave (y su cuenta) para un par tipo de inventario + CÓDIGO de
+     * movimiento (más confiable que por nombre, que puede variar).
+     */
+    public static function resolver(string $tipoInventario, string $codigoMovimiento): ?self
     {
         return static::activos()
             ->where('tipo_inventario', $tipoInventario)
-            ->where('tipo_movimiento', $tipoMovimiento)
+            ->where('codigo_movimiento', $codigoMovimiento)
             ->first();
     }
 }

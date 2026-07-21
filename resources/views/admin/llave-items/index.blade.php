@@ -10,8 +10,9 @@
 </div>
 
 <p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Mapea la combinación <b>tipo de inventario + tipo de movimiento (motivo)</b> → <b>cuenta</b> de costo/gasto.
-    Cuando coinciden el tipo de inventario y el movimiento, esa es la cuenta. Es la llave que usará el cargue de ítems.
+    Mapea la combinación <b>tipo de inventario + código de movimiento (motivo)</b> → <b>cuenta</b> de costo/gasto,
+    con su <b>naturaleza</b> (Débito suma / Crédito resta). Se cruza por <b>código</b> (más confiable que por nombre).
+    Es la llave que usará el cargue de ítems.
 </p>
 
 @if(session('success'))
@@ -31,15 +32,15 @@
     <form method="POST" action="{{ route('admin.llave-items.importar') }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div style="flex:1;min-width:240px">
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Cargar Excel (tipo de inventario · tipo de movimiento · cuenta)</label>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Cargar Excel (código tipo de inventario · código motivo · cuenta · naturaleza)</label>
             <input type="file" name="archivo" accept=".xlsx,.xls" required
                 style="font-size:13px;padding:6px;border:1px solid #E5E7EB;border-radius:8px;background:white;width:100%">
         </div>
         <button type="submit" style="padding:9px 18px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:38px">⬆ Cargar</button>
     </form>
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
-        El archivo debe tener columnas para <b>tipo de inventario</b>, <b>tipo de movimiento</b> y <b>cuenta</b> (opcionalmente nombre y naturaleza).
-        Recargar el mismo par reemplaza su cuenta (no duplica).
+        Columnas: <b>Codigo Tipo de inventario</b>, <b>Nombre Tipo de Inventario</b>, <b>Codigo Motivo</b>, <b>Descripción Motivo</b>, <b>Cuenta</b>, <b>Naturaleza</b>.
+        Recargar el mismo par (tipo + código) reemplaza su cuenta (no duplica).
     </p>
 </div>
 
@@ -52,14 +53,19 @@
             <input type="text" name="tipo_inventario" value="{{ old('tipo_inventario') }}" required
                 style="width:150px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
         </div>
-        <div style="flex:1;min-width:180px">
+        <div style="flex:1;min-width:160px">
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Nombre tipo inventario</label>
             <input type="text" name="nombre_tipo_inventario" value="{{ old('nombre_tipo_inventario') }}"
                 style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
         </div>
-        <div style="flex:1;min-width:220px">
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Tipo de movimiento (motivo)</label>
-            <input type="text" name="tipo_movimiento" value="{{ old('tipo_movimiento') }}" required placeholder="Salida Directa Inventario en Obra"
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Código de movimiento</label>
+            <input type="text" name="codigo_movimiento" value="{{ old('codigo_movimiento') }}" required placeholder="14"
+                style="width:120px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-family:monospace">
+        </div>
+        <div style="flex:1;min-width:200px">
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Descripción del movimiento (opcional)</label>
+            <input type="text" name="tipo_movimiento" value="{{ old('tipo_movimiento') }}" placeholder="Salida Directa Inventario en Obra"
                 style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
         </div>
         <div>
@@ -95,7 +101,7 @@
     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:820px">
         <thead>
             <tr style="background:#1B3F6E;color:white">
-                <th style="padding:10px 12px;text-align:left">Llave: tipo de inventario + movimiento → cuenta</th>
+                <th style="padding:10px 12px;text-align:left">Llave: tipo de inventario + código de movimiento → cuenta</th>
                 <th style="padding:10px 12px;text-align:center">Estado</th>
                 <th style="padding:10px 12px;text-align:center">Acciones</th>
             </tr>
@@ -107,10 +113,11 @@
                     {{-- El form de edición va COMPLETO en una sola celda (HTML válido dentro de la tabla) --}}
                     <form method="POST" action="{{ route('admin.llave-items.update', $it->id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                         @csrf @method('PUT')
-                        <input type="text" name="tipo_inventario" value="{{ $it->tipo_inventario }}" title="Tipo de inventario" style="width:110px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:monospace">
-                        <input type="text" name="nombre_tipo_inventario" value="{{ $it->nombre_tipo_inventario }}" placeholder="nombre (opcional)" style="width:150px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
+                        <input type="text" name="tipo_inventario" value="{{ $it->tipo_inventario }}" title="Tipo de inventario" style="width:90px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:monospace">
+                        <input type="text" name="nombre_tipo_inventario" value="{{ $it->nombre_tipo_inventario }}" placeholder="nombre (opc)" style="width:130px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
                         <span style="color:#9CA3AF">+</span>
-                        <input type="text" name="tipo_movimiento" value="{{ $it->tipo_movimiento }}" title="Tipo de movimiento" style="flex:1;min-width:200px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px">
+                        <input type="text" name="codigo_movimiento" value="{{ $it->codigo_movimiento }}" title="Código de movimiento (llave)" style="width:70px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:monospace">
+                        <input type="text" name="tipo_movimiento" value="{{ $it->tipo_movimiento }}" placeholder="descripción (opc)" title="Descripción del movimiento" style="flex:1;min-width:170px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px">
                         <span style="color:#9CA3AF">→</span>
                         <input type="text" name="cuenta" value="{{ $it->cuenta }}" title="Cuenta" style="width:110px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:monospace">
                         <select name="naturaleza" title="Naturaleza" style="padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px">

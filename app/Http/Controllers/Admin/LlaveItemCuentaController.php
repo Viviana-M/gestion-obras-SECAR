@@ -27,11 +27,12 @@ class LlaveItemCuentaController extends Controller
                 $qq->where(function ($w) use ($q) {
                     $w->where('tipo_inventario', 'like', "%{$q}%")
                       ->orWhere('nombre_tipo_inventario', 'like', "%{$q}%")
+                      ->orWhere('codigo_movimiento', 'like', "%{$q}%")
                       ->orWhere('tipo_movimiento', 'like', "%{$q}%")
                       ->orWhere('cuenta', 'like', "%{$q}%");
                 });
             })
-            ->orderBy('tipo_inventario')->orderBy('tipo_movimiento')
+            ->orderBy('tipo_inventario')->orderBy('codigo_movimiento')
             ->get();
 
         return view('admin.llave-items.index', ['items' => $items, 'q' => $q]);
@@ -84,26 +85,38 @@ class LlaveItemCuentaController extends Controller
         }
 
         // Localizar la fila de encabezados y mapear las columnas por su nombre (flexible).
+        // La llave es (tipo_inventario + codigo_movimiento). tipo_movimiento es descripción.
+        $keys = ['tipo_inventario', 'nombre', 'codigo_movimiento', 'tipo_movimiento', 'cuenta', 'naturaleza'];
         $headerIdx = null;
-        $col = ['tipo_inventario' => null, 'nombre' => null, 'tipo_movimiento' => null, 'cuenta' => null, 'naturaleza' => null];
+        $col = array_fill_keys($keys, null);
         foreach ($rows as $i => $r) {
-            $found = ['tipo_inventario' => null, 'nombre' => null, 'tipo_movimiento' => null, 'cuenta' => null, 'naturaleza' => null];
+            $found = array_fill_keys($keys, null);
             foreach ($r as $j => $cell) {
                 $h = $this->normalizarEncabezado((string) $cell);
                 if ($h === '') continue;
+                $esMotivo     = str_contains($h, 'MOTIVO') || str_contains($h, 'MOVIMIENTO');
+                $esInventario = str_contains($h, 'INVENTARIO');
                 if (str_contains($h, 'NATURALEZA')) {
                     $found['naturaleza'] = $j;
+                } elseif ($esMotivo) {
+                    // Codigo Motivo (la llave) vs Descripción/Nombre Motivo (display).
+                    if (str_contains($h, 'CODIGO') || str_contains($h, 'COD ')) {
+                        $found['codigo_movimiento'] = $j;
+                    } else {
+                        $found['tipo_movimiento'] = $j;
+                    }
                 } elseif (str_contains($h, 'CUENTA')) {
                     $found['cuenta'] = $j;
-                } elseif (str_contains($h, 'MOVIMIENTO') || str_contains($h, 'MOTIVO')) {
-                    $found['tipo_movimiento'] = $j;
-                } elseif (str_contains($h, 'NOMBRE') && str_contains($h, 'INVENTARIO')) {
-                    $found['nombre'] = $j;
-                } elseif (str_contains($h, 'TIPO') && str_contains($h, 'INVENTARIO')) {
-                    $found['tipo_inventario'] = $j;
+                } elseif ($esInventario) {
+                    // Nombre Tipo de Inventario (display) vs Codigo Tipo de inventario (la llave).
+                    if (str_contains($h, 'NOMBRE') || str_contains($h, 'DESCRIPCION')) {
+                        $found['nombre'] = $j;
+                    } else {
+                        $found['tipo_inventario'] = $j;
+                    }
                 }
             }
-            if ($found['tipo_inventario'] !== null && $found['tipo_movimiento'] !== null && $found['cuenta'] !== null) {
+            if ($found['tipo_inventario'] !== null && $found['codigo_movimiento'] !== null && $found['cuenta'] !== null) {
                 $headerIdx = $i;
                 $col = $found;
                 break;
@@ -111,24 +124,27 @@ class LlaveItemCuentaController extends Controller
         }
 
         if ($headerIdx === null) {
-            return back()->with('error', 'No encontré los encabezados esperados (tipo de inventario, tipo de movimiento y cuenta).');
+            return back()->with('error', 'No encontré los encabezados esperados (código tipo de inventario, código de motivo y cuenta).');
         }
 
+        $val = fn ($r, $key) => $col[$key] !== null ? (trim((string) ($r[$col[$key]] ?? '')) ?: null) : null;
+
         $n = 0; $saltadas = 0;
-        DB::transaction(function () use ($rows, $headerIdx, $col, &$n, &$saltadas) {
+        DB::transaction(function () use ($rows, $headerIdx, $col, $val, &$n, &$saltadas) {
             foreach ($rows as $i => $r) {
                 if ($i <= $headerIdx) continue;
-                $ti  = trim((string) ($r[$col['tipo_inventario']] ?? ''));
-                $tm  = trim((string) ($r[$col['tipo_movimiento']] ?? ''));
-                $cta = trim((string) ($r[$col['cuenta']] ?? ''));
-                if ($ti === '' || $tm === '' || $cta === '') { $saltadas++; continue; }
+                $ti   = trim((string) ($r[$col['tipo_inventario']] ?? ''));
+                $cmov = trim((string) ($r[$col['codigo_movimiento']] ?? ''));
+                $cta  = trim((string) ($r[$col['cuenta']] ?? ''));
+                if ($ti === '' || $cmov === '' || $cta === '') { $saltadas++; continue; }
 
                 LlaveItemCuenta::updateOrCreate(
-                    ['tipo_inventario' => $ti, 'tipo_movimiento' => $tm],
+                    ['tipo_inventario' => $ti, 'codigo_movimiento' => $cmov],
                     [
                         'cuenta'                 => $cta,
-                        'nombre_tipo_inventario' => $col['nombre'] !== null ? (trim((string) ($r[$col['nombre']] ?? '')) ?: null) : null,
-                        'naturaleza'             => $col['naturaleza'] !== null ? (trim((string) ($r[$col['naturaleza']] ?? '')) ?: null) : null,
+                        'nombre_tipo_inventario' => $val($r, 'nombre'),
+                        'tipo_movimiento'        => $val($r, 'tipo_movimiento'),
+                        'naturaleza'             => $val($r, 'naturaleza'),
                         'activo'                 => true,
                     ]
                 );
@@ -136,32 +152,34 @@ class LlaveItemCuentaController extends Controller
             }
         });
 
-        $msg = "Se cargaron {$n} llaves (tipo de inventario + movimiento → cuenta).";
+        $msg = "Se cargaron {$n} llaves (tipo de inventario + código de movimiento → cuenta).";
         if ($saltadas > 0) $msg .= " Se saltaron {$saltadas} filas incompletas.";
 
         return back()->with('success', $msg);
     }
 
-    /** Reglas comunes; el par (tipo_inventario, tipo_movimiento) debe ser único. */
+    /** Reglas comunes; el par (tipo_inventario, codigo_movimiento) debe ser único. */
     private function validar(Request $request, ?int $ignorarId): array
     {
         return $request->validate([
             'tipo_inventario' => [
                 'required', 'string', 'max:100',
                 Rule::unique('llave_items_cuenta')
-                    ->where(fn ($q) => $q->where('tipo_movimiento', $request->input('tipo_movimiento')))
+                    ->where(fn ($q) => $q->where('codigo_movimiento', $request->input('codigo_movimiento')))
                     ->ignore($ignorarId),
             ],
             'nombre_tipo_inventario' => 'nullable|string|max:255',
-            'tipo_movimiento'        => 'required|string|max:255',
+            'codigo_movimiento'      => 'required|string|max:50',
+            'tipo_movimiento'        => 'nullable|string|max:255', // descripción, solo para mostrar
             'cuenta'                 => 'required|string|max:60',
             'naturaleza'             => 'nullable|string|max:20',
         ], [
-            'tipo_inventario.unique' => 'Ya existe una llave para ese tipo de inventario y tipo de movimiento.',
+            'tipo_inventario.unique' => 'Ya existe una llave para ese tipo de inventario y código de movimiento.',
         ], [
-            'tipo_inventario'        => 'tipo de inventario',
-            'tipo_movimiento'        => 'tipo de movimiento',
-            'cuenta'                 => 'cuenta',
+            'tipo_inventario'   => 'tipo de inventario',
+            'codigo_movimiento' => 'código de movimiento',
+            'tipo_movimiento'   => 'descripción del movimiento',
+            'cuenta'            => 'cuenta',
         ]);
     }
 
