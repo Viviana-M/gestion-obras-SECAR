@@ -57,6 +57,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Autoliquidación de aportes (PILA) — carga y resumen (fase 1).
         Route::get('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'index'])->name('contable.autoliquidacion.index');
         Route::post('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'store'])->name('contable.autoliquidacion.store');
+        // Cargue del movimiento comercial (ítems → items_distribucion)
+        Route::get('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'index'])->name('contable.movimiento-comercial.index');
+        Route::post('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'store'])->name('contable.movimiento-comercial.store');
 
         // Plano contable (distribución 14 → 61)
         Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');

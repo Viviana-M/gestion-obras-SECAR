@@ -912,6 +912,7 @@ class DistribucionCostosController extends Controller
             $cod = $it->codigo_obra;
             if (!isset($obras[$cod])) continue;
             $cta = (string) $it->cuenta;
+            if ($cta === '') continue; // ítem sin cuenta (no cruzó la llave): se reporta en el cargue, no en la conciliación
             if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
                 $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'items' => []];
             }
