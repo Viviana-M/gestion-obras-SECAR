@@ -94,6 +94,19 @@ class DistribucionCostosController extends Controller
 
         $homol = Homologacion::mapaEn($periodo);
 
+        // Corte ACUMULADO al mes filtrado (mismo criterio que sumaAcum y que el
+        // saldo de las bolsas): todos los períodos anteriores + el mes actual.
+        // Así, al filtrar un mes histórico, la cuenta 14 refleja su estado real
+        // a esa fecha, sin contaminarse con reclasificaciones de meses posteriores.
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where(function ($sub) use ($anio, $mes) {
+                $sub->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            });
+        };
+
         $saldos14Query = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->selectRaw('codigo_proyecto, nombre_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_contable')
@@ -101,6 +114,8 @@ class DistribucionCostosController extends Controller
 
         if ($vista === 'mes') {
             $saldos14Query->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($saldos14Query);
         }
 
         $saldos14 = $saldos14Query->get();
@@ -114,6 +129,8 @@ class DistribucionCostosController extends Controller
             ->havingRaw('ABS(SUM(estado_er)) > 0.5');
         if ($vista === 'mes') {
             $netoQuery->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($netoQuery);
         }
         $proyectosConSaldoNeto = $netoQuery->pluck('codigo_proyecto')->flip();
 
@@ -130,14 +147,19 @@ class DistribucionCostosController extends Controller
             ->groupBy('codigo_proyecto', 'cuenta_contable');
         if ($vista === 'mes') {
             $periodoQuery->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($periodoQuery);
         }
         $periodoCuenta = [];  // [cod|cuenta_14] => período más antiguo (anio*100+mes)
         foreach ($periodoQuery->get() as $r) {
             $periodoCuenta[$r->codigo_proyecto.'|'.$r->cuenta_contable] = (int) $r->periodo;
         }
 
-        // Inventario en obra = saldo TOTAL de cuenta 14 (todos los períodos), para la proyección.
+        // Inventario en obra = saldo de cuenta 14 acumulado AL MES FILTRADO (es un stock,
+        // no un flujo), para la proyección. Mismo corte que el saldo mostrado, para que
+        // un mes histórico no se contamine con movimientos posteriores.
         $inventario14 = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where($corteAcum)
             ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto')
             ->pluck('saldo', 'codigo_proyecto');
@@ -474,6 +496,14 @@ class DistribucionCostosController extends Controller
         // mes (tope), consumiendo por antigüedad y aplicando saldos completos (FIFO).
         $costoAplMesG = $this->sumaMes('Costos aplicados', $anio, $mes);
         $saldos14G = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            // Corte acumulado al mes distribuido: no se puede reclasificar costo de
+            // períodos posteriores al que se está distribuyendo (mismo criterio que la vista).
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
             ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as saldo, MIN(anio*100+mes) as periodo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->get();
