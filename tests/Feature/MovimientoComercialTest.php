@@ -42,6 +42,29 @@ class MovimientoComercialTest extends TestCase
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
+    /**
+     * xlsx con las columnas de NOMBRE que trae el BIABLE real, justo después de sus
+     * códigos: "nombre Unidad de Negocio" y "Nombre Tipo de Inventario". Cada fila:
+     * [codObra, nombreObra, periodo, tipoInv, nombreTipoInv, motivo, desc, item, tercero, cant, fecha, ndoc, costo].
+     */
+    private function biableConNombres(array $filas): UploadedFile
+    {
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Comercial_Mvto');
+        $sheet->fromArray([
+            'Unidad de Negocio', 'nombre Unidad de Negocio', 'Periodo', 'Tipo de Inventario', 'Nombre Tipo de Inventario',
+            'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'cantidad neta', 'Fecha', 'Numero_documento', 'costo promedio',
+        ], null, 'A1');
+        $r = 2;
+        foreach ($filas as $f) { $sheet->fromArray($f, null, 'A'.$r); $r++; }
+        $path = tempnam(sys_get_temp_dir(), 'biablen').'.xlsx';
+        (new Xlsx($ss))->save($path);
+
+        return new UploadedFile($path, 'biable.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
     private function seedLlave(): void
     {
         LlaveItemCuenta::create(['tipo_inventario' => '01', 'codigo_movimiento' => '14', 'cuenta' => '73950505', 'naturaleza' => 'Débito', 'activo' => true]);
@@ -104,6 +127,29 @@ class MovimientoComercialTest extends TestCase
         ])->assertRedirect();
         $this->assertSame(1, ItemDistribucion::where('anio', 2026)->where('mes', 7)->count());
         $this->assertSame('999.00', (string) ItemDistribucion::first()->costo);
+    }
+
+    #[Test]
+    public function guarda_el_codigo_de_la_unidad_de_negocio_no_el_nombre(): void
+    {
+        $this->seedLlave();
+
+        // El BIABLE trae "Unidad de Negocio" (código) y "nombre Unidad de Negocio" (nombre).
+        // codigo_obra debe quedar con el CÓDIGO, no con el nombre.
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), [
+            'archivo' => $this->biableConNombres([
+                ['MOB08644', '360 GROUP SAS', '202606', '01', 'Inventario en Obra', '14', 'Salida Directa Inventario en Obra', 'Cemento', 'FERRETERIA', 10, '2026-06-10', 'FAC-1', 500000],
+                ['OB008657', 'CLINICA LILI', '202606', '01', 'Inventario en Obra', '14', 'Salida Directa Inventario en Obra', 'Arena', 'AGREGADOS', 5, '2026-06-11', 'FAC-2', 300000],
+            ]),
+        ])->assertRedirect();
+
+        // Se guarda el código, nunca el nombre.
+        $this->assertSame(1, ItemDistribucion::where('codigo_obra', 'MOB08644')->count());
+        $this->assertSame(1, ItemDistribucion::where('codigo_obra', 'OB008657')->count());
+        $this->assertSame(0, ItemDistribucion::where('codigo_obra', '360 GROUP SAS')->count());
+        $this->assertSame(0, ItemDistribucion::where('codigo_obra', 'CLINICA LILI')->count());
+        // El tipo de inventario también toma el código, no "Nombre Tipo de Inventario".
+        $this->assertSame('01', ItemDistribucion::where('codigo_obra', 'MOB08644')->first()->tipo_inventario);
     }
 
     #[Test]

@@ -173,11 +173,14 @@ class MovimientoComercialController extends Controller
             foreach ($r as $j => $cell) {
                 $h = $this->norm((string) $cell);
                 if ($h === '') continue;
+                // "Unidad de Negocio" trae DOS columnas: el CÓDIGO (ej. MOB08644) y el
+                // NOMBRE ("nombre Unidad de Negocio", ej. 360 GROUP SAS). El código_obra es
+                // la que NO contiene "NOMBRE"; igual criterio para el tipo de inventario.
                 if (str_contains($h, 'PERIODO')) {
                     $found['periodo'] = $j;
-                } elseif (str_contains($h, 'UNIDAD') && str_contains($h, 'NEGOCIO')) {
+                } elseif (str_contains($h, 'UNIDAD') && str_contains($h, 'NEGOCIO') && !str_contains($h, 'NOMBRE')) {
                     $found['codigo_obra'] = $j;
-                } elseif (str_contains($h, 'TIPO') && str_contains($h, 'INVENTARIO')) {
+                } elseif (str_contains($h, 'TIPO') && str_contains($h, 'INVENTARIO') && !str_contains($h, 'NOMBRE')) {
                     $found['tipo_inventario'] = $j;
                 } elseif (str_contains($h, 'MOTIVO')) {
                     $found[str_contains($h, 'DESC') ? 'tipo_movimiento' : 'codigo_movimiento'] = $j;
