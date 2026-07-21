@@ -65,6 +65,35 @@ class MovimientoComercialTest extends TestCase
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
+    /**
+     * xlsx "ancho" como el real (columna basura al inicio + ~120 columnas de ruido al
+     * final) para ejercitar el read filter por columnas. Fila:
+     * [codObra, nombreObra, periodo, tipoInv, motivo, desc, item, tercero, cant, fecha, ndoc, costo].
+     */
+    private function biableAncho(array $filas): UploadedFile
+    {
+        $ruido = array_map(fn ($n) => 'colX'.$n, range(1, 120));
+        $cab = array_merge(
+            ['basura', 'Unidad de Negocio', 'nombre Unidad de Negocio', 'Periodo', 'Tipo de Inventario',
+                'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'cantidad neta', 'Fecha', 'Numero_documento', 'costo promedio'],
+            $ruido
+        );
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Comercial_Mvto');
+        $sheet->fromArray($cab, null, 'A1');
+        $r = 2;
+        foreach ($filas as $f) {
+            $sheet->fromArray(array_merge(['x'], $f, array_fill(0, count($ruido), 'z')), null, 'A'.$r);
+            $r++;
+        }
+        $path = tempnam(sys_get_temp_dir(), 'biablew').'.xlsx';
+        (new Xlsx($ss))->save($path);
+
+        return new UploadedFile($path, 'biable.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
     private function seedLlave(): void
     {
         LlaveItemCuenta::create(['tipo_inventario' => '01', 'codigo_movimiento' => '14', 'cuenta' => '73950505', 'naturaleza' => 'Débito', 'activo' => true]);
@@ -127,6 +156,29 @@ class MovimientoComercialTest extends TestCase
         ])->assertRedirect();
         $this->assertSame(1, ItemDistribucion::where('anio', 2026)->where('mes', 7)->count());
         $this->assertSame('999.00', (string) ItemDistribucion::first()->costo);
+    }
+
+    #[Test]
+    public function lee_hojas_anchas_por_read_filter_sin_desalinear_columnas(): void
+    {
+        $this->seedLlave();
+
+        // Hoja con columna basura al inicio y ~120 de ruido: el read filter carga solo las
+        // necesarias y el mapeo (por offset real) no se desalinea.
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), [
+            'archivo' => $this->biableAncho([
+                ['MOB08644', '360 GROUP SAS', '202606', '01', '14', 'Salida Directa Inventario en Obra', 'Cemento', 'FERRETERIA', 10, '2026-06-10', 'FAC-1', 500000],
+            ]),
+        ])->assertRedirect();
+
+        $this->assertSame(1, ItemDistribucion::where('codigo_obra', 'MOB08644')->count());
+        $it = ItemDistribucion::where('codigo_obra', 'MOB08644')->first();
+        $this->assertSame('01', $it->tipo_inventario);
+        $this->assertSame('14', $it->codigo_movimiento);
+        $this->assertSame('73950505', $it->cuenta);
+        $this->assertSame('Débito', $it->naturaleza);
+        $this->assertEqualsWithDelta(500000, (float) $it->costo, 0.5);
+        $this->assertSame('Cemento', $it->item);
     }
 
     #[Test]

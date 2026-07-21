@@ -7,7 +7,9 @@ use App\Models\ItemDistribucion;
 use App\Models\LlaveItemCuenta;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 /**
@@ -41,26 +43,42 @@ class MovimientoComercialController extends Controller
 
         $request->validate(['archivo' => 'required|file|mimes:xlsx,xls|max:102400']);
 
+        // El Comercial_Mvto real trae ~14.000 filas × 128 columnas; leerlas todas es muy
+        // lento. Quitamos el tope de tiempo y aseguramos memoria suficiente.
+        @set_time_limit(0);
+        $this->subirMemoria('1024M');
+
         $full = $request->file('archivo')->getRealPath();
 
-        // Cargar SOLO la hoja Comercial_Mvto (menos memoria en archivos grandes).
-        $reader = IOFactory::createReaderForFile($full);
-        $reader->setReadDataOnly(true);
-        $reader->setLoadSheetsOnly([self::HOJA]);
-        $spreadsheet = $reader->load($full);
-        $sheet = $spreadsheet->getSheetByName(self::HOJA);
-        if ($sheet === null) {
+        // Pasada 1 (barata): leer solo las primeras filas (todas las columnas) para localizar
+        // los encabezados y las columnas que necesitamos.
+        $muestra = $this->leerHoja($full, new class implements IReadFilter {
+            public function readCell($columnAddress, $row, $worksheetName = ''): bool { return $row <= 100; }
+        });
+        if ($muestra === null) {
             return back()->with('error', 'El archivo no tiene la hoja "'.self::HOJA.'".');
         }
-        $rows = $sheet->toArray(null, true, false, false);
-        if (empty($rows)) {
+        if (empty($muestra)) {
             return back()->with('error', 'La hoja "'.self::HOJA.'" está vacía.');
         }
 
-        // Localizar encabezados y mapear columnas por nombre (flexible).
-        [$headerIdx, $col] = $this->mapearColumnas($rows);
+        [$headerIdx, $col] = $this->mapearColumnas($muestra);
         if ($headerIdx === null) {
             return back()->with('error', 'No encontré los encabezados esperados en "'.self::HOJA.'" (Unidad de Negocio, Periodo, Tipo de Inventario, motivo, Cuenta/costo).');
+        }
+
+        // Pasada 2 (rápida): leer TODAS las filas pero SOLO las columnas necesarias
+        // (~11 en vez de 128). Un read filter por columnas acelera muchísimo.
+        $letras = [];
+        foreach ($col as $offset) {
+            if ($offset !== null) $letras[Coordinate::stringFromColumnIndex($offset + 1)] = true;
+        }
+        $rows = $this->leerHoja($full, new class($letras) implements IReadFilter {
+            public function __construct(private array $letras) {}
+            public function readCell($columnAddress, $row, $worksheetName = ''): bool { return isset($this->letras[$columnAddress]); }
+        });
+        if (empty($rows)) {
+            return back()->with('error', 'No encontré filas de datos válidas en la hoja.');
         }
 
         // Llave precargada en memoria: [tipo|codigo] => ['cuenta','naturaleza'].
@@ -159,6 +177,51 @@ class MovimientoComercialController extends Controller
         }
 
         return redirect()->route('contable.movimiento-comercial.index')->with('success', $msg);
+    }
+
+    /**
+     * Lee la hoja Comercial_Mvto (solo esa, datos crudos) aplicando un read filter
+     * (por filas o por columnas) para no cargar todo el archivo. Devuelve las filas como
+     * array, o null si la hoja no existe.
+     */
+    private function leerHoja(string $full, IReadFilter $filtro): ?array
+    {
+        $reader = IOFactory::createReaderForFile($full);
+        $reader->setReadDataOnly(true);
+        $reader->setLoadSheetsOnly([self::HOJA]);
+        $reader->setReadFilter($filtro);
+        $spreadsheet = $reader->load($full);
+        $sheet = $spreadsheet->getSheetByName(self::HOJA);
+        if ($sheet === null) {
+            return null;
+        }
+        $rows = $sheet->toArray(null, true, false, false);
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+
+        return $rows;
+    }
+
+    /** Sube el límite de memoria al objetivo solo si el actual es menor (nunca lo baja). */
+    private function subirMemoria(string $objetivo): void
+    {
+        $actual = ini_get('memory_limit');
+        if ($actual === false || $actual === '-1') return; // sin límite
+        if ($this->aBytes($actual) < $this->aBytes($objetivo)) {
+            @ini_set('memory_limit', $objetivo);
+        }
+    }
+
+    private function aBytes(string $v): int
+    {
+        $v = trim($v);
+        $n = (int) $v;
+        return match (strtolower(substr($v, -1))) {
+            'g'     => $n * 1024 ** 3,
+            'm'     => $n * 1024 ** 2,
+            'k'     => $n * 1024,
+            default => $n,
+        };
     }
 
     /**
