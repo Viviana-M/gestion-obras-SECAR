@@ -328,6 +328,61 @@
         </div>
         @endif
 
+        {{-- DETALLE DE ÍTEMS POR CUENTA (Fase C): costo por cuenta; al hacer clic se
+             despliegan los ítems que la componen. Salidas suman, reintegros restan. --}}
+        @if(!empty($o['items_por_cuenta']))
+        <div style="margin-top:14px;border-top:1px dashed #C7D2FE;padding-top:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="width:9px;height:9px;border-radius:2px;background:#6366F1;display:inline-block"></span>
+                <span style="font-size:12px;font-weight:600;color:#4338CA">Detalle de ítems por cuenta</span>
+            </div>
+            @foreach($o['items_por_cuenta'] as $cta => $grupo)
+            @php $itcId = 'itc-'.$cod.'-'.\Illuminate\Support\Str::slug($cta); @endphp
+            <div style="margin-top:6px;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden">
+                <div onclick="toggleItemsCuenta('{{ $itcId }}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;background:#F9FAFB">
+                    <span style="font-size:12px"><span style="color:#6366F1">▸</span> Cuenta <b style="font-family:monospace">{{ $cta }}</b> <span style="color:#9CA3AF">· {{ count($grupo['items']) }} ítem{{ count($grupo['items']) == 1 ? '' : 's' }}</span></span>
+                    <span style="font-size:12px;font-weight:600;color:{{ $grupo['neto'] >= 0 ? '#1B3F6E' : '#DC2626' }}">Neto {{ $fmt($grupo['neto']) }}</span>
+                </div>
+                <div id="{{ $itcId }}" style="display:none;overflow-x:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px">
+                        <tr style="color:#9CA3AF;text-align:left;background:#fff">
+                            <td style="padding:4px 8px">Ítem</td>
+                            <td style="padding:4px 8px">Tipo inventario</td>
+                            <td style="padding:4px 8px">Movimiento</td>
+                            <td style="padding:4px 8px">Tercero</td>
+                            <td style="padding:4px 8px;text-align:right">Cantidad</td>
+                            <td style="padding:4px 8px">Fecha</td>
+                            <td style="padding:4px 8px">N° documento</td>
+                            <td style="padding:4px 8px;text-align:right">Costo</td>
+                            <td style="padding:4px 8px"></td>
+                        </tr>
+                        @foreach($grupo['items'] as $it)
+                        <tr style="border-top:1px solid #F3F4F6;{{ $it['reintegro'] ? 'color:#DC2626' : '' }}">
+                            <td style="padding:4px 8px">{{ $it['item'] }}</td>
+                            <td style="padding:4px 8px">{{ $it['tipo_inventario'] }}</td>
+                            <td style="padding:4px 8px">{{ $it['movimiento'] }}</td>
+                            <td style="padding:4px 8px">{{ Str::limit($it['tercero'], 26) }}</td>
+                            <td style="padding:4px 8px;text-align:right">{{ $it['cantidad'] !== null ? rtrim(rtrim(number_format($it['cantidad'], 2, '.', ''), '0'), '.') : '' }}</td>
+                            <td style="padding:4px 8px;white-space:nowrap">{{ $it['fecha'] }}</td>
+                            <td style="padding:4px 8px;font-family:monospace">{{ $it['numero_documento'] }}</td>
+                            <td style="padding:4px 8px;text-align:right;font-weight:600">{{ $it['reintegro'] ? '−'.$fmt($it['costo']) : $fmt($it['costo']) }}</td>
+                            <td style="padding:4px 8px;text-align:right">
+                                <button type="button" onclick="reasignarItem()" style="font-size:10px;padding:3px 8px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;background:white;cursor:pointer;white-space:nowrap">Reasignar</button>
+                            </td>
+                        </tr>
+                        @endforeach
+                        <tr style="border-top:2px solid #E5E7EB;font-weight:700;background:#F9FAFB">
+                            <td colspan="7" style="padding:6px 8px;text-align:right">Neto (salidas − reintegros)</td>
+                            <td style="padding:6px 8px;text-align:right;color:{{ $grupo['neto'] >= 0 ? '#1B3F6E' : '#DC2626' }}">{{ $fmt($grupo['neto']) }}</td>
+                            <td></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            @endforeach
+        </div>
+        @endif
+
         @if($o['total_reversado'] > 0)
         <div style="margin-top:12px;background:#FEF2F2;border-radius:8px;padding:8px 12px;font-size:11px;color:#DC2626">
             ⚠ Reversado de más (alerta, no editable): {{ $fmt($o['total_reversado']) }}

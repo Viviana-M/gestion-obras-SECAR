@@ -14,6 +14,7 @@ use App\Models\ObservacionObra;
 use App\Models\Distribucion;
 use App\Models\AutorizacionDistribucion;
 use App\Models\BolsaAsignacion;
+use App\Models\ItemDistribucion;
 use App\Models\UnBolsa;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -359,6 +360,10 @@ class DistribucionCostosController extends Controller
         uasort($obras, fn($a, $b) =>
             ($a['orden_sem'] <=> $b['orden_sem']) ?: ($b['total_pendiente'] <=> $a['total_pendiente'])
         );
+
+        // Detalle de ítems por cuenta (Fase B/C): los ítems del período de cada obra,
+        // agrupados por cuenta de costo, con su neto (salidas − reintegros).
+        $this->adjuntarItemsPorCuenta($obras, $mes, $anio);
 
         // Catálogo para el desplegable de provisiones: las cuentas vigentes EN ESTE PERÍODO.
         $catalogo = Homologacion::vigentesEn($periodo)
@@ -862,6 +867,50 @@ class DistribucionCostosController extends Controller
             'filas'       => $filas,
             'total'       => $total,
         ]);
+    }
+
+    /**
+     * Adjunta a cada obra los ítems del período (mes/año) agrupados por cuenta de
+     * costo, con su neto (salidas − reintegros). Los reintegros (naturaleza Crédito)
+     * restan del neto. Se llena $o['items_por_cuenta'] = [cuenta => ['neto','items'=>[]]].
+     */
+    private function adjuntarItemsPorCuenta(array &$obras, int $mes, int $anio): void
+    {
+        foreach ($obras as $cod => &$o) {
+            $o['items_por_cuenta'] = [];
+        }
+        unset($o);
+
+        if (empty($obras)) {
+            return;
+        }
+
+        $items = ItemDistribucion::whereIn('codigo_obra', array_keys($obras))
+            ->where('mes', $mes)->where('anio', $anio)
+            ->orderBy('cuenta')->orderBy('fecha')->orderBy('id')
+            ->get();
+
+        foreach ($items as $it) {
+            $cod = $it->codigo_obra;
+            if (!isset($obras[$cod])) continue;
+            $cta = (string) $it->cuenta;
+            if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
+                $obras[$cod]['items_por_cuenta'][$cta] = ['neto' => 0.0, 'items' => []];
+            }
+            $reintegro = $it->esReintegro();
+            $obras[$cod]['items_por_cuenta'][$cta]['neto'] += $it->costoNeto();
+            $obras[$cod]['items_por_cuenta'][$cta]['items'][] = [
+                'item'             => (string) $it->item,
+                'tipo_inventario'  => (string) $it->tipo_inventario,
+                'movimiento'       => trim((string) $it->codigo_movimiento . ' ' . (string) $it->tipo_movimiento),
+                'tercero'          => (string) $it->tercero,
+                'cantidad'         => $it->cantidad,
+                'fecha'            => $it->fecha ? $it->fecha->format('d/m/Y') : '',
+                'numero_documento' => (string) $it->numero_documento,
+                'costo'            => abs((float) $it->costo),
+                'reintegro'        => $reintegro,
+            ];
+        }
     }
 
     /** Convierte el input del form (asignacion_bolsa[cod][idx]=['bolsa','monto']) a [cod => [bolsa => monto]]. */

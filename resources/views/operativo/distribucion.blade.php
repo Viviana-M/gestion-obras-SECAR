@@ -432,6 +432,10 @@ function filtrarObras(q){
     if(q){ abrirGrupo('con'); abrirGrupo('sin'); } // al buscar, abre ambos grupos
 }
 function toggleProvForm(cod){ const e=document.getElementById('provform-'+cod); e.style.display = e.style.display==='none'?'block':'none'; }
+/* Detalle de ítems por cuenta (Fase C): expandir/colapsar la tabla de ítems. */
+function toggleItemsCuenta(id){ const e=document.getElementById(id); if(e) e.style.display = (e.style.display==='none'||!e.style.display) ? 'block' : 'none'; }
+/* Reasignar ítem: la acción se implementa en la Fase D. */
+function reasignarItem(){ alert('La reasignación de ítems se habilita en la siguiente fase.'); }
 function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.value||0); if(v>max){inp.value=Math.round(max);} if(v<0){inp.value=0;} }
 
 function sumAplicar(cod){
