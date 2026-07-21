@@ -870,9 +870,12 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Adjunta a cada obra los ítems del período (mes/año) agrupados por cuenta de
-     * costo, con su neto (salidas − reintegros). Los reintegros (naturaleza Crédito)
-     * restan del neto. Se llena $o['items_por_cuenta'] = [cuenta => ['neto','items'=>[]]].
+     * Adjunta a cada obra el detalle de ítems por cuenta (vista de CONCILIACIÓN, no
+     * aditiva): el costo ya está en la cuenta; aquí solo se listan los ítems que la
+     * componen y se contrasta la suma de ítems (salidas − reintegros) contra el total
+     * real de la cuenta (costo del período ya en la cuenta 6). La diferencia detecta
+     * ítems faltantes o sin cruzar.
+     * $o['items_por_cuenta'] = [cuenta => ['suma_items','total_cuenta','diferencia','cuadra','items'=>[]]].
      */
     private function adjuntarItemsPorCuenta(array &$obras, int $mes, int $anio): void
     {
@@ -884,21 +887,35 @@ class DistribucionCostosController extends Controller
         if (empty($obras)) {
             return;
         }
+        $codigos = array_keys($obras);
 
-        $items = ItemDistribucion::whereIn('codigo_obra', array_keys($obras))
+        // Total real por (obra, cuenta): costo del período ya aplicado en la cuenta 6.
+        $totales = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where('anio', $anio)->where('mes', $mes)
+            ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+        foreach ($totales as $t) {
+            $cod = $t->codigo_proyecto;
+            if (!isset($obras[$cod])) continue;
+            $cta = (string) $t->cuenta_contable;
+            $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => abs((float) $t->total), 'items' => []];
+        }
+
+        // Ítems del período por (obra, cuenta).
+        $items = ItemDistribucion::whereIn('codigo_obra', $codigos)
             ->where('mes', $mes)->where('anio', $anio)
             ->orderBy('cuenta')->orderBy('fecha')->orderBy('id')
             ->get();
-
         foreach ($items as $it) {
             $cod = $it->codigo_obra;
             if (!isset($obras[$cod])) continue;
             $cta = (string) $it->cuenta;
             if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
-                $obras[$cod]['items_por_cuenta'][$cta] = ['neto' => 0.0, 'items' => []];
+                $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'items' => []];
             }
-            $reintegro = $it->esReintegro();
-            $obras[$cod]['items_por_cuenta'][$cta]['neto'] += $it->costoNeto();
+            $obras[$cod]['items_por_cuenta'][$cta]['suma_items'] += $it->costoNeto();
             $obras[$cod]['items_por_cuenta'][$cta]['items'][] = [
                 'item'             => (string) $it->item,
                 'tipo_inventario'  => (string) $it->tipo_inventario,
@@ -908,9 +925,22 @@ class DistribucionCostosController extends Controller
                 'fecha'            => $it->fecha ? $it->fecha->format('d/m/Y') : '',
                 'numero_documento' => (string) $it->numero_documento,
                 'costo'            => abs((float) $it->costo),
-                'reintegro'        => $reintegro,
+                'reintegro'        => $it->esReintegro(),
             ];
         }
+
+        // Conciliación: diferencia total_cuenta − suma_items; cuadra si ~0.
+        foreach ($obras as $cod => &$o) {
+            if (empty($o['items_por_cuenta'])) continue;
+            ksort($o['items_por_cuenta']);
+            foreach ($o['items_por_cuenta'] as $cta => &$g) {
+                $g['suma_items']  = round($g['suma_items'], 2);
+                $g['diferencia']  = round($g['total_cuenta'] - $g['suma_items'], 2);
+                $g['cuadra']      = abs($g['diferencia']) <= 0.5;
+            }
+            unset($g);
+        }
+        unset($o);
     }
 
     /** Convierte el input del form (asignacion_bolsa[cod][idx]=['bolsa','monto']) a [cod => [bolsa => monto]]. */

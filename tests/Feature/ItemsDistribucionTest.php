@@ -42,12 +42,14 @@ class ItemsDistribucionTest extends TestCase
     }
 
     #[Test]
-    public function la_obra_muestra_los_items_por_cuenta_con_neto_descontando_reintegros(): void
+    public function concilia_la_suma_de_items_contra_el_total_de_la_cuenta_cuando_cuadra(): void
     {
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        // Costo YA en la cuenta 73950505: 600.000 (total real de la cuenta).
+        $this->rf('C-700', 'Costos aplicados', -600000, 7, 2026, '73950505');
 
-        // Dos salidas (suman) y un reintegro (resta) en la misma cuenta.
+        // Dos salidas (suman) y un reintegro (resta): neto 500+300−200 = 600.000.
         $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
         $this->item(['item' => 'Arena', 'costo' => 300000, 'naturaleza' => 'Débito']);
         $this->item(['item' => 'Cemento devuelto', 'codigo_movimiento' => '15',
@@ -62,10 +64,34 @@ class ItemsDistribucionTest extends TestCase
         $resp->assertSee('Cemento', false);
         $resp->assertSee('FERRETERIA X', false);
         $resp->assertSee('Reasignar', false);
-        // Neto = 500.000 + 300.000 − 200.000 = 600.000.
-        $resp->assertSee('Neto $600.000', false);
+        $resp->assertSee('Suma de ítems', false);
+        $resp->assertSee('Total de la cuenta', false);
+        // Suma de ítems 600.000 == total de la cuenta 600.000 → cuadra.
+        $resp->assertSee('✓ Cuadra', false);
         // El reintegro se muestra con signo −.
         $resp->assertSee('−$200.000', false);
+    }
+
+    #[Test]
+    public function marca_la_diferencia_cuando_faltan_items(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        // Total real de la cuenta: 1.000.000, pero solo hay 600.000 en ítems → dif 400.000.
+        $this->rf('C-700', 'Costos aplicados', -1000000, 7, 2026, '73950505');
+
+        $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
+        $this->item(['item' => 'Arena', 'costo' => 300000, 'naturaleza' => 'Débito']);
+        $this->item(['item' => 'Cemento devuelto', 'naturaleza' => 'Crédito', 'costo' => 200000]);
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertDontSee('✓ Cuadra', false);
+        $resp->assertSee('revisar', false);
+        // Diferencia = 1.000.000 − 600.000 = 400.000.
+        $resp->assertSee('$400.000', false);
     }
 
     #[Test]
