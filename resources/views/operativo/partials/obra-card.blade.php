@@ -210,8 +210,8 @@
                     @foreach($c['subs'] as $sub)
                     @if($sub['pendiente'] > 0)
                     @php
-                        // Ítems que componen esta cuenta 14 (cruzados por su cuenta 61 = cuenta del ítem).
-                        $grupoIt   = $o['items_por_cuenta'][$sub['cuenta_61']] ?? null;
+                        // Ítems que componen esta cuenta 14 (agrupados por la cuenta 14 de la llave).
+                        $grupoIt   = $o['items_por_cuenta'][$sub['cuenta_14']] ?? null;
                         $tieneItems = $grupoIt && !empty($grupoIt['items']);
                         $itcId     = 'itc-'.$cod.'-'.\Illuminate\Support\Str::slug($sub['cuenta_14']);
                     @endphp
@@ -236,12 +236,11 @@
                     </tr>
                     @if($tieneItems)
                     @php
-                        // Conciliación contra la CUENTA 14: la suma de ítems pendientes debe
-                        // igualar el saldo (pendiente) acumulado de esta cuenta 14.
-                        $saldo14   = (float) $sub['pendiente'];
-                        $pendItems = (float) $grupoIt['pendiente_total'];
-                        $difItc    = round($saldo14 - $pendItems, 2);
-                        $cuadraItc = abs($difItc) <= 0.5;
+                        // Conciliación contra la CUENTA 14 (calculada en el controlador): la suma de
+                        // ítems pendientes debe igualar el saldo pendiente acumulado de esta cuenta 14.
+                        $saldo14   = (float) $grupoIt['total_cuenta'];
+                        $difItc    = (float) $grupoIt['diferencia'];
+                        $cuadraItc = (bool) $grupoIt['cuadra'];
                     @endphp
                     <tr id="{{ $itcId }}" style="display:none">
                         <td colspan="6" style="padding:0 2px 10px;background:#FBFCFE">

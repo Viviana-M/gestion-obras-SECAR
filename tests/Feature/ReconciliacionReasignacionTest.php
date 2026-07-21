@@ -33,8 +33,9 @@ class ReconciliacionReasignacionTest extends TestCase
 
     private function item(string $obra, string $item, float $costo, string $fecha, string $nat = 'Débito'): ItemDistribucion
     {
+        // La cuenta del ítem es la CUENTA 14 de la llave (reconocimiento y conciliación por la 14).
         return ItemDistribucion::create([
-            'codigo_obra' => $obra, 'mes' => 7, 'anio' => 2026, 'cuenta' => '73950505', 'item' => $item,
+            'codigo_obra' => $obra, 'mes' => 7, 'anio' => 2026, 'cuenta' => '14350105', 'item' => $item,
             'tipo_inventario' => '01', 'codigo_movimiento' => '14', 'tipo_movimiento' => 'Salida',
             'naturaleza' => $nat, 'tercero' => 'X', 'cantidad' => 1, 'fecha' => $fecha,
             'numero_documento' => 'D-'.$item, 'costo' => $costo,
@@ -93,7 +94,7 @@ class ReconciliacionReasignacionTest extends TestCase
         // Trazabilidad.
         $this->assertDatabaseHas('reasignaciones_item', [
             'item_distribucion_id' => $it->id, 'codigo_obra_origen' => 'MO4501',
-            'codigo_obra_destino' => 'MO4502', 'cuenta' => '73950505', 'costo' => 500000, 'motivo' => 'Se usó en la otra obra',
+            'codigo_obra_destino' => 'MO4502', 'cuenta' => '14350105', 'costo' => 500000, 'motivo' => 'Se usó en la otra obra',
         ]);
     }
 

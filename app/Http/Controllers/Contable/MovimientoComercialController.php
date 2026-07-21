@@ -77,7 +77,7 @@ class MovimientoComercialController extends Controller
         foreach ($rows as $i => $r) {
             if ($i <= $headerIdx) continue;
 
-            $obra = $this->texto($r[$col['codigo_obra']] ?? null);
+            $obra = $this->codigoObra($r[$col['codigo_obra']] ?? null);
             [$mes, $anio] = $this->periodo($r[$col['periodo']] ?? null);
             $tipoInv = $this->texto($r[$col['tipo_inventario']] ?? null);
             $codMov  = $this->texto($r[$col['codigo_movimiento']] ?? null);
@@ -211,6 +211,20 @@ class MovimientoComercialController extends Controller
     private function texto($v): ?string
     {
         $t = trim((string) $v);
+        return $t === '' ? null : $t;
+    }
+
+    /**
+     * Limpia el código de obra para que cruce EXACTO con el de la distribución:
+     * trim, quita un prefijo tipo "ct " que trae el export comercial (ct MOB08644 →
+     * MOB08644) y elimina espacios sobrantes (el código no lleva espacios internos).
+     */
+    private function codigoObra($v): ?string
+    {
+        $t = trim((string) $v);
+        if ($t === '') return null;
+        $t = preg_replace('/^ct\s+/i', '', $t);   // "ct MOB08644" → "MOB08644"
+        $t = preg_replace('/\s+/', '', $t);         // "MOB 08644" → "MOB08644"
         return $t === '' ? null : $t;
     }
 

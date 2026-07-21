@@ -107,6 +107,25 @@ class MovimientoComercialTest extends TestCase
     }
 
     #[Test]
+    public function limpia_el_codigo_de_obra_para_que_cruce_exacto(): void
+    {
+        $this->seedLlave();
+
+        // El export comercial trae códigos "sucios": prefijo "ct " y espacios.
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), [
+            'archivo' => $this->biable([
+                ['ct MOB08644', '202607', '01', '14', 'Salida', 'A', 'X', 1, '2026-07-10', 'D1', 100],
+                ['  MOB 08644 ', '202607', '01', '14', 'Salida', 'B', 'X', 1, '2026-07-11', 'D2', 200],
+            ]),
+        ])->assertRedirect();
+
+        // Ambos quedan como 'MOB08644' (sin prefijo ni espacios), listos para cruzar.
+        $this->assertSame(2, ItemDistribucion::where('codigo_obra', 'MOB08644')->count());
+        $this->assertSame(0, ItemDistribucion::where('codigo_obra', 'like', '%ct %')->count());
+        $this->assertSame(0, ItemDistribucion::where('codigo_obra', 'like', '% %')->count());
+    }
+
+    #[Test]
     public function falla_si_no_existe_la_hoja_comercial_mvto(): void
     {
         $ss = new Spreadsheet();

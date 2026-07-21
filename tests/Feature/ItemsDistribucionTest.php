@@ -37,8 +37,9 @@ class ItemsDistribucionTest extends TestCase
 
     private function item(array $attrs): void
     {
+        // La cuenta del ítem es la CUENTA 14 de la llave (la conciliación es contra la 14).
         ItemDistribucion::create(array_merge([
-            'codigo_obra' => 'C-700', 'mes' => 7, 'anio' => 2026, 'cuenta' => '73950505',
+            'codigo_obra' => 'C-700', 'mes' => 7, 'anio' => 2026, 'cuenta' => '14350105',
             'item' => 'Cemento', 'tipo_inventario' => '01', 'codigo_movimiento' => '14',
             'tipo_movimiento' => 'Salida Directa Inventario en Obra', 'naturaleza' => 'Débito',
             'tercero' => 'FERRETERIA X', 'cantidad' => 10, 'fecha' => '2026-07-10',

@@ -977,10 +977,18 @@ class DistribucionCostosController extends Controller
         }
         $codigos = array_keys($obras);
 
-        // Total real por (obra, cuenta): costo del período ya aplicado en la cuenta 6.
-        $totales = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
+        // Saldo real por (obra, cuenta 14): la conciliación es contra la CUENTA 14
+        // ('Costos por aplicar'), NO contra la cuenta 6. Los ítems se agrupan por su
+        // cuenta 14 (la de la llave), así que el total debe salir de la misma cuenta 14
+        // para que las llaves coincidan. Mismo corte acumulado al mes que el saldo de la obra.
+        $totales = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
-            ->where('anio', $anio)->where('mes', $mes)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
             ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as total')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->get();
@@ -1030,8 +1038,9 @@ class DistribucionCostosController extends Controller
             ];
         }
 
-        // Conciliación: diferencia total_cuenta − suma_items; cuadra si ~0.
-        // Pendiente (cuenta 14) = suma neta de ítems − lo reconocido (reclasificado 14→61).
+        // Conciliación contra la CUENTA 14: la suma de ítems PENDIENTES (suma neta − lo
+        // reconocido/reclasificado 14→61) debe igualar el saldo pendiente de la cuenta 14.
+        // La diferencia detecta ítems faltantes o sin cruzar.
         foreach ($obras as $cod => &$o) {
             if (empty($o['items_por_cuenta'])) continue;
             ksort($o['items_por_cuenta']);
@@ -1039,7 +1048,7 @@ class DistribucionCostosController extends Controller
                 $g['suma_items']      = round($g['suma_items'], 2);
                 $g['reconocido_total'] = round($g['reconocido_total'], 2);
                 $g['pendiente_total'] = round($g['suma_items'] - $g['reconocido_total'], 2);
-                $g['diferencia']      = round($g['total_cuenta'] - $g['suma_items'], 2);
+                $g['diferencia']      = round($g['total_cuenta'] - $g['pendiente_total'], 2);
                 $g['cuadra']          = abs($g['diferencia']) <= 0.5;
             }
             unset($g);
@@ -1059,12 +1068,14 @@ class DistribucionCostosController extends Controller
             'reconocido' => false, 'monto_reconocido' => 0, 'reconocido_at' => null, 'distribucion_id' => null,
         ]);
 
-        // Monto reclasificado (14→61) por (obra, cuenta 61): solo aplicaciones PROPIAS de
+        // Monto reclasificado (14→61) por (obra, cuenta 14): solo aplicaciones PROPIAS de
         // la obra (no provisiones ni costo de bolsas, que no salen del inventario de ítems).
+        // Los ítems se agrupan por su cuenta 14 (la de la llave), así que el reconocimiento
+        // consume los ítems de esa misma cuenta 14.
         $aplicado = AplicacionCosto::where('distribucion_id', $distribucion->id)
             ->where('es_provision', false)->whereNull('origen_bolsa')
-            ->selectRaw('codigo_proyecto, cuenta_61, SUM(monto_aplicar) as total')
-            ->groupBy('codigo_proyecto', 'cuenta_61')
+            ->selectRaw('codigo_proyecto, cuenta_14, SUM(monto_aplicar) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_14')
             ->get();
 
         foreach ($aplicado as $ap) {
@@ -1072,7 +1083,7 @@ class DistribucionCostosController extends Controller
             if ($restante <= 0.5) continue;
 
             $items = ItemDistribucion::where('codigo_obra', $ap->codigo_proyecto)
-                ->where('cuenta', $ap->cuenta_61)
+                ->where('cuenta', $ap->cuenta_14)
                 ->where('mes', $mes)->where('anio', $anio)
                 ->orderBy('fecha')->orderBy('id')
                 ->get();
