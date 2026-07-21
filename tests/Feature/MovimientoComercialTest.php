@@ -107,6 +107,47 @@ class MovimientoComercialTest extends TestCase
     }
 
     #[Test]
+    public function la_naturaleza_se_toma_de_la_descripcion_no_del_codigo(): void
+    {
+        $this->seedLlave(); // código 14 → Débito en la llave
+
+        // MISMO código 14, descripciones opuestas: la naturaleza la manda la descripción.
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), [
+            'archivo' => $this->biable([
+                ['C-700', '202607', '01', '14', 'Salida Directa Inventario en Obra', 'Cemento', 'X', 1, '2026-07-10', 'S1', 500000],
+                ['C-700', '202607', '01', '14', 'Reintegro salida directa inv. en Obra', 'Cemento dev', 'X', 1, '2026-07-11', 'R1', 200000],
+            ]),
+        ])->assertRedirect();
+
+        // La salida (código 14) queda Débito; el reintegro (mismo código 14) queda Crédito.
+        $this->assertDatabaseHas('items_distribucion', ['item' => 'Cemento', 'codigo_movimiento' => '14', 'naturaleza' => 'Débito']);
+        $this->assertDatabaseHas('items_distribucion', ['item' => 'Cemento dev', 'codigo_movimiento' => '14', 'naturaleza' => 'Crédito']);
+
+        // La naturaleza define el signo del costo neto: salida suma, reintegro resta.
+        $this->assertEqualsWithDelta(500000, ItemDistribucion::where('item', 'Cemento')->first()->costoNeto(), 0.5);
+        $this->assertEqualsWithDelta(-200000, ItemDistribucion::where('item', 'Cemento dev')->first()->costoNeto(), 0.5);
+    }
+
+    #[Test]
+    public function el_traslado_no_se_carga_como_costo_directo(): void
+    {
+        $this->seedLlave();
+        LlaveItemCuenta::create(['tipo_inventario' => '01', 'codigo_movimiento' => '01', 'cuenta' => '14200105', 'naturaleza' => 'Débito', 'activo' => true]);
+
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), [
+            'archivo' => $this->biable([
+                ['C-700', '202607', '01', '01', 'TRASLADO OT', 'ItemTraslado', 'X', 1, '2026-07-10', 'T1', 300000],
+                ['C-700', '202607', '01', '14', 'Salida Directa Inventario en Obra', 'ItemSalida', 'X', 1, '2026-07-10', 'S1', 100000],
+            ]),
+        ])->assertRedirect();
+
+        // El traslado se omite (Fase D); solo entra la salida.
+        $this->assertSame(0, ItemDistribucion::where('item', 'ItemTraslado')->count());
+        $this->assertSame(1, ItemDistribucion::where('item', 'ItemSalida')->count());
+        $this->assertStringContainsString('traslado', session('success'));
+    }
+
+    #[Test]
     public function limpia_el_codigo_de_obra_para_que_cruce_exacto(): void
     {
         $this->seedLlave();

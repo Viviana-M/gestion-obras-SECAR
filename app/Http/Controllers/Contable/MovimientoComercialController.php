@@ -68,11 +68,12 @@ class MovimientoComercialController extends Controller
             ->get(['tipo_inventario', 'codigo_movimiento', 'cuenta', 'naturaleza'])
             ->keyBy(fn ($l) => $l->tipo_inventario.'|'.$l->codigo_movimiento);
 
-        $ahora     = now();
-        $registros = [];
-        $periodos  = [];       // "anio-mes" => [anio,mes]
-        $sinLlave  = [];       // "tipo|codigo" => ['tipo','codigo','n']
-        $saltadas  = 0;
+        $ahora      = now();
+        $registros  = [];
+        $periodos   = [];      // "anio-mes" => [anio,mes]
+        $sinLlave   = [];      // "tipo|codigo" => ['tipo','codigo','n']
+        $saltadas   = 0;
+        $traslados  = 0;       // TRASLADO OT: se manejan como reasignación (Fase D), no como costo
 
         foreach ($rows as $i => $r) {
             if ($i <= $headerIdx) continue;
@@ -86,12 +87,24 @@ class MovimientoComercialController extends Controller
                 continue;
             }
 
+            // La descripción del motivo (Desc_motivo) manda sobre la naturaleza: un mismo
+            // código se usa para movimientos opuestos (14 = Salida y Reintegro; 01 =
+            // Traslado, Salida, Entrada). El traslado NO es costo directo: es reasignación (Fase D).
+            $desc = $col['tipo_movimiento'] !== null ? $this->texto($r[$col['tipo_movimiento']] ?? null) : null;
+            if ($this->esTraslado($desc)) {
+                $traslados++;
+                continue;
+            }
+
             $llave = $llaves[$tipoInv.'|'.$codMov] ?? null;
             if ($llave === null) {
                 $k = $tipoInv.'|'.$codMov;
                 $sinLlave[$k] ??= ['tipo' => $tipoInv, 'codigo' => $codMov, 'n' => 0];
                 $sinLlave[$k]['n']++;
             }
+
+            // Naturaleza por descripción; si la descripción no la define, cae a la de la llave.
+            $naturaleza = $this->naturalezaPorDescripcion($desc) ?? ($llave->naturaleza ?? null);
 
             $periodos["{$anio}-{$mes}"] = [$anio, $mes];
             $registros[] = [
@@ -102,8 +115,8 @@ class MovimientoComercialController extends Controller
                 'item'              => $this->texto($r[$col['item']] ?? null) ?? '',
                 'tipo_inventario'   => $tipoInv,
                 'codigo_movimiento' => $codMov,
-                'tipo_movimiento'   => $col['tipo_movimiento'] !== null ? $this->texto($r[$col['tipo_movimiento']] ?? null) : null,
-                'naturaleza'        => $llave->naturaleza ?? null,
+                'tipo_movimiento'   => $desc,
+                'naturaleza'        => $naturaleza,
                 'tercero'           => $col['tercero'] !== null ? $this->texto($r[$col['tercero']] ?? null) : null,
                 'cantidad'          => $col['cantidad'] !== null ? $this->num($r[$col['cantidad']] ?? null) : null,
                 'fecha'             => $col['fecha'] !== null ? $this->fecha($r[$col['fecha']] ?? null) : null,
@@ -134,6 +147,7 @@ class MovimientoComercialController extends Controller
         $listaPeriodos = implode(', ', array_map(fn ($p) => sprintf('%02d/%d', $p[1], $p[0]), $periodos));
         $msg = "Se cargaron {$n} ítems ({$listaPeriodos}).";
         if ($saltadas > 0) $msg .= " Se saltaron {$saltadas} filas incompletas.";
+        if ($traslados > 0) $msg .= " Se omitieron {$traslados} traslados (se manejan como reasignación).";
 
         if ($sinN > 0) {
             $detalle = collect($sinLlave)->sortByDesc('n')->take(15)
@@ -212,6 +226,26 @@ class MovimientoComercialController extends Controller
     {
         $t = trim((string) $v);
         return $t === '' ? null : $t;
+    }
+
+    /**
+     * Naturaleza contable a partir de la DESCRIPCIÓN del movimiento (no del código, que
+     * es ambiguo): "Reintegro"/"Entrada" → Crédito (resta costo); "Salida" → Débito
+     * (suma). Devuelve null si la descripción no lo define (se cae a la llave).
+     */
+    private function naturalezaPorDescripcion(?string $desc): ?string
+    {
+        $d = $this->norm((string) $desc);
+        if ($d === '') return null;
+        if (str_contains($d, 'REINTEGRO') || str_contains($d, 'ENTRADA')) return 'Crédito';
+        if (str_contains($d, 'SALIDA')) return 'Débito';
+        return null;
+    }
+
+    /** Un traslado ("TRASLADO OT") no es costo directo: es reasignación entre OT (Fase D). */
+    private function esTraslado(?string $desc): bool
+    {
+        return str_contains($this->norm((string) $desc), 'TRASLADO');
     }
 
     /**
