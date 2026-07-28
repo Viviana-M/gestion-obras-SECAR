@@ -216,6 +216,37 @@ class MovimientoComercialTest extends TestCase
     }
 
     #[Test]
+    public function gana_la_columna_exacta_tipo_de_inventario_aunque_haya_variantes_despues(): void
+    {
+        LlaveItemCuenta::create(['tipo_inventario' => 'INV145525', 'codigo_movimiento' => '14', 'cuenta' => '14200105', 'naturaleza' => 'Débito', 'activo' => true]);
+
+        // Hoja donde DESPUÉS de "Tipo de Inventario" (código) hay otra columna parecida con
+        // el nombre ("Descripcion Tipo de Inventario") que NO contiene "NOMBRE": no debe pisar.
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Comercial_Mvto');
+        $sheet->fromArray([
+            'Unidad de Negocio', 'Periodo', 'Tipo de Inventario', 'Descripcion Tipo de Inventario',
+            'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'Cantidad_net_1', 'Fecha', 'Numero_documento', 'Costo_prom_net',
+        ], null, 'A1');
+        $sheet->fromArray(
+            ['MOB08644', '202606', 'INV145525', 'MATERIALES Y REPUESTOS', '14', 'Salida Directa Inventario en Obra', 'Cemento', 'FERR', 5, '2026-06-10', 'FAC-1', 90000],
+            null, 'A2'
+        );
+        $path = tempnam(sys_get_temp_dir(), 'biablev').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $file = new UploadedFile($path, 'biable.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), ['archivo' => $file])
+            ->assertRedirect();
+
+        $it = ItemDistribucion::where('codigo_obra', 'MOB08644')->first();
+        $this->assertNotNull($it);
+        $this->assertSame('INV145525', $it->tipo_inventario);   // el código, NO "MATERIALES Y REPUESTOS"
+        $this->assertGreaterThan(0, ItemDistribucion::where('codigo_obra', 'MOB08644')->where('cuenta', '14200105')->count());
+    }
+
+    #[Test]
     public function el_tipo_de_inventario_toma_el_codigo_para_cruzar_la_llave(): void
     {
         // Llave con el CÓDIGO real del tipo de inventario (no el nombre).
