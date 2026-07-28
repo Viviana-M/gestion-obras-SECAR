@@ -7,9 +7,6 @@ use App\Imports\Contable\AutoliquidacionImport;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class AutoliquidacionController extends Controller
 {
@@ -25,28 +22,21 @@ class AutoliquidacionController extends Controller
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio);
 
         $resumen = [
-            'personas'        => (clone $base)->distinct()->count('cedula'),
-            'filas'           => (clone $base)->count(),
-            'aporte_empresa'  => (float) (clone $base)->sum('aporte_empresa'),
-            'aporte_empleado' => (float) (clone $base)->sum('aporte_empleado'),
-            'real_descontado' => (float) (clone $base)->sum('real_descontado'),
+            'personas'       => (clone $base)->distinct()->count('cedula'),
+            'filas'          => (clone $base)->count(),
+            'aporte_empresa' => (float) (clone $base)->sum('aporte_empresa'),
         ];
 
         $porUN = (clone $base)
-            ->selectRaw('un_codigo, MAX(un_descripcion) as un_descripcion,
+            ->selectRaw('un_codigo,
                 COUNT(DISTINCT cedula) as personas,
-                SUM(aporte_empresa) as aporte_empresa,
-                SUM(aporte_empleado) as aporte_empleado,
-                SUM(real_descontado) as real_descontado')
+                SUM(aporte_empresa) as aporte_empresa')
             ->groupBy('un_codigo')
             ->orderByDesc('aporte_empresa')
             ->get();
 
         $porConcepto = (clone $base)
-            ->selectRaw('concepto_pila,
-                SUM(aporte_empresa) as aporte_empresa,
-                SUM(aporte_empleado) as aporte_empleado,
-                SUM(real_descontado) as real_descontado')
+            ->selectRaw('concepto_pila, SUM(aporte_empresa) as aporte_empresa')
             ->groupBy('concepto_pila')
             ->orderByDesc('aporte_empresa')
             ->get();
@@ -63,70 +53,45 @@ class AutoliquidacionController extends Controller
 
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,xls|max:51200',
-            'mes'     => 'nullable|integer|between:1,12',
-            'anio'    => 'nullable|integer|min:2020',
         ]);
 
-        $ruta = $request->file('archivo')->getRealPath();
+        @set_time_limit(0);
 
-        // El período se deriva de la columna Fecha (primera fila de datos).
-        $periodo = $this->derivarPeriodo($ruta);
+        // El período se toma del NOMBRE del archivo (patrón AAAA_MM, ej. "2026_06.xlsx").
+        $nombre  = $request->file('archivo')->getClientOriginalName();
+        $periodo = $this->periodoDesdeNombre($nombre);
         if (! $periodo) {
-            return back()->with('error', 'No pude leer la fecha del archivo para determinar el período. Verifica la columna Fecha.');
+            return back()->with('error',
+                'El nombre del archivo debe incluir el período con el patrón AAAA_MM (ej. "2026_06.xlsx"). '.
+                "Recibí \"{$nombre}\". Renómbralo y vuelve a subir.");
         }
         [$mesArchivo, $anioArchivo] = $periodo;
-
-        // Si el usuario eligió mes/año, debe coincidir con el del archivo.
-        if ($request->filled('mes') && $request->filled('anio')) {
-            if ((int) $request->mes !== $mesArchivo || (int) $request->anio !== $anioArchivo) {
-                return back()->with('error',
-                    "El archivo corresponde a {$mesArchivo}/{$anioArchivo}, pero seleccionaste {$request->mes}/{$request->anio}. No se cargó.");
-            }
-        }
 
         // Reemplazar la planilla del mismo período (borrar e insertar).
         AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
 
         Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $request->file('archivo'));
 
-        $filas = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->count();
+        $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
+        $filas    = (clone $base)->count();
+        $personas = (clone $base)->distinct()->count('cedula');
+        $empresa  = (float) (clone $base)->sum('aporte_empresa');
+        $totalFmt = '$'.number_format($empresa, 0, ',', '.');
 
         return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
-            ->with('success', "Planilla cargada: {$filas} filas para el período {$mesArchivo}/{$anioArchivo}.");
+            ->with('success', "Planilla {$mesArchivo}/{$anioArchivo}: {$filas} filas, {$personas} personas, aporte empresa {$totalFmt}.");
     }
 
-    /** Lee la fecha de la primera fila de datos (F2) y devuelve [mes, anio]. */
-    private function derivarPeriodo(string $ruta): ?array
+    /**
+     * Extrae [mes, anio] del nombre del archivo con patrón AAAA_MM (ej. "2026_06.xlsx",
+     * "PILA_2026_06_final.xlsx"). Exige año 20xx y mes 01-12. Null si no cumple.
+     */
+    private function periodoDesdeNombre(string $nombre): ?array
     {
-        try {
-            $reader = IOFactory::createReaderForFile($ruta);
-            $reader->setReadDataOnly(true);
-            $reader->setReadFilter(new class implements IReadFilter {
-                public function readCell($columnAddress, $row, $worksheetName = ''): bool
-                {
-                    return $row <= 2; // solo encabezado + primera fila de datos
-                }
-            });
-            $sheet = $reader->load($ruta)->getActiveSheet();
-            $valor = $sheet->getCell('F2')->getValue();
-        } catch (\Throwable $e) {
+        if (! preg_match('/(20\d{2})[_-](0[1-9]|1[0-2])/', $nombre, $m)) {
             return null;
         }
 
-        if ($valor === null || $valor === '') {
-            return null;
-        }
-
-        try {
-            if (is_numeric($valor)) {
-                $fecha = ExcelDate::excelToDateTimeObject((float) $valor);
-            } else {
-                $fecha = new \DateTime(trim((string) $valor));
-            }
-        } catch (\Throwable $e) {
-            return null;
-        }
-
-        return [(int) $fecha->format('n'), (int) $fecha->format('Y')];
+        return [(int) $m[2], (int) $m[1]]; // [mes, anio]
     }
 }

@@ -22,6 +22,8 @@ class AutoliquidacionAporte extends Model
         'anio',
         'id_cuenta',
         'cuenta_contable',
+        'centro_operacion',
+        'ndc',
     ];
 
     protected function casts(): array
