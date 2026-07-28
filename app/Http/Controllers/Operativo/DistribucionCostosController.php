@@ -1019,8 +1019,7 @@ class DistribucionCostosController extends Controller
             if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
                 $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'reconocido_total' => 0.0, 'items' => []];
             }
-            $obras[$cod]['items_por_cuenta'][$cta]['suma_items']       += $it->costoNeto();
-            $obras[$cod]['items_por_cuenta'][$cta]['reconocido_total'] += (float) $it->monto_reconocido;
+            $obras[$cod]['items_por_cuenta'][$cta]['suma_items'] += $it->costoNeto();
             $obras[$cod]['items_por_cuenta'][$cta]['items'][] = [
                 'id'               => $it->id,
                 'item'             => (string) $it->item,
@@ -1038,18 +1037,38 @@ class DistribucionCostosController extends Controller
             ];
         }
 
-        // Conciliación contra la CUENTA 14: la suma de ítems PENDIENTES (suma neta − lo
-        // reconocido/reclasificado 14→61) debe igualar el saldo pendiente de la cuenta 14.
-        // La diferencia detecta ítems faltantes o sin cruzar.
+        // Conciliación contra la CUENTA 14 usando el ESTADO CONTABLE REAL.
+        // El "reconocido" (14→61 ya reclasificado) NO se toma del reconocimiento propio de la
+        // app —contabilidad lo hace en BIABLE—, sino del hecho de que el saldo de la cuenta 14
+        // ya bajó: Reconocido = suma de ítems − saldo pendiente de la cuenta 14. Se reparte
+        // FIFO (los ítems más antiguos quedan reconocidos; los más nuevos, que suman el saldo
+        // de la cuenta 14, quedan pendientes). Así Pendiente = saldo cuenta 14 → cuadra.
         foreach ($obras as $cod => &$o) {
             if (empty($o['items_por_cuenta'])) continue;
             ksort($o['items_por_cuenta']);
             foreach ($o['items_por_cuenta'] as $cta => &$g) {
-                $g['suma_items']      = round($g['suma_items'], 2);
-                $g['reconocido_total'] = round($g['reconocido_total'], 2);
-                $g['pendiente_total'] = round($g['suma_items'] - $g['reconocido_total'], 2);
-                $g['diferencia']      = round($g['total_cuenta'] - $g['pendiente_total'], 2);
-                $g['cuadra']          = abs($g['diferencia']) <= 0.5;
+                $g['suma_items']       = round($g['suma_items'], 2);
+                $g['reconocido_total'] = round(max(0.0, $g['suma_items'] - $g['total_cuenta']), 2);
+                $g['pendiente_total']  = round($g['suma_items'] - $g['reconocido_total'], 2);
+                $g['diferencia']       = round($g['total_cuenta'] - $g['pendiente_total'], 2);
+                $g['cuadra']           = abs($g['diferencia']) <= 0.5;
+
+                // FIFO por fecha: marcar reconocidos los ítems más antiguos hasta cubrir el
+                // monto reconocido; el resto (los más nuevos) quedan pendientes.
+                $rem = $g['reconocido_total'];
+                foreach ($g['items'] as &$it) {
+                    $c = (float) $it['costo'];
+                    if ($rem >= $c - 0.005) {
+                        $it['reconocido'] = true;  $it['monto_reconocido'] = $c;              $it['pendiente'] = 0.0;
+                        $rem -= $c;
+                    } elseif ($rem > 0.005) {
+                        $it['reconocido'] = false; $it['monto_reconocido'] = round($rem, 2);  $it['pendiente'] = round($c - $rem, 2);
+                        $rem = 0.0;
+                    } else {
+                        $it['reconocido'] = false; $it['monto_reconocido'] = 0.0;             $it['pendiente'] = $c;
+                    }
+                }
+                unset($it);
             }
             unset($g);
         }

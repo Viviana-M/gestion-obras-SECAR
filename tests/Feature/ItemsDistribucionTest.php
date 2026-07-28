@@ -57,6 +57,31 @@ class ItemsDistribucionTest extends TestCase
     }
 
     #[Test]
+    public function reconoce_lo_ya_reclasificado_en_contabilidad_y_cuadra_por_fifo(): void
+    {
+        $this->homologar();
+        $this->rf('C-700', 'Ingreso', 50000000, 7, 2026, '41350100');
+        // Contabilidad (BIABLE) ya reclasificó casi todo: el saldo pendiente REAL de la
+        // cuenta 14 es solo 153.060, aunque la app nunca marcó nada como reconocido.
+        $this->rf('C-700', 'Costos por aplicar', -153060, 6, 2026, '14350105');
+
+        // Ítems por fecha ascendente; suman 6.991.786.
+        $this->item(['item' => 'Viejo', 'costo' => 5000000, 'fecha' => '2026-07-01']);
+        $this->item(['item' => 'Medio', 'costo' => 1838726, 'fecha' => '2026-07-10']);
+        $this->item(['item' => 'Nuevo', 'costo' => 153060,  'fecha' => '2026-07-20']);
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        // Reconocido = 6.991.786 − 153.060 = 6.838.726 (desde el estado contable, no la app).
+        $resp->assertSee('6.838.726', false);
+        // Pendiente por reconocer = saldo de la cuenta 14 = 153.060 → cuadra (diferencia 0).
+        $resp->assertSee('153.060', false);
+        $resp->assertSee('Cuadra con la cuenta 14', false);
+    }
+
+    #[Test]
     public function el_detalle_se_despliega_inline_y_cuadra_contra_la_cuenta_14(): void
     {
         $this->homologar();
