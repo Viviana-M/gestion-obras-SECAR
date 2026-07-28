@@ -31,7 +31,7 @@ class MovimientoComercialTest extends TestCase
         $sheet->setTitle('Comercial_Mvto');
         $sheet->fromArray([
             'Unidad de Negocio', 'Periodo', 'Tipo de Inventario', 'motivo', 'Desc_motivo',
-            'Nombre Item', 'Nombre Tercero', 'cantidad neta', 'Fecha', 'Numero_documento', 'costo promedio',
+            'Nombre Item', 'Nombre Tercero', 'Cantidad_net_1', 'Fecha', 'Numero_documento', 'Costo_prom_net',
         ], null, 'A1');
         $r = 2;
         foreach ($filas as $f) { $sheet->fromArray($f, null, 'A'.$r); $r++; }
@@ -54,7 +54,7 @@ class MovimientoComercialTest extends TestCase
         $sheet->setTitle('Comercial_Mvto');
         $sheet->fromArray([
             'Unidad de Negocio', 'nombre Unidad de Negocio', 'Periodo', 'Tipo de Inventario', 'Nombre Tipo de Inventario',
-            'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'cantidad neta', 'Fecha', 'Numero_documento', 'costo promedio',
+            'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'Cantidad_net_1', 'Fecha', 'Numero_documento', 'Costo_prom_net',
         ], null, 'A1');
         $r = 2;
         foreach ($filas as $f) { $sheet->fromArray($f, null, 'A'.$r); $r++; }
@@ -75,7 +75,7 @@ class MovimientoComercialTest extends TestCase
         $ruido = array_map(fn ($n) => 'colX'.$n, range(1, 120));
         $cab = array_merge(
             ['basura', 'Unidad de Negocio', 'nombre Unidad de Negocio', 'Periodo', 'Tipo de Inventario',
-                'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'cantidad neta', 'Fecha', 'Numero_documento', 'costo promedio'],
+                'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero', 'Cantidad_net_1', 'Fecha', 'Numero_documento', 'Costo_prom_net'],
             $ruido
         );
         $ss = new Spreadsheet();
@@ -156,6 +156,40 @@ class MovimientoComercialTest extends TestCase
         ])->assertRedirect();
         $this->assertSame(1, ItemDistribucion::where('anio', 2026)->where('mes', 7)->count());
         $this->assertSame('999.00', (string) ItemDistribucion::first()->costo);
+    }
+
+    #[Test]
+    public function toma_la_cantidad_y_el_costo_de_las_columnas_especificas_no_las_decoy(): void
+    {
+        $this->seedLlave();
+
+        // Hoja con varias "Cantidad*" y "Costo*" DECOY (vacías) antes de las reales
+        // (Cantidad_net_1 / Costo_prom_net). El mapeo debe tomar las específicas, no las vacías.
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Comercial_Mvto');
+        $sheet->fromArray([
+            'Unidad de Negocio', 'Periodo', 'Tipo de Inventario', 'motivo', 'Desc_motivo', 'Nombre Item', 'Nombre Tercero',
+            'Cantidad_bruta', 'Cantidad_net_1', 'Cantidad_facturada', 'Fecha', 'Numero_documento',
+            'Costo_total', 'Costo_prom_net', 'Costo_ultimo',
+        ], null, 'A1');
+        // Decoys de cantidad (H, J) y de costo (M, O) van VACÍAS; las reales (I=cant, N=costo) traen el valor.
+        $sheet->fromArray(
+            ['MOB08644', '202606', '01', '14', 'Salida Directa Inventario en Obra', 'Cemento', 'FERRETERIA', '', 7, '', '2026-06-10', 'FAC-1', '', 90000, ''],
+            null, 'A2'
+        );
+        $path = tempnam(sys_get_temp_dir(), 'biabled').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $file = new UploadedFile($path, 'biable.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contadora())->post(route('contable.movimiento-comercial.store'), ['archivo' => $file])
+            ->assertRedirect();
+
+        $it = ItemDistribucion::where('codigo_obra', 'MOB08644')->first();
+        $this->assertNotNull($it);
+        // Cantidad y costo reales, no 0 (no tomó las columnas decoy vacías).
+        $this->assertEqualsWithDelta(7, (float) $it->cantidad, 0.001);
+        $this->assertEqualsWithDelta(90000, (float) $it->costo, 0.5);
     }
 
     #[Test]
