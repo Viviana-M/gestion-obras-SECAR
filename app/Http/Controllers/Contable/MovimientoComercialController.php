@@ -136,7 +136,7 @@ class MovimientoComercialController extends Controller
                 'tipo_movimiento'   => $desc,
                 'naturaleza'        => $naturaleza,
                 'tercero'           => $col['tercero'] !== null ? $this->texto($r[$col['tercero']] ?? null) : null,
-                'cantidad'          => $col['cantidad'] !== null ? $this->num($r[$col['cantidad']] ?? null) : null,
+                'cantidad'          => $col['cantidad'] !== null ? abs($this->num($r[$col['cantidad']] ?? null)) : null, // valor absoluto
                 'fecha'             => $col['fecha'] !== null ? $this->fecha($r[$col['fecha']] ?? null) : null,
                 'numero_documento'  => $col['numero_documento'] !== null ? $this->texto($r[$col['numero_documento']] ?? null) : null,
                 'costo'             => abs($this->num($r[$col['costo']] ?? null)), // positivo; el signo lo da la naturaleza
@@ -251,13 +251,15 @@ class MovimientoComercialController extends Controller
                     $found['item'] = $j;
                 } elseif (str_contains($h, 'NOMBRE') && str_contains($h, 'TERCERO')) {
                     $found['tercero'] = $j;
-                } elseif (str_contains($h, 'CANTIDAD')) {
+                } elseif (str_contains($h, 'CANTIDAD') && str_contains($h, 'NET') && str_contains($h, '1')) {
+                    // Hay muchas "Cantidad*"; la que usamos es la cantidad neta (Cantidad_net_1).
                     $found['cantidad'] = $j;
                 } elseif (str_contains($h, 'FECHA')) {
                     $found['fecha'] = $j;
                 } elseif (str_contains($h, 'NUMERO') && str_contains($h, 'DOCUMENTO')) {
                     $found['numero_documento'] = $j;
-                } elseif (str_contains($h, 'COSTO')) {
+                } elseif (str_contains($h, 'COSTO') && str_contains($h, 'PROM') && str_contains($h, 'NET')) {
+                    // Hay muchas "Costo*"; usamos el costo promedio neto (Costo_prom_net).
                     $found['costo'] = $j;
                 }
             }
