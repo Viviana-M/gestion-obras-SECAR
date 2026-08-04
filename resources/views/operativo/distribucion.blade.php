@@ -8,7 +8,11 @@
     $depPrefijo = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'];
 @endphp
 @php
-    $puedeEditar = auth()->user()->puedeEditarModulo('operacion');
+    // La edición requiere permiso de Operación Y que Contabilidad haya abierto el cierre
+    // de este mes. Sin cierre abierto, todo es solo lectura.
+    $edicionAbierta = $edicionAbierta ?? false;
+    $puedeOperacion = auth()->user()->puedeEditarModulo('operacion');
+    $puedeEditar = $puedeOperacion && $edicionAbierta;
 @endphp
 <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     Distribución de costos
@@ -21,7 +25,15 @@
     @endif
 </h1>
 
-@if(!$puedeEditar)
+@if(!$edicionAbierta)
+<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
+    🔒 <b>Mes en curso — solo lectura.</b> La edición se habilita cuando Contabilidad abra el cierre de este mes.
+</div>
+@elseif($puedeOperacion)
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#15803D;margin-bottom:1rem">
+    🔓 <b>Cierre abierto — puedes editar</b> la distribución de este mes.
+</div>
+@else
 <div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
     👁 Modo solo lectura. Puedes consultar la distribución pero no guardar cambios.
 </div>

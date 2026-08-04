@@ -11,6 +11,7 @@ use App\Services\DistribucionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+use Tests\Concerns\AbrePeriodoCierre;
 
 /**
  * Bolsas de área integradas en la pantalla de Distribución de costos:
@@ -19,6 +20,7 @@ use Tests\TestCase;
 class DistribucionBolsasTest extends TestCase
 {
     use RefreshDatabase;
+    use AbrePeriodoCierre;
 
     private function operador(): User
     {

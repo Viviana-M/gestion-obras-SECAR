@@ -16,6 +16,7 @@ use App\Models\AutorizacionDistribucion;
 use App\Models\BolsaAsignacion;
 use App\Models\ItemDistribucion;
 use App\Models\ReasignacionItem;
+use App\Models\CierrePeriodo;
 use App\Models\UnBolsa;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -445,6 +446,7 @@ class DistribucionCostosController extends Controller
             'envio'        => $distribucion,
             'distId'       => $distribucion?->id,
             'bloqueado'    => $bloqueado,
+            'edicionAbierta' => CierrePeriodo::estaAbierto($mes, $anio),
             'kpiPendiente' => array_sum(array_column($obras, 'total_pendiente')),
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
@@ -460,6 +462,13 @@ class DistribucionCostosController extends Controller
         $distId = $request->input('dist');
         $mes    = (int) $request->mes;
         $anio   = (int) $request->anio;
+
+        // Refuerzo de solo lectura: solo se puede editar si Contabilidad abrió el cierre
+        // de ese mes. Impide guardar/enviar/asignar manipulando el formulario.
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return back()->with('error',
+                'El cierre de '.$mes.'/'.$anio.' no está abierto. La distribución es de solo lectura hasta que Contabilidad abra el cierre de ese mes.');
+        }
 
         $aplicar    = $request->aplicar ?? [];
         $provision  = $request->provision ?? [];

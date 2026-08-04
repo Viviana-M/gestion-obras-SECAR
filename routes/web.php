@@ -54,6 +54,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
         Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano.reversion');
 
+        // Cierre / apertura del período de edición de la Distribución.
+        Route::get('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'index'])->name('contable.cierre.index');
+        Route::post('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'toggle'])->name('contable.cierre.toggle');
+
         // Autoliquidación de aportes (PILA) — carga y resumen (fase 1).
         Route::get('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'index'])->name('contable.autoliquidacion.index');
         Route::post('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'store'])->name('contable.autoliquidacion.store');

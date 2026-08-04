@@ -9,10 +9,12 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+use Tests\Concerns\AbrePeriodoCierre;
 
 class DistribucionInformesTest extends TestCase
 {
     use RefreshDatabase;
+    use AbrePeriodoCierre;
 
     private function operador(): User
     {
