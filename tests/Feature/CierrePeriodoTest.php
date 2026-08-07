@@ -113,7 +113,7 @@ class CierrePeriodoTest extends TestCase
         $resp->assertSee('Enero', false);
         $resp->assertSee('Diciembre', false);
         // Marzo 2022 aparece como abierto.
-        $resp->assertSee('Cierre abierto', false);
+        $resp->assertSee('🔓 Abierto', false);
     }
 
     #[Test]
