@@ -150,26 +150,16 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap">
             @foreach($bolsas as $b)
             @php
-                $pct = $b['total'] > 0 ? round($b['disponible'] / $b['total'] * 100) : 0;
+                $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
+                $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
             @endphp
-            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:250px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">
+            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:280px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-                    <div style="font-weight:700;color:#854D0E;font-size:13px">{{ $b['codigo'] }}</div>
-                    <div style="font-size:11px;color:#9CA3AF">Total {{ number_format($b['total'], 0, ',', '.') }}</div>
-                </div>
-                <div style="font-size:11px;color:#B45309;margin:1px 0 6px">{{ Str::limit($b['nombre'], 34) }}</div>
-                {{-- Desglose por componente --}}
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px">
-                    @foreach($b['componentes'] as $c)
-                        @if($c['monto'] > 0.5)
-                        <span style="font-size:10px;padding:2px 7px;border-radius:8px;background:#fff;border:1px solid {{ $c['color'] }};color:{{ $c['color'] }}">
-                            {{ $c['label'] }} · {{ number_format($c['monto'], 0, ',', '.') }}
-                        </span>
-                        @endif
-                    @endforeach
+                    <div style="font-weight:700;color:#854D0E;font-size:14px">🎒 {{ $b['nombre'] }}</div>
+                    <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
                 </div>
                 {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
-                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:3px">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
                     <span style="color:#6B7280">Disponible por distribuir</span>
                     <b id="bolsa-disp-{{ $b['codigo'] }}" style="color:#B45309">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
                 </div>
@@ -177,9 +167,73 @@
                     <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
                 </div>
                 <div id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;margin-top:4px;display:{{ $b['disponible'] <= 0.5 ? 'block' : 'none' }}">✓ Bolsa distribuida</div>
+                <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-top:8px;font-size:11px;padding:4px 10px;border:1px solid #D97706;border-radius:6px;background:white;color:#B45309;cursor:pointer"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</button>
             </div>
             @endforeach
         </div>
+
+        {{-- Detalle por cuenta de cada bolsa grande. En el cierre se edita el "a distribuir"
+             (cuánto de cada cuenta se carga este mes) + observaciones; el disponible = suma de eso. --}}
+        @foreach($bolsas as $b)
+        <div id="bolsa-det-{{ $b['codigo'] }}" style="display:none;margin-top:8px;border:1px solid #FDE68A;border-radius:10px;overflow:hidden">
+            <form method="POST" action="{{ route('operativo.distribucion.bolsa-montos') }}">
+                @csrf
+                <input type="hidden" name="mes" value="{{ $mes }}">
+                <input type="hidden" name="anio" value="{{ $anio }}">
+                <div style="overflow-x:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px;background:#fff">
+                        <tr style="background:#FFFBEB;color:#92400E;text-align:left">
+                            <td style="padding:6px 8px">UN</td>
+                            <td style="padding:6px 8px">Nombre UN</td>
+                            <td style="padding:6px 8px">Cuenta</td>
+                            <td style="padding:6px 8px">Nombre cuenta</td>
+                            <td style="padding:6px 8px">Tercero</td>
+                            <td style="padding:6px 8px;text-align:right">Saldo</td>
+                            <td style="padding:6px 8px;text-align:right">A distribuir</td>
+                            <td style="padding:6px 8px">Observaciones</td>
+                        </tr>
+                        @foreach($b['lineas'] as $l)
+                        @php $k = $l['un_codigo'].'|'.$l['cuenta_14']; @endphp
+                        <tr style="border-top:1px solid #FDE68A">
+                            <td style="padding:5px 8px;font-family:monospace">{{ $l['un_codigo'] }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
+                            <td style="padding:5px 8px;font-family:monospace">{{ $l['cuenta_14'] }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['nombre'], 26) }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['tercero'], 24) }}</td>
+                            <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
+                            <td style="padding:5px 8px;text-align:right">
+                                @if($puedeEditar)
+                                    <input type="number" name="monto[{{ $k }}]" value="{{ round($l['monto_distribuir']) }}" min="0" max="{{ round($l['saldo']) }}" step="1"
+                                        style="width:120px;padding:3px 6px;border:1px solid #FDE68A;border-radius:4px;font-size:11px;text-align:right">
+                                @else
+                                    <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
+                                @endif
+                            </td>
+                            <td style="padding:5px 8px">
+                                @if($puedeEditar)
+                                    <input type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"
+                                        style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #FDE68A;border-radius:4px;font-size:11px">
+                                @else
+                                    <span style="color:#6B7280">{{ $l['observaciones'] }}</span>
+                                @endif
+                            </td>
+                        </tr>
+                        @endforeach
+                        <tr style="background:#FFFBEB;font-weight:700;border-top:2px solid #FDE68A">
+                            <td colspan="5" style="padding:7px 8px;text-align:right;color:#92400E">Disponible = suma de "a distribuir"</td>
+                            <td style="padding:7px 8px;text-align:right;color:#9CA3AF">${{ number_format($b['total'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#B45309">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px">
+                                @if($puedeEditar)
+                                    <button type="submit" style="padding:6px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar montos</button>
+                                @endif
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </form>
+        </div>
+        @endforeach
     </div>
     @endif
     @if($kpiObras > 0)
@@ -372,11 +426,19 @@ const dispBolsa = {};
 const poolBolsa = {};
 Object.keys(BOLSAS).forEach(c => {
     dispBolsa[c] = Number(BOLSAS[c].disponible || 0);
-    poolBolsa[c] = (BOLSAS[c].lineas || []).map(l => ({
-        cuenta_14: l.cuenta_14, cuenta_61: l.cuenta_61,
+    poolBolsa[c] = (BOLSAS[c].pool || []).map(l => ({
+        un_codigo: l.un_codigo, cuenta_14: l.cuenta_14, cuenta_61: l.cuenta_61,
         periodo: Number(l.periodo || 0), pendiente: Number(l.pendiente || 0),
     }));
 });
+
+// Expandir/colapsar el detalle por cuenta de una bolsa grande.
+function toggleBolsaDetalle(c){
+    const e = document.getElementById('bolsa-det-'+c); if(!e) return;
+    const mostrar = (e.style.display === 'none' || !e.style.display);
+    e.style.display = mostrar ? 'block' : 'none';
+    document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
 let asignIdx = {};
 
 function fmtPeriodo(p){ p = Number(p||0); if(!p) return '—'; const y = Math.floor(p/100), m = p%100; return String(m).padStart(2,'0')+'/'+y; }
@@ -390,7 +452,7 @@ function drenarFifoJS(pool, monto){
         if(rem <= 0.005) break;
         if(l.pendiente <= 0.005) continue;
         const usar = Math.min(l.pendiente, rem);
-        out.push({cuenta_14:l.cuenta_14, cuenta_61:l.cuenta_61, periodo:l.periodo, monto:Math.round(usar)});
+        out.push({un_codigo:l.un_codigo, cuenta_14:l.cuenta_14, cuenta_61:l.cuenta_61, periodo:l.periodo, monto:Math.round(usar)});
         l.pendiente -= usar; rem -= usar;
     }
     return out;
@@ -399,9 +461,9 @@ function drenarFifoJS(pool, monto){
 function restaurarPool(bolsa, detalle){
     const pool = poolBolsa[bolsa]; if(!pool || !detalle) return;
     detalle.forEach(d => {
-        const ln = pool.find(x => x.cuenta_14 === d.cuenta_14);
+        const ln = pool.find(x => x.un_codigo === d.un_codigo && x.cuenta_14 === d.cuenta_14);
         if(ln) ln.pendiente += Number(d.monto||0);
-        else pool.push({cuenta_14:d.cuenta_14, cuenta_61:d.cuenta_61, periodo:Number(d.periodo||0), pendiente:Number(d.monto||0)});
+        else pool.push({un_codigo:d.un_codigo, cuenta_14:d.cuenta_14, cuenta_61:d.cuenta_61, periodo:Number(d.periodo||0), pendiente:Number(d.monto||0)});
     });
 }
 function detalleHtml(detalle){

@@ -45,7 +45,7 @@ class DistribucionInformesTest extends TestCase
         $payload = [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
             'aplicar' => ['C-700' => ['14350105' => 100]],
-            'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'MTO00099', 'monto' => 400]]],
+            'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'mantenimiento', 'monto' => 400]]],
         ];
 
         $resp = $this->actingAs($this->operador())

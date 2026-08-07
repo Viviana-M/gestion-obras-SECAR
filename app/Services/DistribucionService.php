@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\BolsaMonto;
 use App\Models\Homologacion;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
@@ -76,6 +77,138 @@ class DistribucionService
             ];
         }
         return $resultado;
+    }
+
+    /** Nombre visible de cada bolsa grande (departamento). */
+    public const DEPARTAMENTOS = ['mantenimiento' => 'Mantenimiento', 'instalaciones' => 'Instalaciones'];
+
+    /**
+     * DOS bolsas grandes (Mantenimiento, Instalaciones), cada una consolidando TODAS sus
+     * UN. Cada línea del detalle es una cuenta 14 de una UN, con su tercero, saldo y el
+     * "monto a distribuir" editable (sin registro = saldo completo por defecto). El
+     * disponible de la bolsa (`a_distribuir`) = suma de los montos a distribuir (no el total).
+     *
+     * @return array<int, array{codigo:string,nombre:string,departamento:string,total:float,a_distribuir:float,componentes:array,lineas:array}>
+     */
+    public function bolsasGrandes(?string $departamento, int $periodo, int $anio, int $mes): array
+    {
+        $q = UnBolsa::where('activo', true);
+        if ($departamento) {
+            $q->where('departamento', $departamento);
+        }
+        $uns = $q->orderBy('codigo')->get();
+        if ($uns->isEmpty()) {
+            return [];
+        }
+        $codigos   = $uns->pluck('codigo')->all();
+        $nombreUn  = $uns->pluck('nombre', 'codigo');
+        $deptoDeUn = $uns->pluck('departamento', 'codigo');
+
+        $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes); // [un => líneas]
+        $terceros = $this->tercerosPorCuenta($codigos, $anio, $mes);               // [un|cuenta => tercero]
+        $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
+            ->whereIn('un_codigo', $codigos)->get()
+            ->keyBy(fn ($m) => $m->un_codigo.'|'.$m->cuenta_14);
+
+        $porDepto = [];
+        foreach ($saldos as $un => $lineas) {
+            $depto = $deptoDeUn[$un] ?? 'otros';
+            foreach ($lineas as $l) {
+                $saldo = (float) $l['pendiente'];
+                $key   = $un.'|'.$l['cuenta_14'];
+                $edit  = $montos[$key] ?? null;
+                // Sin registro: se distribuye el saldo completo. Editado: lo que quede (tope = saldo).
+                $aDist = $edit ? max(0.0, min($saldo, (float) $edit->monto_distribuir)) : $saldo;
+                $porDepto[$depto][] = [
+                    'un_codigo'        => (string) $un,
+                    'un_nombre'        => (string) ($nombreUn[$un] ?? ''),
+                    'cuenta_14'        => $l['cuenta_14'],
+                    'cuenta_61'        => $l['cuenta_61'],
+                    'nombre'           => $l['nombre'],
+                    'tercero'          => $terceros[$key] ?? '',
+                    'estructura'       => $l['estructura'],
+                    'periodo'          => $l['periodo'],
+                    'saldo'            => round($saldo, 2),
+                    'monto_distribuir' => round($aDist, 2),
+                    'pendiente'        => round($aDist, 2), // tope consumible = lo a distribuir
+                    'observaciones'    => $edit->observaciones ?? null,
+                ];
+            }
+        }
+
+        $result = [];
+        foreach (self::DEPARTAMENTOS as $d => $nombre) {
+            if ($departamento && $departamento !== $d) {
+                continue;
+            }
+            $lineas = $porDepto[$d] ?? [];
+            if (empty($lineas)) {
+                continue;
+            }
+            usort($lineas, fn ($a, $b) => [$a['un_codigo'], $a['cuenta_14']] <=> [$b['un_codigo'], $b['cuenta_14']]);
+            $result[] = [
+                'codigo'       => $d,
+                'nombre'       => $nombre,
+                'departamento' => $d,
+                'total'        => round(array_sum(array_column($lineas, 'saldo')), 2),
+                'a_distribuir' => round(array_sum(array_column($lineas, 'monto_distribuir')), 2),
+                'componentes'  => $this->componentesDe($lineas),
+                'lineas'       => $lineas,
+            ];
+        }
+        return $result;
+    }
+
+    /** Tercero (razón social) representativo por (UN, cuenta 14), del período acumulado. */
+    public function tercerosPorCuenta(array $codigos, int $anio, int $mes): array
+    {
+        if (empty($codigos)) {
+            return [];
+        }
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)->orWhere(function ($q2) use ($anio, $mes) {
+                    $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                });
+            })
+            ->selectRaw('codigo_proyecto, cuenta_contable, MAX(razon_social) as tercero')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+        $out = [];
+        foreach ($filas as $f) {
+            $out[$f->codigo_proyecto.'|'.$f->cuenta_contable] = (string) ($f->tercero ?? '');
+        }
+        return $out;
+    }
+
+    /**
+     * Drena $monto de una bolsa grande: pool de líneas (UN + cuenta) en FIFO por período
+     * (la última parcial), MUTANDO el pool. Devuelve las porciones por (UN, cuenta) para
+     * que el plano acredite la cuenta 14 de la UN real de origen.
+     *
+     * @param array $pool  [ ['un_codigo','cuenta_14','periodo','monto'], ... ]
+     * @return array<int, array{un_codigo:string,cuenta_14:string,monto:float}>
+     */
+    public function drenarBolsaGrande(array &$pool, float $monto): array
+    {
+        usort($pool, fn ($a, $b) => $a['periodo'] <=> $b['periodo']);
+        $restante = max(0.0, $monto);
+        $out = [];
+        foreach ($pool as $i => $l) {
+            if ($restante <= 0.005) {
+                break;
+            }
+            $disp = (float) $l['monto'];
+            if ($disp <= 0.005) {
+                continue;
+            }
+            $usar = min($disp, $restante);
+            $out[] = ['un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'], 'monto' => round($usar, 2)];
+            $pool[$i]['monto'] = $disp - $usar;
+            $restante -= $usar;
+        }
+        return $out;
     }
 
     /**

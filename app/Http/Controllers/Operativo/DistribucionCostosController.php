@@ -17,6 +17,7 @@ use App\Models\BolsaAsignacion;
 use App\Models\ItemDistribucion;
 use App\Models\ReasignacionItem;
 use App\Models\CierrePeriodo;
+use App\Models\BolsaMonto;
 use App\Models\UnBolsa;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -396,33 +397,35 @@ class DistribucionCostosController extends Controller
 
         $bloqueado = $distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada;
 
-        // Panel de bolsas de área (origen del costo): total, desglose por componente y
-        // disponible por distribuir = total − lo ya asignado en este borrador.
-        $bolsas = $this->svc->bolsasDelDepartamento($depEfectivo, $periodo, $anio, $mes);
+        // Panel: DOS bolsas grandes (Mantenimiento e Instalaciones). Cada una con su total
+        // (saldo de todas sus UN), su "a distribuir" (suma de montos editados en el cierre) y
+        // el disponible = a_distribuir − lo ya asignado en este borrador.
+        $bolsas = $this->svc->bolsasGrandes($depEfectivo, $periodo, $anio, $mes);
         foreach ($bolsas as &$bp) {
             $bp['asignado']   = (float) ($asignPorBolsa[$bp['codigo']] ?? 0);
-            $bp['disponible'] = max(0.0, round($bp['total'] - $bp['asignado'], 2));
+            $bp['disponible'] = max(0.0, round($bp['a_distribuir'] - $bp['asignado'], 2));
 
-            // Saldo RESTANTE por cuenta 14 (para el consumo FIFO en vivo del front): se
-            // parte del saldo real de la bolsa y se descuenta lo ya consumido (según el
-            // detalle guardado), de modo que una nueva asignación no proponga cuentas ya
-            // agotadas por asignaciones previas del borrador.
+            // Pool RESTANTE por (UN|cuenta) para el consumo FIFO en vivo del front: se parte
+            // del "a distribuir" y se descuenta lo ya consumido en asignaciones previas del borrador.
             $rest = [];
             foreach ($bp['lineas'] as $l) {
-                $rest[$l['cuenta_14']] = [
-                    'cuenta_14' => $l['cuenta_14'], 'cuenta_61' => $l['cuenta_61'],
-                    'periodo'   => $l['periodo'],   'pendiente' => (float) $l['pendiente'],
+                $k = $l['un_codigo'].'|'.$l['cuenta_14'];
+                $rest[$k] = [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'], 'cuenta_61' => $l['cuenta_61'],
+                    'periodo'   => $l['periodo'],   'pendiente' => (float) $l['monto_distribuir'],
                 ];
             }
             foreach ($asignBolsa->where('bolsa_codigo', $bp['codigo']) as $a) {
                 foreach ((array) (is_array($a->detalle) ? $a->detalle : []) as $d) {
-                    if (isset($rest[$d['cuenta_14']])) {
-                        $rest[$d['cuenta_14']]['pendiente'] -= (float) $d['monto'];
+                    $k = ($d['un_codigo'] ?? '').'|'.($d['cuenta_14'] ?? '');
+                    if (isset($rest[$k])) {
+                        $rest[$k]['pendiente'] -= (float) $d['monto'];
                     }
                 }
             }
-            $bp['lineas'] = array_values(array_filter($rest, fn ($r) => $r['pendiente'] > 0.5));
+            $bp['pool'] = array_values(array_filter($rest, fn ($r) => $r['pendiente'] > 0.5));
         }
+        unset($bp);
         unset($bp);
 
         // Candidatos destino para reasignar ítems (búsqueda por código/nombre/cliente).
@@ -453,11 +456,48 @@ class DistribucionCostosController extends Controller
         ]);
     }
 
+    /**
+     * Punto 2: guardar los "montos a distribuir" (y observaciones) por cuenta de las
+     * bolsas grandes, en el cierre. El disponible de la bolsa = suma de estos montos.
+     * Solo con el cierre del período abierto.
+     */
+    public function guardarBolsaMontos(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $mes  = (int) $request->input('mes');
+        $anio = (int) $request->input('anio');
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return back()->with('error',
+                'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
+        }
+
+        $montos = (array) $request->input('monto', []); // ["UN|cuenta" => valor]
+        $obs    = (array) $request->input('obs', []);
+        $n = 0;
+        foreach ($montos as $key => $val) {
+            [$un, $cuenta] = array_pad(explode('|', (string) $key, 2), 2, '');
+            if ($un === '' || $cuenta === '') continue;
+            BolsaMonto::updateOrCreate(
+                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta],
+                [
+                    'monto_distribuir' => max(0.0, (float) str_replace([' ', '$'], '', (string) $val)),
+                    'observaciones'    => trim((string) ($obs[$key] ?? '')) ?: null,
+                    'user_id'          => $request->user()?->id,
+                ]
+            );
+            $n++;
+        }
+
+        return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). El disponible de la bolsa quedó en la suma de lo editado.");
+    }
+
     public function guardar(Request $request)
 {
     abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
         'No tienes permiso para editar en Operación.');
-    
+
         $accion = $request->input('accion', 'guardar');
         $distId = $request->input('dist');
         $mes    = (int) $request->mes;
@@ -547,6 +587,7 @@ class DistribucionCostosController extends Controller
         // Formato del form: asignacion_bolsa[cod][idx] = ['bolsa'=>..., 'monto'=>...].
         // Se agregan por (obra, bolsa) y se validan contra el saldo real de la bolsa:
         // no se puede asignar más que su disponible (refuerzo de servidor del tope).
+        // El "bolsa" del form ahora es el DEPARTAMENTO (bolsa grande: mantenimiento/instalaciones).
         $asignInput = $request->input('asignacion_bolsa', []);
         $asignPorObraBolsa = [];
         foreach ((array) $asignInput as $cod => $items) {
@@ -559,29 +600,26 @@ class DistribucionCostosController extends Controller
             }
         }
 
-        $periodoG  = Homologacion::periodo($anio, $mes);
-        $bolsaCods = [];
-        foreach ($asignPorObraBolsa as $porBolsa) {
-            $bolsaCods = array_merge($bolsaCods, array_keys($porBolsa));
-        }
-        $bolsaCods = array_values(array_unique($bolsaCods));
-        $saldoBolsaCuentas = $this->svc->saldosBolsasPorCuenta($bolsaCods, $periodoG, $anio, $mes); // [bolsa => líneas]
-
-        // Pool mutable de saldo por cuenta de cada bolsa: se va drenando FIFO a medida
-        // que se reparte a las obras, para no acreditar una cuenta 14 más de su saldo.
-        $poolBolsa = [];
-        foreach ($saldoBolsaCuentas as $b => $ls) {
-            $poolBolsa[$b] = array_map(fn ($l) => [
-                'cuenta_14' => $l['cuenta_14'], 'periodo' => $l['periodo'], 'monto' => (float) $l['pendiente'],
-            ], $ls);
-        }
-        $saldoBolsaTotal = [];
-        foreach ($saldoBolsaCuentas as $b => $ls) {
-            $saldoBolsaTotal[$b] = array_sum(array_column($ls, 'pendiente'));
+        $periodoG = Homologacion::periodo($anio, $mes);
+        // Bolsas grandes (por departamento): sus líneas UN+cuenta ya vienen capadas al
+        // "monto a distribuir" editado en el cierre; el disponible = suma de esos montos.
+        $grandes = collect($this->svc->bolsasGrandes(null, $periodoG, $anio, $mes))->keyBy('codigo');
+        $poolBolsa   = []; // [depto] => [ {un_codigo,cuenta_14,periodo,monto} ]  (mutable, se drena FIFO)
+        $infoGrande  = []; // [depto][un|cuenta] => línea (cuenta_61, estructura, nombre)
+        $dispBolsaAD = []; // [depto] => a_distribuir (disponible)
+        foreach ($grandes as $d => $g) {
+            $dispBolsaAD[$d] = (float) $g['a_distribuir'];
+            foreach ($g['lineas'] as $l) {
+                $poolBolsa[$d][] = [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'],
+                    'periodo' => $l['periodo'], 'monto' => (float) $l['monto_distribuir'],
+                ];
+                $infoGrande[$d][$l['un_codigo'].'|'.$l['cuenta_14']] = $l;
+            }
         }
 
-        // Tope por bolsa: se recorta (cap acumulado) lo que exceda el saldo disponible.
-        $restanteBolsa = $saldoBolsaTotal;
+        // Tope por bolsa grande: recortar lo que exceda el disponible (suma de montos a distribuir).
+        $restanteBolsa = $dispBolsaAD;
         $asignFinal = [];
         $recortes = [];
         foreach ($asignPorObraBolsa as $cod => $porBolsa) {
@@ -604,7 +642,7 @@ class DistribucionCostosController extends Controller
         DB::transaction(function () use (
             &$distribucion, &$noCerradas, &$msg,
             $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $requiereAut,
-            $asignFinal, $poolBolsa, $saldoBolsaCuentas
+            $asignFinal, $poolBolsa, $infoGrande
         ) {
             if (!$distribucion) {
                 // Numeración separada por departamento
@@ -698,36 +736,39 @@ class DistribucionCostosController extends Controller
             BolsaAsignacion::where('distribucion_id', $distribucion->id)->delete();
 
             foreach ($asignFinal as $cod => $porBolsa) {
-                foreach ($porBolsa as $bolsa => $monto) {
-                    $info    = collect($saldoBolsaCuentas[$bolsa] ?? [])->keyBy('cuenta_14');
-                    // Consumo FIFO real (más antiguo primero) sobre el pool de la bolsa.
-                    $reparto = $this->svc->drenarFifo($poolBolsa[$bolsa], (float) $monto);
+                foreach ($porBolsa as $bolsa => $monto) { // $bolsa = departamento (bolsa grande)
+                    $info = $infoGrande[$bolsa] ?? [];
+                    // Consumo FIFO real (más antiguo primero) sobre el pool de la bolsa grande:
+                    // devuelve porciones por (UN, cuenta) — la UN real de origen.
+                    $porciones = $this->svc->drenarBolsaGrande($poolBolsa[$bolsa], (float) $monto);
 
                     $detalle = [];
-                    foreach ($reparto as $c14 => $m) {
-                        if ($m <= 0.005) continue;
-                        $h  = $homol[(string) $c14] ?? null;
-                        $c61 = $h->cuenta_61 ?? ($info[$c14]['cuenta_61'] ?? 'SIN HOMOLOGAR');
-                        $per = (int) ($info[$c14]['periodo'] ?? 0);
+                    foreach ($porciones as $p) {
+                        if ($p['monto'] <= 0.005) continue;
+                        $un  = $p['un_codigo'];
+                        $c14 = $p['cuenta_14'];
+                        $l   = $info[$un.'|'.$c14] ?? [];
+                        $c61 = $l['cuenta_61'] ?? 'SIN HOMOLOGAR';
 
-                        // Trazabilidad: de qué cuenta 14 y período salió cada porción.
+                        // Trazabilidad: de qué UN, cuenta 14 y período salió cada porción.
                         $detalle[] = [
+                            'un_codigo' => (string) $un,
                             'cuenta_14' => (string) $c14,
                             'cuenta_61' => (string) $c61,
-                            'periodo'   => $per,
-                            'monto'     => round($m, 2),
+                            'periodo'   => (int) ($l['periodo'] ?? 0),
+                            'monto'     => round($p['monto'], 2),
                         ];
 
-                        // Reflejo en el costo del proyecto y en el plano (línea origen_bolsa).
+                        // El plano acredita la cuenta 14 de la UN REAL de origen: origen_bolsa = UN.
                         AplicacionCosto::create([
                             'distribucion_id' => $distribucion->id,
                             'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                            'cuenta_14' => $c14, 'origen_bolsa' => $bolsa,
+                            'cuenta_14' => $c14, 'origen_bolsa' => $un,
                             'cuenta_61' => $c61,
-                            'categoria' => $h->estructura ?? ($info[$c14]['estructura'] ?? null),
-                            'nombre'    => $h->nombre ?? ($info[$c14]['nombre'] ?? null),
-                            'monto_aplicar' => round($m, 2), 'es_provision' => false,
-                            'descripcion' => 'Desde bolsa '.$bolsa,
+                            'categoria' => $l['estructura'] ?? null,
+                            'nombre'    => $l['nombre'] ?? null,
+                            'monto_aplicar' => round($p['monto'], 2), 'es_provision' => false,
+                            'descripcion' => 'Desde bolsa '.(\App\Services\DistribucionService::DEPARTAMENTOS[$bolsa] ?? $bolsa).' · UN '.$un,
                             'estado' => 'borrador', 'user_id' => $request->user()?->id,
                         ]);
                     }
@@ -735,7 +776,7 @@ class DistribucionCostosController extends Controller
                     BolsaAsignacion::create([
                         'distribucion_id' => $distribucion->id,
                         'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
-                        'bolsa_codigo' => $bolsa, 'codigo_proyecto' => $cod,
+                        'bolsa_codigo' => $bolsa, 'codigo_proyecto' => $cod, // bolsa_codigo = departamento
                         'monto' => round((float) $monto, 2), 'detalle' => $detalle,
                         'user_id' => $request->user()?->id,
                     ]);
@@ -1253,17 +1294,15 @@ class DistribucionCostosController extends Controller
         //    reales de la bolsa por FIFO (mismo criterio que al guardar) y clasificado
         //    por su estructura. Así el resumen incluye lo que se ve en la pantalla.
         if (!empty($asignBolsa)) {
-            $bolsaCods = [];
-            foreach ($asignBolsa as $porBolsa) {
-                $bolsaCods = array_merge($bolsaCods, array_keys($porBolsa));
-            }
-            $bolsaCods = array_values(array_unique($bolsaCods));
-            $saldos = $this->svc->saldosBolsasPorCuenta($bolsaCods, $periodoContable, $anio, $mes);
+            // El "bolsa" es ahora el departamento (bolsa grande). Se drena su pool de
+            // líneas UN+cuenta (capadas al monto a distribuir) en FIFO, igual que al guardar.
+            $grandes = collect($this->svc->bolsasGrandes(null, $periodoContable, $anio, $mes))->keyBy('codigo');
             $pool = [];
-            foreach ($saldos as $b => $ls) {
-                $pool[$b] = array_map(fn ($l) => [
-                    'cuenta_14' => $l['cuenta_14'], 'periodo' => $l['periodo'], 'monto' => (float) $l['pendiente'],
-                ], $ls);
+            foreach ($grandes as $d => $g) {
+                $pool[$d] = array_map(fn ($l) => [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'],
+                    'periodo' => $l['periodo'], 'monto' => (float) $l['monto_distribuir'],
+                ], $g['lineas']);
             }
             foreach ($asignBolsa as $cod => $porBolsa) {
                 if (!$esDelDepto($cod)) continue;
@@ -1271,8 +1310,10 @@ class DistribucionCostosController extends Controller
                 if (!isset($tabla[$tk])) continue;
                 foreach ($porBolsa as $bolsa => $monto) {
                     if (!isset($pool[$bolsa])) continue;
-                    foreach ($this->svc->drenarFifo($pool[$bolsa], (float) $monto) as $c14 => $m) {
+                    foreach ($this->svc->drenarBolsaGrande($pool[$bolsa], (float) $monto) as $p) {
+                        $m = $p['monto'];
                         if ($m <= 0.005) continue;
+                        $c14 = $p['cuenta_14'];
                         $h  = $mapa14[(string) $c14] ?? null;
                         $ck = $h->estructura ?? 'OTROS COSTO';
                         if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';

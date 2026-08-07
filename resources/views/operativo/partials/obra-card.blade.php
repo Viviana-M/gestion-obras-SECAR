@@ -390,11 +390,11 @@
             @if($puedeEditar)
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
                 <div style="flex:2;min-width:200px">
-                    <label style="font-size:10px;color:#6B7280;display:block">Bolsa (UN)</label>
+                    <label style="font-size:10px;color:#6B7280;display:block">Bolsa</label>
                     <select id="asignbolsa-cta-{{ $cod }}" onchange="actualizarDispObra('{{ $cod }}')" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
                         <option value="">— Elegir bolsa —</option>
                         @foreach($bolsas as $b)
-                            <option value="{{ $b['codigo'] }}">{{ $b['codigo'] }} · {{ Str::limit($b['nombre'], 26) }}</option>
+                            <option value="{{ $b['codigo'] }}">{{ $b['nombre'] }}</option>
                         @endforeach
                     </select>
                 </div>
