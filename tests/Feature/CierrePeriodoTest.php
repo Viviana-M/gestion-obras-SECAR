@@ -100,6 +100,23 @@ class CierrePeriodoTest extends TestCase
     }
 
     #[Test]
+    public function el_calendario_permite_filtrar_por_ano_desde_2022(): void
+    {
+        CierrePeriodo::create(['mes' => 3, 'anio' => 2022, 'abierto' => true]);
+
+        $resp = $this->actingAs($this->contable('ver'))
+            ->get(route('contable.cierre.index', ['anio' => 2022]));
+
+        $resp->assertStatus(200);
+        // El filtro ofrece 2022 (hay datos desde entonces) y muestra sus 12 meses.
+        $resp->assertSee('<option value="2022"', false);
+        $resp->assertSee('Enero', false);
+        $resp->assertSee('Diciembre', false);
+        // Marzo 2022 aparece como abierto.
+        $resp->assertSee('Cierre abierto', false);
+    }
+
+    #[Test]
     public function un_usuario_sin_permiso_de_contabilidad_no_puede_abrir_el_cierre(): void
     {
         $this->actingAs($this->operador())->post(route('contable.cierre.toggle'), [

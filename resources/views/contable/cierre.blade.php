@@ -6,6 +6,7 @@
 @php
     $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
     $puedeEditar = auth()->user()->puedeEditarModulo('contabilidad');
+    $fmtFecha = fn($f) => $f ? \Illuminate\Support\Carbon::parse($f)->format('d/m/Y H:i') : null;
 @endphp
 
 <h1 class="page-title">Cierre de mes (edición de Distribución)</h1>
@@ -21,44 +22,56 @@
 <div style="background:#FEF2F2;border:1px solid #FECACA;color:#DC2626;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('error') }}</div>
 @endif
 
-<div class="card" style="padding:0;overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
-        <thead>
-            <tr style="color:#9CA3AF;text-align:left;border-bottom:1px solid #E5E7EB">
-                <th style="padding:10px 16px">Período</th>
-                <th style="padding:10px 16px">Estado</th>
-                @if($puedeEditar)<th style="padding:10px 16px;text-align:right">Acción</th>@endif
-            </tr>
-        </thead>
-        <tbody>
-            @foreach($periodos as $p)
-            <tr style="border-bottom:1px solid #F3F4F6">
-                <td style="padding:10px 16px;font-weight:600;color:#1B3F6E">{{ $nombresMes[$p['mes']] }} {{ $p['anio'] }}</td>
-                <td style="padding:10px 16px">
-                    @if($p['abierto'])
-                        <span style="font-weight:600;padding:2px 10px;border-radius:10px;background:#DCFCE7;color:#15803D">🔓 Cierre abierto — Operaciones edita</span>
-                    @else
-                        <span style="font-weight:600;padding:2px 10px;border-radius:10px;background:#F3F4F6;color:#6B7280">🔒 Cerrado — solo lectura</span>
-                    @endif
-                </td>
-                @if($puedeEditar)
-                <td style="padding:8px 16px;text-align:right">
-                    <form method="POST" action="{{ route('contable.cierre.toggle') }}" style="display:inline">
-                        @csrf
-                        <input type="hidden" name="mes" value="{{ $p['mes'] }}">
-                        <input type="hidden" name="anio" value="{{ $p['anio'] }}">
-                        <input type="hidden" name="accion" value="{{ $p['abierto'] ? 'cerrar' : 'abrir' }}">
-                        @if($p['abierto'])
-                            <button type="submit" style="padding:6px 14px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;font-size:12px;cursor:pointer">Cerrar</button>
-                        @else
-                            <button type="submit" style="padding:6px 14px;border:none;border-radius:8px;background:#15803D;color:white;font-size:12px;cursor:pointer">Abrir cierre</button>
-                        @endif
-                    </form>
-                </td>
-                @endif
-            </tr>
+{{-- Filtro de año --}}
+<form method="GET" action="{{ route('contable.cierre.index') }}" style="display:flex;gap:10px;align-items:flex-end;margin-bottom:1.25rem;flex-wrap:wrap">
+    <div>
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
+        <select name="anio" onchange="this.form.submit()"
+            style="padding:8px 14px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;font-weight:600;color:#1B3F6E">
+            @foreach($anios as $a)
+                <option value="{{ $a }}" {{ $a == $anio ? 'selected' : '' }}>{{ $a }}</option>
             @endforeach
-        </tbody>
-    </table>
+        </select>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;font-size:11px;color:#6B7280;padding-bottom:6px">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#15803D;vertical-align:middle"></span> Abierto (Operaciones edita)</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#D1D5DB;vertical-align:middle"></span> Cerrado (solo lectura)</span>
+    </div>
+</form>
+
+{{-- Calendario: 12 meses del año elegido --}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">
+    @foreach($meses as $p)
+    <div class="card" style="padding:12px 14px;border-left:4px solid {{ $p['abierto'] ? '#15803D' : '#D1D5DB' }}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+            <div style="font-weight:700;color:#1B3F6E;font-size:14px">{{ $nombresMes[$p['mes']] }}</div>
+            <div style="font-size:11px;color:#9CA3AF">{{ $p['anio'] }}</div>
+        </div>
+        <div style="margin:8px 0">
+            @if($p['abierto'])
+                <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:#DCFCE7;color:#15803D">🔓 Cierre abierto</span>
+            @else
+                <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:#F3F4F6;color:#6B7280">🔒 Cerrado</span>
+            @endif
+        </div>
+        @php $marca = $p['abierto'] ? $fmtFecha($p['abierto_at']) : $fmtFecha($p['cerrado_at']); @endphp
+        @if($marca)
+            <div style="font-size:10px;color:#9CA3AF;margin-bottom:8px">{{ $p['abierto'] ? 'Abierto' : 'Cerrado' }}: {{ $marca }}</div>
+        @endif
+        @if($puedeEditar)
+        <form method="POST" action="{{ route('contable.cierre.toggle') }}" style="margin-top:4px">
+            @csrf
+            <input type="hidden" name="mes" value="{{ $p['mes'] }}">
+            <input type="hidden" name="anio" value="{{ $p['anio'] }}">
+            <input type="hidden" name="accion" value="{{ $p['abierto'] ? 'cerrar' : 'abrir' }}">
+            @if($p['abierto'])
+                <button type="submit" style="width:100%;padding:7px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;font-size:12px;font-weight:600;cursor:pointer">Cerrar</button>
+            @else
+                <button type="submit" style="width:100%;padding:7px;border:none;border-radius:8px;background:#15803D;color:white;font-size:12px;font-weight:600;cursor:pointer">Abrir cierre</button>
+            @endif
+        </form>
+        @endif
+    </div>
+    @endforeach
 </div>
 @endsection

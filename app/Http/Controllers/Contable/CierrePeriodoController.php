@@ -17,28 +17,34 @@ class CierrePeriodoController extends Controller
         abort_unless($request->user()->puedeVerModulo('contabilidad'), 403,
             'No tienes permiso para ver Contabilidad.');
 
-        // Últimos 24 meses (para abrir/cerrar), con su estado actual.
-        $registros = CierrePeriodo::orderByDesc('anio')->orderByDesc('mes')->get()
-            ->keyBy(fn ($c) => $c->anio.'-'.$c->mes);
+        // Años disponibles: desde 2022 (hay datos desde entonces) hasta el año en curso,
+        // más cualquier año que ya tenga registros de cierre. Descendente para el filtro.
+        $anioActual  = (int) date('Y');
+        $conRegistro = CierrePeriodo::query()->distinct()->orderBy('anio')->pluck('anio')->all();
+        $minAnio = min(array_merge([2022, $anioActual], $conRegistro));
+        $maxAnio = max(array_merge([$anioActual], $conRegistro));
+        $anios   = range($maxAnio, $minAnio);
 
-        $hoyMes = (int) date('n');
-        $hoyAnio = (int) date('Y');
-        $periodos = [];
-        for ($i = 0; $i < 18; $i++) {
-            $m = $hoyMes - $i;
-            $a = $hoyAnio;
-            while ($m <= 0) { $m += 12; $a--; }
-            $c = $registros[$a.'-'.$m] ?? null;
-            $periodos[] = [
-                'mes'     => $m,
-                'anio'    => $a,
-                'abierto' => (bool) ($c?->abierto),
+        $anio = (int) $request->get('anio', $anioActual);
+        if (! in_array($anio, $anios, true)) {
+            $anio = $anioActual;
+        }
+
+        // Los 12 meses del año elegido, con su estado.
+        $registros = CierrePeriodo::where('anio', $anio)->get()->keyBy('mes');
+        $meses = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $c = $registros[$m] ?? null;
+            $meses[] = [
+                'mes'        => $m,
+                'anio'       => $anio,
+                'abierto'    => (bool) ($c?->abierto),
                 'abierto_at' => $c?->abierto_at,
                 'cerrado_at' => $c?->cerrado_at,
             ];
         }
 
-        return view('contable.cierre', ['periodos' => $periodos]);
+        return view('contable.cierre', compact('anios', 'anio', 'meses'));
     }
 
     public function toggle(Request $request)
