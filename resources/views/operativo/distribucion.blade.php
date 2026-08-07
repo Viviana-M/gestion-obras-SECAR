@@ -13,6 +13,9 @@
     $edicionAbierta = $edicionAbierta ?? false;
     $puedeOperacion = auth()->user()->puedeEditarModulo('operacion');
     $puedeEditar = $puedeOperacion && $edicionAbierta;
+    // El "monto a distribuir" de las bolsas se edita en la pantalla de Distribución
+    // (Operaciones) cuando el cierre del mes está abierto.
+    $puedeEditarBolsa = $puedeEditar;
 @endphp
 <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     Distribución de costos
@@ -202,17 +205,17 @@
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['tercero'], 24) }}</td>
                             <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
                             <td style="padding:5px 8px;text-align:right">
-                                @if($puedeEditar)
+                                @if($puedeEditarBolsa)
                                     <input type="number" name="monto[{{ $k }}]" value="{{ round($l['monto_distribuir']) }}" min="0" max="{{ round($l['saldo']) }}" step="1"
-                                        style="width:120px;padding:3px 6px;border:1px solid #FDE68A;border-radius:4px;font-size:11px;text-align:right">
+                                        style="width:120px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
                                 @else
                                     <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
                                 @endif
                             </td>
                             <td style="padding:5px 8px">
-                                @if($puedeEditar)
+                                @if($puedeEditarBolsa)
                                     <input type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"
-                                        style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #FDE68A;border-radius:4px;font-size:11px">
+                                        style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;background:#fff">
                                 @else
                                     <span style="color:#6B7280">{{ $l['observaciones'] }}</span>
                                 @endif
@@ -224,13 +227,18 @@
                             <td style="padding:7px 8px;text-align:right;color:#9CA3AF">${{ number_format($b['total'], 0, ',', '.') }}</td>
                             <td style="padding:7px 8px;text-align:right;color:#B45309">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
                             <td style="padding:7px 8px">
-                                @if($puedeEditar)
+                                @if($puedeEditarBolsa)
                                     <button type="submit" style="padding:6px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar montos</button>
                                 @endif
                             </td>
                         </tr>
                     </table>
                 </div>
+                @unless($puedeEditarBolsa)
+                <div style="padding:7px 12px;font-size:11px;color:#92400E;background:#FEF9C3;border-top:1px solid #FDE68A">
+                    🔒 Para editar el "a distribuir" y las observaciones, Contabilidad debe <b>abrir el cierre</b> de este mes.
+                </div>
+                @endunless
             </form>
         </div>
         @endforeach
