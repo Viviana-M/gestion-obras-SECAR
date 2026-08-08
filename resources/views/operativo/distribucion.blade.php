@@ -32,7 +32,7 @@
                 @endif
             </div>
             <div style="font-size:12.5px;color:#DCE6F5;margin-top:3px;max-width:70ch">
-                Reparte el <b>inventario en tránsito (la 14)</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
+                Reparte el <b>inventario en tránsito</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
                 @if(is_null($depUsuario) && !$depEfectivo)
                     <span style="color:#FDE68A">— elige un departamento en los filtros para empezar.</span>
                 @endif
@@ -55,49 +55,54 @@
 </div>
 @endif
 
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<div class="card filtros-panel" style="margin-bottom:1rem">
+    {{-- Encabezado del panel de filtros --}}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1B3F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        <span style="font-weight:700;color:#1B3F6E;font-size:13px">Filtros</span>
+    </div>
+
+    <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros"
+          style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
         {{-- Director/admin: elige el departamento. El supervisor no ve esto (ya está fijo). --}}
         {{-- Al cambiar el departamento el formulario se envía solo: así el servidor recalcula
              las opciones de "Tipo de obra" que corresponden a ese departamento. --}}
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
-            <select name="departamento" id="sel-departamento"
-                onchange="cambiarDepartamento(this)"
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Departamento</label>
+            <select name="departamento" id="sel-departamento" class="filtro-select" onchange="cambiarDepartamento(this)">
                 <option value="">— Elegir —</option>
                 <option value="mantenimiento" {{ $depEfectivo == 'mantenimiento' ? 'selected' : '' }}>Mantenimiento</option>
                 <option value="instalaciones" {{ $depEfectivo == 'instalaciones' ? 'selected' : '' }}>Instalaciones</option>
             </select>
         </div>
         @endif
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Qué mostrar</label>
-            <select name="vista" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:2 1 250px">
+            <label class="filtro-label">Qué mostrar</label>
+            <select name="vista" class="filtro-select">
                 @foreach(['todo'=>'Todo el inventario en tránsito pendiente','mes'=>'Solo el movimiento del mes elegido'] as $k => $v)
                     <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 90px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Tipo de obra</label>
+        <div class="filtro-field" style="flex:1 1 130px">
+            <label class="filtro-label">Tipo de obra</label>
             @php
                 if ($depEfectivo === 'instalaciones') {
                     $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
@@ -109,29 +114,47 @@
                 // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
                 $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
             @endphp
-            <select name="tipo" id="sel-tipo"
-                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+            <select name="tipo" id="sel-tipo" class="filtro-select"
+                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}>
                 @foreach($opcionesTipo as $k => $v)
                     <option value="{{ $k }}" {{ $tipoSel == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Estado</label>
-            <select name="estado" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Estado</label>
+            <select name="estado" class="filtro-select">
                 @foreach(['todos'=>'Todos','abierta'=>'Abiertas','parcial'=>'Parciales','cerrada'=>'Cerradas'] as $k => $v)
                     <option value="{{ $k }}" {{ $estadoFiltro == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtrar
+        </button>
     </form>
-    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
-        <b>“Todo el inventario en tránsito pendiente”</b>: todas las obras que aún tienen <b>inventario en tránsito (la 14)</b> sin repartir; el mes/año solo mueve la fecha de corte de los números.
-        <b>“Solo el movimiento del mes elegido”</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
-    </p>
+
+    {{-- Nota de ayuda de "Qué mostrar" --}}
+    <div style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;padding:10px 12px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:9px;font-size:11px;color:#64748B;line-height:1.55">
+        <span style="flex:0 0 auto">ℹ️</span>
+        <div>
+            <b style="color:#475569">Todo el inventario en tránsito pendiente</b>: todas las obras que aún tienen inventario en tránsito sin repartir; el mes/año solo mueve la fecha de corte de los números.
+            <b style="color:#475569">Solo el movimiento del mes elegido</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
+        </div>
+    </div>
 </div>
+
+<style>
+    .filtro-field { display:flex; flex-direction:column; }
+    .filtro-label { font-size:10.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8A94A6; margin-bottom:5px; }
+    .filtro-select { width:100%; height:38px; padding:8px 12px; border:1px solid #D8DEE9; border-radius:9px; font-size:13px; background:#fff; color:#1F2937; cursor:pointer; transition:border-color .15s, box-shadow .15s; }
+    .filtro-select:hover { border-color:#B9C4D4; }
+    .filtro-select:focus { outline:none; border-color:#2C5FA0; box-shadow:0 0 0 3px rgba(44,95,160,.15); }
+    .filtro-select:disabled { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
+    .btn-filtrar { display:inline-flex; align-items:center; gap:7px; height:38px; padding:0 22px; background:#1B3F6E; color:#fff; border:none; border-radius:9px; font-size:13px; font-weight:600; cursor:pointer; transition:background .15s; }
+    .btn-filtrar:hover { background:#16345C; }
+</style>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -305,7 +328,7 @@
 @endphp
 
 @if($kpiObras == 0)
-<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito (la 14) pendiente para este período / filtro.</div>
+<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito pendiente para este período / filtro.</div>
 @endif
 
 <form method="POST" action="{{ route('operativo.distribucion.guardar') }}" id="form-dist">
