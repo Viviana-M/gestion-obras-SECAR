@@ -87,53 +87,90 @@
     </div>
 
     {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
+    @php
+        $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
+        $colProy = '#312E81';
+        if ($mcp !== null && $ofc !== null) $colProy = $mcp >= $ofc ? '#15803D' : '#DC2626';
+        $deltaMc = ($mcp !== null && $ofc !== null) ? round($mcp - $ofc, 1) : null;
+    @endphp
     <div style="background:#EEF2FF;padding:10px 16px;border-top:1px solid #E5E7EB">
-        <div style="font-size:9px;font-weight:700;color:#4338CA;letter-spacing:.4px;margin-bottom:6px">PROYECCIÓN DE RENTABILIDAD · OFERTA vs REALIDAD</div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Valor oferta comercial</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_valor_oferta']) }}</div>
+        <div style="font-size:9px;font-weight:700;color:#4338CA;letter-spacing:.4px;margin-bottom:8px">PROYECCIÓN DE RENTABILIDAD · OFERTA vs REALIDAD</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+
+            {{-- Grupo 1 · RENTABILIDAD (lo importante: ofertado vs proyectado) --}}
+            <div style="flex:1;min-width:220px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
+                <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:8px">RENTABILIDAD · MC %</div>
+                <div style="display:flex;align-items:center;gap:12px">
+                    <div>
+                        <div style="font-size:9px;color:#9CA3AF">Ofertado</div>
+                        <div style="font-size:20px;font-weight:700;color:#312E81">{{ $ofc === null ? '—' : $ofc.'%' }}</div>
+                    </div>
+                    <div style="font-size:16px;color:#C7D2FE">→</div>
+                    <div>
+                        <div style="font-size:9px;color:#9CA3AF">Proyectado (real)</div>
+                        <div style="font-size:20px;font-weight:700;color:{{ $colProy }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
+                    </div>
+                </div>
+                @if($deltaMc !== null)
+                <div style="font-size:10px;font-weight:600;margin-top:8px;color:{{ $deltaMc >= 0 ? '#15803D' : '#DC2626' }}">
+                    {{ $deltaMc >= 0 ? '▲ +'.$deltaMc : '▼ '.$deltaMc }} pts vs oferta
+                </div>
+                @else
+                <div style="font-size:10px;color:#9CA3AF;margin-top:8px">Sin oferta registrada</div>
+                @endif
+                <div style="font-size:9px;color:#A5B4FC;margin-top:2px">Proyección = costo acum + inventarios</div>
             </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Diferencia por facturar</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_dif_facturar']) }}</div>
+
+            {{-- Grupo 2 · FACTURACIÓN --}}
+            <div style="flex:1;min-width:230px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
+                <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:6px">FACTURACIÓN</div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0">
+                    <span style="font-size:10px;color:#6B7280">Valor oferta comercial</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_valor_oferta']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#6B7280">Diferencia por facturar</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_dif_facturar']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#6B7280">Avance de facturación</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $o['pr_avance_fact'] === null ? '—' : $o['pr_avance_fact'].'%' }}</span>
+                </div>
+                @if($o['pr_avance_fact'] !== null)
+                <div style="height:5px;border-radius:3px;background:#EEF2FF;overflow:hidden;margin-top:5px">
+                    <div style="height:100%;width:{{ min(100, max(0, $o['pr_avance_fact'])) }}%;background:#6366F1"></div>
+                </div>
+                @endif
             </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario en tránsito</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario almacén <i>(en actualización)</i></div>
-                <div style="font-size:14px;font-weight:600;color:#9CA3AF">{{ $fmt($o['pr_inv_almacen']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo total</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % ofertado</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_mc_ofertado'] === null ? '—' : $o['pr_mc_ofertado'].'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % proyección <i>(costo acum + inventarios)</i></div>
-                @php
-                    $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
-                    $colProy = '#312E81';
-                    if ($mcp !== null && $ofc !== null) $colProy = $mcp >= $ofc ? '#15803D' : '#DC2626';
-                @endphp
-                <div style="font-size:14px;font-weight:600;color:{{ $colProy }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance de facturación</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_fact'] === null ? '—' : $o['pr_avance_fact'].'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo presupuestado</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance ejecución obra</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_ejec'] === null ? '—' : $o['pr_avance_ejec'].'%' }}</div>
+
+            {{-- Grupo 3 · COSTO Y EJECUCIÓN --}}
+            <div style="flex:1.3;min-width:250px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
+                <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:6px">COSTO Y EJECUCIÓN</div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0">
+                    <span style="font-size:10px;color:#6B7280">Inventario en tránsito</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#9CA3AF">Inventario almacén <i>(en actualización)</i></span>
+                    <span style="font-size:13px;font-weight:600;color:#9CA3AF">{{ $fmt($o['pr_inv_almacen']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#374151;font-weight:600">Costo total</span>
+                    <span style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#6B7280">Costo presupuestado</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
+                    <span style="font-size:10px;color:#6B7280">Avance ejecución obra</span>
+                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $o['pr_avance_ejec'] === null ? '—' : $o['pr_avance_ejec'].'%' }}</span>
+                </div>
+                @if($o['pr_avance_ejec'] !== null)
+                <div style="height:5px;border-radius:3px;background:#EEF2FF;overflow:hidden;margin-top:5px">
+                    <div style="height:100%;width:{{ min(100, max(0, $o['pr_avance_ejec'])) }}%;background:#6366F1"></div>
+                </div>
+                @endif
             </div>
         </div>
     </div>
