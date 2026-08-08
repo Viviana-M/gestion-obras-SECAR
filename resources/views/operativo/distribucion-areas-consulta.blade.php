@@ -13,6 +13,8 @@
 <x-page-banner title="Otros costos · {{ $periodo }}" icon="🏢" :badge="$depLabel[$dep] ?? $dep">
     Distribución de <b>áreas / bolsas</b>: valor a cargar en el mes por cuenta, con su tercero y observación.
     <x-slot:actions>
+        <a href="{{ route('operativo.distribucion', ['mes' => $mes, 'anio' => $anio, 'departamento' => $dep, 'bolsa' => $dep]) }}"
+           style="font-size:13px;padding:8px 16px;background:#D97706;color:#fff;border-radius:8px;text-decoration:none">Editar montos</a>
         <a href="{{ route('operativo.distribucion.consultas') }}" style="font-size:13px;padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;color:#6B7280;text-decoration:none">← Volver</a>
     </x-slot:actions>
 </x-page-banner>

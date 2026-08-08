@@ -74,6 +74,10 @@
                 <td style="padding:10px 14px;text-align:center;white-space:nowrap">
                     <a href="{{ route('operativo.distribucion.areas-consultar', $f['id']) }}"
                        style="font-size:12px;padding:6px 12px;border:1px solid #1B3F6E;border-radius:6px;color:#1B3F6E;text-decoration:none">Consultar</a>
+                    {{-- Editar: lleva a la pantalla de Distribución con esa bolsa desplegada
+                         (se puede editar mientras el cierre del mes esté abierto). --}}
+                    <a href="{{ route('operativo.distribucion', ['mes' => $f['mes'], 'anio' => $f['anio'], 'departamento' => $f['departamento'], 'bolsa' => $f['departamento']]) }}"
+                       style="font-size:12px;padding:6px 12px;border:1px solid #D97706;border-radius:6px;color:#B45309;text-decoration:none;margin-left:4px">Editar montos</a>
                 </td>
             </tr>
             @endforeach

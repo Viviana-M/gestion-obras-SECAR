@@ -201,6 +201,37 @@ class DistribucionBolsasTest extends TestCase
         $resp->assertSee('14200530', false);
         $resp->assertSee('Solo parte este mes', false);
         $resp->assertSee('$12.000.000', false);
+
+        // En "Mis distribuciones" la fila de otros costos ofrece "Editar montos".
+        $this->actingAs($this->operador())->get(route('operativo.distribucion.consultas'))
+            ->assertOk()->assertSee('Editar montos', false);
+    }
+
+    #[Test]
+    public function el_supervisor_puede_reeditar_los_montos_de_otros_costos(): void
+    {
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $op = $this->operador();
+
+        // La asistente guarda 12M...
+        $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'monto' => ['MTO00099|14200530' => 12000000], 'obs' => ['MTO00099|14200530' => 'inicial'],
+        ])->assertRedirect();
+
+        // ...el supervisor revisa y reedita a 8M (mientras el cierre está abierto).
+        $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'monto' => ['MTO00099|14200530' => 8000000], 'obs' => ['MTO00099|14200530' => 'ajustado'],
+        ])->assertRedirect();
+
+        // Se actualiza (no se duplica): un solo BolsaMonto y una sola distribución de áreas.
+        $this->assertSame(1, BolsaMonto::where('un_codigo', 'MTO00099')->where('cuenta_14', '14200530')->count());
+        $this->assertDatabaseHas('bolsa_montos', [
+            'un_codigo' => 'MTO00099', 'cuenta_14' => '14200530',
+            'monto_distribuir' => 8000000.00, 'observaciones' => 'ajustado',
+        ]);
+        $this->assertSame(1, \App\Models\Distribucion::where('tipo', 'areas')->count());
     }
 
     #[Test]

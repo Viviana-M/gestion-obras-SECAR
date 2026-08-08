@@ -1034,6 +1034,15 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
         row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
     });
+
+    // Si llegan desde "Otros costos → Editar montos" con ?bolsa=XXX, abrir esa bolsa.
+    const bolsaAbrir = new URLSearchParams(location.search).get('bolsa');
+    if (bolsaAbrir) {
+        const det = document.getElementById('bolsa-det-' + bolsaAbrir);
+        if (det && (det.style.display === 'none' || !det.style.display)) toggleBolsaDetalle(bolsaAbrir);
+        const box = document.getElementById('bolsa-box-' + bolsaAbrir);
+        if (box) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 });
 </script>
 
