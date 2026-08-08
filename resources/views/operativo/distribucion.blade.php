@@ -17,16 +17,28 @@
     // (Operaciones) cuando el cierre del mes está abierto.
     $puedeEditarBolsa = $puedeEditar;
 @endphp
-<h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    Distribución de costos
-    @if($depEfectivo)
-        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
-            {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
-        </span>
-    @elseif(is_null($depUsuario))
-        <span style="font-size:12px;color:#9CA3AF;font-weight:400">— elige un departamento arriba para empezar —</span>
-    @endif
-</h1>
+{{-- Banner del título --}}
+<div style="background:linear-gradient(120deg,#1B3F6E,#2C5FA0);border-radius:14px;padding:20px 24px;margin-bottom:1.25rem;color:#fff;box-shadow:0 6px 18px rgba(27,63,110,.18)">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="font-size:28px">📦</span>
+        <div>
+            <div style="font-size:21px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                Distribución de costos
+                @if($depEfectivo)
+                    <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:rgba(255,255,255,.18);color:#fff">
+                        {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
+                    </span>
+                @endif
+            </div>
+            <div style="font-size:12.5px;color:#DCE6F5;margin-top:3px;max-width:70ch">
+                Reparte el <b>inventario en tránsito (la 14)</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
+                @if(is_null($depUsuario) && !$depEfectivo)
+                    <span style="color:#FDE68A">— elige un departamento en los filtros para empezar.</span>
+                @endif
+            </div>
+        </div>
+    </div>
+</div>
 
 @if(!$edicionAbierta)
 <div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
@@ -60,9 +72,9 @@
         </div>
         @endif
         <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Vista</label>
+            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Qué mostrar</label>
             <select name="vista" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-                @foreach(['todo'=>'Todo lo pendiente (cuenta 14)','mes'=>'Solo el mes seleccionado'] as $k => $v)
+                @foreach(['todo'=>'Todo el inventario en tránsito pendiente','mes'=>'Solo el movimiento del mes elegido'] as $k => $v)
                     <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
@@ -115,8 +127,8 @@
         <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
     </form>
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
-        En vista <b>“Todo lo pendiente”</b> se muestran todas las obras con saldo abierto en la cuenta 14 (el mes/año solo afecta los números al corte).
-        En vista <b>“Solo el mes seleccionado”</b> se muestran únicamente las obras con movimiento de cuenta 14 en ese mes y año.
+        <b>“Todo el inventario en tránsito pendiente”</b>: todas las obras que aún tienen <b>inventario en tránsito (la 14)</b> sin repartir; el mes/año solo mueve la fecha de corte de los números.
+        <b>“Solo el movimiento del mes elegido”</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
     </p>
 </div>
 
@@ -292,7 +304,7 @@
 @endphp
 
 @if($kpiObras == 0)
-<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con saldo en cuenta 14 para este período / filtro.</div>
+<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito (la 14) pendiente para este período / filtro.</div>
 @endif
 
 <form method="POST" action="{{ route('operativo.distribucion.guardar') }}" id="form-dist">
