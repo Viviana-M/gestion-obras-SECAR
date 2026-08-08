@@ -136,8 +136,10 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                <div class="submenu-group-label">Tableros</div>
                 <a href="/dashboard" class="{{ request()->is('dashboard') ? 'active' : '' }}">Tablero gerencial</a>
                 <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Proyectos en curso</a>
+                <div class="submenu-group-label">Consulta</div>
                 <a href="/financiero/historicos" class="{{ request()->is('financiero/historicos') ? 'active' : '' }}">Obras cerradas</a>
                 <a href="/financiero/estados-financieros" class="{{ request()->is('financiero/estados-financieros') ? 'active' : '' }}">Estados financieros</a>
             </div>
