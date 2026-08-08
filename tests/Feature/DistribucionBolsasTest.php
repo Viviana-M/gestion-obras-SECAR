@@ -143,6 +143,26 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function la_columna_queda_mes_siguiente_muestra_saldo_menos_a_distribuir(): void
+    {
+        // UN con 20M de saldo; se decide distribuir 15M → quedan 5M para el mes siguiente.
+        $this->rf('C-700', 'Ingreso', 50000000, 7, 2026, '41350100');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $op = $this->operador();
+
+        $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
+            'mes' => 7, 'anio' => 2026,
+            'monto' => ['MTO00099|14200530' => 15000000],
+        ])->assertRedirect();
+
+        $resp = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertStatus(200);
+        $resp->assertSee('Queda mes siguiente', false);        // encabezado de la nueva columna
+        $resp->assertSee('id="queda-tot-mantenimiento"', false); // total de la columna
+        $resp->assertSee('$5.000.000', false);                  // 20M − 15M = 5M queda
+    }
+
+    #[Test]
     public function no_se_pueden_editar_los_montos_si_el_cierre_no_esta_abierto(): void
     {
         // Cerramos el período que el trait abrió.

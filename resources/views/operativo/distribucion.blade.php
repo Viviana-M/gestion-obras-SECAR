@@ -186,7 +186,7 @@
                 <input type="hidden" name="mes" value="{{ $mes }}">
                 <input type="hidden" name="anio" value="{{ $anio }}">
                 <div style="overflow-x:auto">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px;background:#fff">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;background:#fff">
                         <tr style="background:#FFFBEB;color:#92400E;text-align:left">
                             <td style="padding:6px 8px">UN</td>
                             <td style="padding:6px 8px">Nombre UN</td>
@@ -195,10 +195,15 @@
                             <td style="padding:6px 8px">Tercero</td>
                             <td style="padding:6px 8px;text-align:right">Saldo</td>
                             <td style="padding:6px 8px;text-align:right">A distribuir</td>
+                            <td style="padding:6px 8px;text-align:right">Queda mes siguiente</td>
                             <td style="padding:6px 8px">Observaciones</td>
                         </tr>
                         @foreach($b['lineas'] as $l)
-                        @php $k = $l['un_codigo'].'|'.$l['cuenta_14']; @endphp
+                        @php
+                            $k = $l['un_codigo'].'|'.$l['cuenta_14'];
+                            $kid = preg_replace('/[^A-Za-z0-9]/', '_', $b['codigo'].'_'.$k);
+                            $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
+                        @endphp
                         <tr style="border-top:1px solid #FDE68A">
                             <td style="padding:5px 8px;font-family:monospace">{{ $l['un_codigo'] }}</td>
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
@@ -209,10 +214,14 @@
                             <td style="padding:5px 8px;text-align:right">
                                 @if($puedeEditarBolsa)
                                     <input type="number" name="monto[{{ $k }}]" value="{{ round($l['monto_distribuir']) }}" min="0" max="{{ round($l['saldo']) }}" step="1"
+                                        data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="quedaMesSig(this)"
                                         style="width:120px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
                                 @else
                                     <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
                                 @endif
+                            </td>
+                            <td style="padding:5px 8px;text-align:right;color:#15803D">
+                                <b id="queda-{{ $kid }}">${{ number_format($queda, 0, ',', '.') }}</b>
                             </td>
                             <td style="padding:5px 8px">
                                 @if($puedeEditarBolsa)
@@ -227,7 +236,8 @@
                         <tr style="background:#FFFBEB;font-weight:700;border-top:2px solid #FDE68A">
                             <td colspan="5" style="padding:7px 8px;text-align:right;color:#92400E">Disponible = suma de "a distribuir"</td>
                             <td style="padding:7px 8px;text-align:right;color:#9CA3AF">${{ number_format($b['total'], 0, ',', '.') }}</td>
-                            <td style="padding:7px 8px;text-align:right;color:#B45309">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#B45309" id="adist-tot-{{ $b['codigo'] }}">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#15803D" id="queda-tot-{{ $b['codigo'] }}">${{ number_format(max(0, $b['total'] - $b['a_distribuir']), 0, ',', '.') }}</td>
                             <td style="padding:7px 8px">
                                 @if($puedeEditarBolsa)
                                     <button type="submit" style="padding:6px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar montos</button>
@@ -448,6 +458,31 @@ function toggleBolsaDetalle(c){
     const mostrar = (e.style.display === 'none' || !e.style.display);
     e.style.display = mostrar ? 'block' : 'none';
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
+
+// "Queda para el mes siguiente" por cuenta = saldo − lo que se distribuye este mes.
+// Se recalcula en vivo al editar "A distribuir", junto con el total de la bolsa.
+function quedaMesSig(inp){
+    const saldo = Number(inp.dataset.saldo || 0);
+    let monto = Number(inp.value || 0);
+    if (monto < 0) monto = 0;
+    if (monto > saldo) { monto = saldo; inp.value = saldo; }   // no se puede distribuir más que el saldo
+    const cell = document.getElementById('queda-' + inp.dataset.kid);
+    if (cell) cell.textContent = fmt(Math.max(0, saldo - monto));
+    // Totales de la bolsa: "a distribuir" (suma de inputs) y "queda" (saldo − a distribuir).
+    const tabla = inp.closest('table');
+    let totAdist = 0, totQueda = 0;
+    tabla.querySelectorAll('input[data-tipo="bolsamonto"]').forEach(i => {
+        const s = Number(i.dataset.saldo || 0);
+        let m = Number(i.value || 0);
+        if (m < 0) m = 0; if (m > s) m = s;
+        totAdist += m;
+        totQueda += Math.max(0, s - m);
+    });
+    const adistEl = document.getElementById('adist-tot-' + inp.dataset.bolsa);
+    if (adistEl) adistEl.textContent = fmt(totAdist);
+    const totEl = document.getElementById('queda-tot-' + inp.dataset.bolsa);
+    if (totEl) totEl.textContent = fmt(totQueda);
 }
 let asignIdx = {};
 
