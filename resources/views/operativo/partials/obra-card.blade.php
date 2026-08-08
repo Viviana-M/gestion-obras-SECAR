@@ -32,30 +32,7 @@
         </div>
     </div>
 
-    {{-- ESTADO DE AVANCE DE OBRA (acumulado al mes anterior) --}}
-    <div style="background:#F9FAFB;padding:10px 16px;border-top:1px solid #E5E7EB">
-        <div style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;margin-bottom:6px">ESTADO DE AVANCE DE OBRA · ACUMULADO A {{ mb_strtoupper($mesAnteriorNombre) }}</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Facturado acum. reconocido</div>
-                <div style="font-size:14px;font-weight:600;color:#1B3F6E">{{ $fmt($o['fact_acum_rec']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acum. reconocido</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_acum_rec']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Margen acum. ($)</div>
-                <div style="font-size:14px;font-weight:600;color:{{ $o['margen_acum_pesos'] >= 0 ? '#15803D' : '#DC2626' }}">{{ $fmt($o['margen_acum_pesos']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">MC %</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $o['mc_pct_acum'] === null ? '—' : $o['mc_pct_acum'].'%' }}</div>
-            </div>
-        </div>
-    </div>
-
-    {{-- RENTABILIDAD DEL MES (costo del mes + MC dinámico al aplicar 14→6) --}}
+    {{-- RENTABILIDAD DEL MES (primero: todo lo del mes; MC dinámico al aplicar inventario) --}}
     <div style="background:#FFFBEB;padding:10px 16px;border-top:1px solid #E5E7EB">
         <div style="font-size:9px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:6px">RENTABILIDAD DEL MES · {{ mb_strtoupper($mesNombre) }}</div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
@@ -64,24 +41,47 @@
                 <div style="font-size:14px;font-weight:600;color:#854D0E">{{ $fmt($o['ingreso_mes']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo del mes (cuenta 6)</div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo aplicado del mes</div>
                 <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_mes_c6']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Aplicado ahora (14→6)</div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Inventario en tránsito aplicado</div>
                 <div style="font-size:14px;font-weight:600;color:#1B3F6E" id="aplic6-{{ $cod }}">{{ $fmt($o['aplicado_mes']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo sin aplicar (prov. 14→26)</div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Provisión (costo sin aplicar)</div>
                 <div style="font-size:14px;font-weight:600;color:#B45309" id="provsa-{{ $cod }}">{{ $fmt($o['costo_sin_aplicar'] ?? 0) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">MC del mes ($)</div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Margen del mes ($)</div>
                 <div style="font-size:14px;font-weight:600;color:{{ $o['mc_mes_pesos'] >= 0 ? '#15803D' : '#DC2626' }}" id="mcmes-{{ $cod }}">{{ $fmt($o['mc_mes_pesos']) }}</div>
             </div>
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Rentabilidad % MC</div>
                 <div style="font-size:14px;font-weight:600;color:#854D0E" id="mcpct-{{ $cod }}">{{ $o['mc_mes_pct'] === null ? '—' : $o['mc_mes_pct'].'%' }}</div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ACUMULADO DE CIERRE (después: acumulado hasta este mes incluyendo la distribución) --}}
+    <div style="background:#F9FAFB;padding:10px 16px;border-top:1px solid #E5E7EB">
+        <div style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;margin-bottom:6px">ACUMULADO A {{ mb_strtoupper($mesNombre) }} · INCLUYE ESTA DISTRIBUCIÓN</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Facturado acumulado</div>
+                <div style="font-size:14px;font-weight:600;color:#1B3F6E">{{ $fmt($o['ingreso_acum']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acumulado (con distribución)</div>
+                <div style="font-size:14px;font-weight:600;color:#374151" id="costoacum-{{ $cod }}">{{ $fmt($o['costo_acum_cierre']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Margen acumulado ($)</div>
+                <div style="font-size:14px;font-weight:600;color:{{ $o['margen_acum_cierre_pesos'] >= 0 ? '#15803D' : '#DC2626' }}" id="mcacum-{{ $cod }}">{{ $fmt($o['margen_acum_cierre_pesos']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">MC % acumulado</div>
+                <div style="font-size:14px;font-weight:600;color:#374151" id="mcacumpct-{{ $cod }}">{{ $o['mc_acum_cierre_pct'] === null ? '—' : $o['mc_acum_cierre_pct'].'%' }}</div>
             </div>
         </div>
     </div>
@@ -99,7 +99,7 @@
                 <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_dif_facturar']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario en obra (cta 14)</div>
+                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario en tránsito</div>
                 <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</div>
             </div>
             <div>

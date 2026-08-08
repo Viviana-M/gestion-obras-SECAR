@@ -113,6 +113,28 @@ class ProvisionTest extends TestCase
     }
 
     #[Test]
+    public function el_acumulado_de_cierre_incluye_la_distribucion_del_mes(): void
+    {
+        $svc = new \App\Services\DistribucionService();
+        $o = [
+            'ingreso_mes' => 1000000, 'ingreso_acum' => 5000000,
+            'costo_apl_mes' => 100000, 'costo_apl_acum' => 3000000,
+            'sum_aplicar' => 400000, 'sum_prov' => 200000, 'sum_bolsa' => 50000,
+            'inventario_obra' => 0, 'inventario_almacen' => 0,
+            'valor_oferta' => 0, 'costo_presup' => 0, 'ofertado' => null,
+        ];
+        $svc->calcularMargenes($o);
+
+        // Costo acumulado de cierre = costo_apl_acum + (aplicar+bolsa) + provisión
+        //                           = 3.000.000 + 450.000 + 200.000 = 3.650.000
+        $this->assertEqualsWithDelta(3650000, $o['costo_acum_cierre'], 0.5);
+        // Margen acumulado de cierre = 5.000.000 − 3.650.000 = 1.350.000
+        $this->assertEqualsWithDelta(1350000, $o['margen_acum_cierre_pesos'], 0.5);
+        // MC % acumulado de cierre = 1.350.000 / 5.000.000 = 27%
+        $this->assertEqualsWithDelta(27.0, $o['mc_acum_cierre_pct'], 0.05);
+    }
+
+    #[Test]
     public function el_plano_registra_14_a_26_al_crear_y_26_a_14_al_reversar(): void
     {
         $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',

@@ -715,6 +715,15 @@ function recalc(cod){
     if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }
     const pctEl=document.getElementById('mcpct-'+cod);
     if(pctEl){ pctEl.textContent = d.ingMes ? ((mcMesPesos/d.ingMes*100).toFixed(1)+'%') : '—'; }
+
+    // Acumulado de cierre: hasta este mes INCLUYENDO la distribución (14→6) y la provisión.
+    const costoAcumCierre = (d.costoAcum||0) + aplicado14a6 + prov;
+    const mcAcumPesos = (d.ingAcum||0) - costoAcumCierre;
+    const caEl=document.getElementById('costoacum-'+cod); if(caEl) caEl.textContent=fmt(costoAcumCierre);
+    const maEl=document.getElementById('mcacum-'+cod);
+    if(maEl){ maEl.textContent=fmt(mcAcumPesos); maEl.style.color = mcAcumPesos>=0 ? '#15803D' : '#DC2626'; }
+    const mapEl=document.getElementById('mcacumpct-'+cod);
+    if(mapEl){ mapEl.textContent = d.ingAcum ? ((mcAcumPesos/d.ingAcum*100).toFixed(1)+'%') : '—'; }
 }
 
 function cambiarEstado(cod, val){

@@ -469,6 +469,14 @@ class DistribucionService
         $o['mc_mes_pesos']      = $ingMes - $costoMesTotal;
         $o['mc_mes_pct']        = $ingMes != 0 ? round($o['mc_mes_pesos'] / $ingMes * 100, 1) : null;
 
+        // Acumulado de CIERRE: llega hasta el mes que se está distribuyendo INCLUYENDO esta
+        // distribución (lo aplicado 14→6 y la provisión), para ver cómo cierra el acumulado.
+        // El JS lo recalcula en vivo cuando cambian los montos a aplicar.
+        $o['costo_acum_cierre']        = $o['costo_apl_acum'] + $o['aplicado_mes'] + $o['costo_sin_aplicar'];
+        $o['margen_acum_cierre_pesos'] = $ingAcum - $o['costo_acum_cierre'];
+        $o['mc_acum_cierre_pct']       = $ingAcum != 0
+            ? round($o['margen_acum_cierre_pesos'] / $ingAcum * 100, 1) : null;
+
         // Proyección (oferta comercial vs realidad)
         $valorOferta  = $o['valor_oferta'];
         $costoPresup  = $o['costo_presup'];

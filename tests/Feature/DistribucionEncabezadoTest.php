@@ -54,6 +54,28 @@ class DistribucionEncabezadoTest extends TestCase
     }
 
     #[Test]
+    public function la_tarjeta_usa_terminos_de_ingenieria_y_el_acumulado_de_cierre(): void
+    {
+        $this->rf('MOB08660', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB08660', 'Costos por aplicar', -100, 6, 2026, '14350105');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        // Términos de ingeniería (sin jerga contable "cuenta 6" ni "14→6").
+        $resp->assertSee('Inventario en tránsito aplicado', false);
+        $resp->assertSee('Provisión (costo sin aplicar)', false);
+        // El acumulado ahora es de cierre e incluye la distribución del mes.
+        $resp->assertSee('INCLUYE ESTA DISTRIBUCIÓN', false);
+        $resp->assertSee('Costo acumulado (con distribución)', false);
+        // Ya no se muestra la jerga contable en las tarjetas.
+        $resp->assertDontSee('Costo del mes (cuenta 6)', false);
+        $resp->assertDontSee('Aplicado ahora (14→6)', false);
+        $resp->assertDontSee('Inventario en obra (cta 14)', false);
+    }
+
+    #[Test]
     public function el_buscador_indexa_codigo_nombre_y_cliente(): void
     {
         FichaProyecto::create([
