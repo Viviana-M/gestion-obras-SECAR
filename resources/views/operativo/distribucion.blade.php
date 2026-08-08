@@ -1032,4 +1032,89 @@ document.addEventListener('DOMContentLoaded', function(){
     });
 });
 </script>
+
+{{-- ══════════ Borrador automático en el navegador (red de seguridad) ══════════
+     Si la persona edita y se tiene que ir sin dar "Guardar borrador", lo que
+     escribió queda auto-guardado en ESTE navegador y al volver se le ofrece
+     recuperarlo. También avisa al salir si hay cambios sin guardar. No toca la BD. --}}
+@if($puedeEditar)
+<script>
+(function () {
+    const form = document.getElementById('form-dist');
+    if (!form) return;
+
+    // Clave por período + departamento + borrador (no cruza datos entre pantallas).
+    const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
+
+    // Solo auto-guardamos lo que se teclea: montos "a aplicar" y estado de cada obra.
+    function campos() {
+        return form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]');
+    }
+    function serializar() {
+        const data = {};
+        campos().forEach(el => { if (el.name) data[el.name] = el.value; });
+        return data;
+    }
+    // Solo ofrecemos recuperar si hay al menos un monto "a aplicar" > 0 (trabajo real).
+    function tieneTrabajo(data) {
+        return Object.keys(data || {}).some(k => k.indexOf('aplicar') === 0 && Number(data[k]) > 0);
+    }
+
+    let dirty = false, guardadoLocal = true, tmr = null;
+
+    function guardarLocal() {
+        try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), data: serializar() })); guardadoLocal = true; } catch (e) {}
+    }
+    function programar() {
+        dirty = true; guardadoLocal = false;
+        clearTimeout(tmr); tmr = setTimeout(guardarLocal, 800);
+    }
+    form.addEventListener('input', programar);
+    form.addEventListener('change', programar);
+    setInterval(function () { if (!guardadoLocal) guardarLocal(); }, 5000); // respaldo periódico
+
+    // Al enviar (guardar borrador / enviar a contabilidad) ya queda en BD: limpiamos el local.
+    form.addEventListener('submit', function () { dirty = false; try { localStorage.removeItem(KEY); } catch (e) {} });
+
+    // Aviso nativo del navegador al salir con cambios sin guardar en BD.
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
+
+    // ¿Quedó un borrador de una sesión anterior en este equipo? Ofrecer recuperarlo.
+    let prev = null;
+    try { prev = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    if (prev && tieneTrabajo(prev.data)) mostrarBanner(prev);
+
+    function fechaCorta(ts) {
+        try { return new Date(ts).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return ''; }
+    }
+    function mostrarBanner(snap) {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'position:sticky;top:0;z-index:120;background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+        bar.innerHTML = '<span>💾 <b>Tienes cambios sin guardar</b> de ' + fechaCorta(snap.t) + ' en este equipo. ¿Recuperarlos?</span>'
+            + '<span style="margin-left:auto;display:flex;gap:8px">'
+            + '<button type="button" id="dr-rec" style="padding:6px 14px;border:none;border-radius:6px;background:#D97706;color:#fff;font-size:12px;font-weight:600;cursor:pointer">Recuperar</button>'
+            + '<button type="button" id="dr-des" style="padding:6px 14px;border:1px solid #D97706;border-radius:6px;background:#fff;color:#B45309;font-size:12px;cursor:pointer">Descartar</button>'
+            + '</span>';
+        const cont = document.querySelector('.content');
+        cont.insertBefore(bar, cont.firstChild);
+        document.getElementById('dr-rec').addEventListener('click', function () { aplicar(snap.data); bar.remove(); });
+        document.getElementById('dr-des').addEventListener('click', function () {
+            try { localStorage.removeItem(KEY); } catch (e) {}
+            dirty = false; guardadoLocal = true; bar.remove();
+        });
+    }
+    function aplicar(data) {
+        Object.keys(data).forEach(name => {
+            const el = form.querySelector('[name="' + name + '"]');
+            if (el) el.value = data[name];
+        });
+        if (typeof DATOS === 'object') { for (const cod in DATOS) { try { recalc(cod); } catch (e) {} } }
+        dirty = true; guardadoLocal = false; guardarLocal();
+    }
+})();
+</script>
+@endif
 @endsection

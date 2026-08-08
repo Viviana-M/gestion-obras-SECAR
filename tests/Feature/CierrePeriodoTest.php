@@ -100,6 +100,23 @@ class CierrePeriodoTest extends TestCase
     }
 
     #[Test]
+    public function el_borrador_automatico_local_solo_aparece_cuando_se_puede_editar(): void
+    {
+        $this->obraConSaldo();
+
+        // Cerrado (solo lectura) → NO se activa el autoguardado en el navegador.
+        $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertDontSee('secar_dist_draft_v1', false);
+
+        // Con el cierre abierto (editable) → aparece la red de seguridad (borrador local).
+        CierrePeriodo::create(['mes' => 7, 'anio' => 2026, 'abierto' => true]);
+        $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertSee('secar_dist_draft_v1', false);
+    }
+
+    #[Test]
     public function el_calendario_permite_filtrar_por_ano_desde_2022(): void
     {
         CierrePeriodo::create(['mes' => 3, 'anio' => 2022, 'abierto' => true]);
