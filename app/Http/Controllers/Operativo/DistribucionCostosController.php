@@ -65,6 +65,7 @@ class DistribucionCostosController extends Controller
                 'mes'          => $d->mes,
                 'anio'         => $d->anio,
                 'departamento' => $d->departamento,
+                'tipo'         => $d->tipo ?? 'obras',
                 'version'      => $d->version,
                 'estado'       => $d->estado,
                 'habilitada'   => $d->edicion_habilitada,
@@ -78,7 +79,13 @@ class DistribucionCostosController extends Controller
             ];
         });
 
-        return view('operativo.distribucion-consultas', ['filas' => $filas]);
+        // Dos consultas separadas: distribución de obras (inventario en tránsito) y
+        // otros costos (áreas / bolsas). Hoy todo es 'obras'; 'areas' se poblará cuando
+        // esa distribución tenga su propio guardado.
+        return view('operativo.distribucion-consultas', [
+            'filasObras' => $filas->where('tipo', 'obras')->values(),
+            'filasAreas' => $filas->where('tipo', 'areas')->values(),
+        ]);
     }
 
     public function index(Request $request)
@@ -681,6 +688,7 @@ class DistribucionCostosController extends Controller
                             ->where('departamento', $departamento)->max('version') ?? 0) + 1;
                 $distribucion = Distribucion::create([
                     'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
+                    'tipo' => 'obras', // distribución de obras (inventario en tránsito)
                     'version' => $version, 'estado' => 'borrador',
                     'edicion_habilitada' => false, 'guardado_por' => $request->user()?->id,
                 ]);

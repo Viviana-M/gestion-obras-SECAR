@@ -45,6 +45,19 @@ class DistribucionConsultaFinalTest extends TestCase
     }
 
     #[Test]
+    public function mis_distribuciones_se_divide_en_obras_y_otros_costos(): void
+    {
+        Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'tipo' => 'obras', 'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false]);
+
+        $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.consultas'));
+
+        $resp->assertOk();
+        $resp->assertSee('Distribución de obras', false);   // sección 1
+        $resp->assertSee('Otros costos', false);            // sección 2 (áreas / bolsas)
+    }
+
+    #[Test]
     public function un_borrador_sin_envio_no_muestra_ver_final(): void
     {
         Distribucion::create([
