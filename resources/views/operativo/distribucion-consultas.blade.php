@@ -70,6 +70,11 @@
                 <td style="padding:10px 14px;text-align:center;white-space:nowrap">
                     <a href="{{ route('operativo.distribucion', ['dist' => $f['id']]) }}"
                        style="font-size:12px;padding:6px 12px;border:1px solid #1B3F6E;border-radius:6px;color:#1B3F6E;text-decoration:none">{{ $cta }}</a>
+                    @if($f['version_final_id'])
+                    {{-- Foto congelada del envío: la versión oficial que NO cambia. --}}
+                    <a href="{{ route('operativo.distribucion.version', $f['version_final_id']) }}" target="_blank"
+                       style="font-size:12px;padding:6px 12px;border:none;border-radius:6px;background:#15803D;color:#fff;text-decoration:none;margin-left:4px">🔒 Ver final (congelada)</a>
+                    @endif
                     <a href="{{ route('operativo.distribucion.trazabilidad', $f['id']) }}"
                        style="font-size:12px;padding:6px 12px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;text-decoration:none;margin-left:4px">Trazabilidad</a>
                     @if($f['estado'] !== 'enviado')

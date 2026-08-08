@@ -52,7 +52,13 @@ class DistribucionCostosController extends Controller
 
         $usuarios = User::pluck('name', 'id');
 
-        $filas = $dists->map(function ($d) use ($totales, $usuarios) {
+        // Foto CONGELADA del envío: la última versión con evento enviado/reenviado por
+        // distribución. Es el registro oficial que no cambia aunque cambien los datos.
+        $finales = DistribucionVersion::whereIn('evento', ['enviado', 'reenviado'])
+            ->orderByDesc('id')->get(['id', 'distribucion_id'])
+            ->unique('distribucion_id')->keyBy('distribucion_id');
+
+        $filas = $dists->map(function ($d) use ($totales, $usuarios, $finales) {
             $t = $totales[$d->id] ?? null;
             return [
                 'id'           => $d->id,
@@ -68,6 +74,7 @@ class DistribucionCostosController extends Controller
                 'guardado_at'  => $d->updated_at,
                 'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
                 'enviado_at'   => $d->enviado_at,
+                'version_final_id' => $finales[$d->id]->id ?? null,
             ];
         });
 
