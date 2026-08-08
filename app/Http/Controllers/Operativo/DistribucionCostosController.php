@@ -1450,6 +1450,94 @@ class DistribucionCostosController extends Controller
     }
 
     /**
+     * Reporte Excel POR OBRA de una distribución: lo aplicado en cada obra (propio y
+     * desde bolsas) y cómo quedó (ingreso, costo, margen del mes, inventario en tránsito
+     * pendiente/restante y estado). Se genera desde una distribución guardada.
+     */
+    public function reporteObras(Request $request, Distribucion $distribucion)
+    {
+        abort_unless($request->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        $mes = (int) $distribucion->mes;
+        $anio = (int) $distribucion->anio;
+        $dep = $distribucion->departamento;
+
+        // Lo aplicado por obra en esta distribución (propio = reduce su 14; bolsa = de áreas).
+        $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)->get();
+        $porObra = [];
+        foreach ($lineas as $l) {
+            $cod = $l->codigo_proyecto;
+            $porObra[$cod] ??= ['propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0];
+            $m = (float) $l->monto_aplicar;
+            $l->origen_bolsa ? $porObra[$cod]['bolsa'] += $m : $porObra[$cod]['propio'] += $m;
+            $porObra[$cod]['total'] += $m;
+        }
+        $codigos = array_keys($porObra);
+        sort($codigos);
+
+        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
+        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
+        $pend14 = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto')->pluck('saldo', 'codigo_proyecto');
+        $fichas    = FichaProyecto::whereIn('codigo_proyecto', $codigos)->get()->keyBy('codigo_proyecto');
+        $nombreMov = RegistroFinanciero::whereIn('codigo_proyecto', $codigos)->pluck('nombre_proyecto', 'codigo_proyecto');
+        $estados   = ObraEstado::whereIn('codigo_proyecto', $codigos)->pluck('estado', 'codigo_proyecto');
+
+        // Números CRUDOS en las columnas de valores (el formato de miles lo pone Excel);
+        // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
+        $head = ['Código', 'Proyecto', 'Cliente', 'Ingreso del mes', 'Costo del mes (cta 6)',
+            'Aplicado 14→6', 'Aplicado desde bolsas', 'Aplicado total', 'Costo total del mes',
+            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Restante 14', 'Estado'];
+        $filas = [$head];
+
+        $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0,
+              'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
+
+        foreach ($codigos as $cod) {
+            $a = $porObra[$cod];
+            $ing = (float) ($ingMes[$cod] ?? 0);
+            $c6  = abs((float) ($costoMes[$cod] ?? 0));
+            $saldo = (float) ($pend14[$cod] ?? 0);
+            $pend = $saldo < 0 ? abs($saldo) : 0.0;   // saldo negativo = pendiente por aplicar
+            $costoTot = $c6 + $a['total'];
+            $mc = $ing - $costoTot;
+            $mcPct = $ing != 0 ? ($mc / $ing * 100) : null;
+            $rest = max(0.0, $pend - $a['propio']);   // lo que queda en la 14 propia de la obra
+
+            $filas[] = [
+                $cod,
+                $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
+                $fichas[$cod]->cliente ?? '',
+                round($ing), round($c6), round($a['propio']), round($a['bolsa']), round($a['total']),
+                round($costoTot), round($mc),
+                $mcPct === null ? '—' : number_format($mcPct, 1, ',', '.').'%',
+                round($pend), round($rest), ucfirst($estados[$cod] ?? 'abierta'),
+            ];
+
+            $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio'];
+            $t['bolsa'] += $a['bolsa']; $t['total'] += $a['total']; $t['costoTot'] += $costoTot;
+            $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
+        }
+
+        $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
+        $filas[] = ['TOTAL', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
+            round($t['bolsa']), round($t['total']), round($t['costoTot']), round($t['mc']),
+            $mcPctTot === null ? '—' : number_format($mcPctTot, 1, ',', '.').'%',
+            round($t['pend']), round($t['rest']), ''];
+
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);
+        return Excel::download(new \App\Exports\ReporteObrasExport($filas), 'Distribucion_por_obra_'.$periodo.'.xlsx');
+    }
+
+    /**
      * Consulta de una distribución de "otros costos" (áreas / bolsas): muestra, por
      * cuenta, el valor a cargar en el mes, la cuenta, su nombre, el tercero y la
      * observación. El detalle se arma con las bolsas grandes del período (BolsaMonto).

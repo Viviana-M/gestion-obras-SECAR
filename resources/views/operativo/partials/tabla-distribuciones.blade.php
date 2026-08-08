@@ -52,6 +52,8 @@
                     <a href="{{ route('operativo.distribucion.version', $f['version_final_id']) }}" target="_blank"
                        style="font-size:12px;padding:6px 12px;border:none;border-radius:6px;background:#15803D;color:#fff;text-decoration:none;margin-left:4px">🔒 Ver final (congelada)</a>
                     @endif
+                    <a href="{{ route('operativo.distribucion.reporte-obras', $f['id']) }}"
+                       style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:6px;color:#15803D;text-decoration:none;margin-left:4px">⬇ Excel por obra</a>
                     <a href="{{ route('operativo.distribucion.trazabilidad', $f['id']) }}"
                        style="font-size:12px;padding:6px 12px;border:1px solid #6366F1;border-radius:6px;color:#4338CA;text-decoration:none;margin-left:4px">Trazabilidad</a>
                     @if($f['estado'] !== 'enviado')

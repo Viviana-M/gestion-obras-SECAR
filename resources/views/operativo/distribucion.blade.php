@@ -364,6 +364,10 @@
     <span id="autosave-status" style="font-size:12px;color:#9CA3AF;margin-right:auto"></span>
     @endif
     <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
+    @if($distId)
+    {{-- Reporte por obra (lo aplicado y cómo quedó cada obra) de lo YA guardado. --}}
+    <a href="{{ route('operativo.distribucion.reporte-obras', $distId) }}" target="_blank" style="padding:9px 22px;background:white;border:1px solid #15803D;color:#15803D;border-radius:8px;font-size:13px;text-decoration:none">⬇ Excel por obra</a>
+    @endif
     @if($puedeEditar)
     <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
     <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 22px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Enviar a contabilidad</button>
