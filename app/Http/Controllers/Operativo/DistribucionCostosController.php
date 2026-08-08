@@ -515,10 +515,20 @@ class DistribucionCostosController extends Controller
         $mes    = (int) $request->mes;
         $anio   = (int) $request->anio;
 
+        // Autoguardado (AJAX): responde JSON en vez de redirigir y nunca "envía"
+        // (siempre queda como borrador). Es la red de seguridad que persiste en la BD.
+        $esAuto = $request->boolean('auto');
+        if ($esAuto) {
+            $accion = 'guardar';
+        }
+        $responderError = fn (string $m) => $esAuto
+            ? response()->json(['ok' => false, 'error' => $m], 422)
+            : back()->with('error', $m);
+
         // Refuerzo de solo lectura: solo se puede editar si Contabilidad abrió el cierre
         // de ese mes. Impide guardar/enviar/asignar manipulando el formulario.
         if (! CierrePeriodo::estaAbierto($mes, $anio)) {
-            return back()->with('error',
+            return $responderError(
                 'El cierre de '.$mes.'/'.$anio.' no está abierto. La distribución es de solo lectura hasta que Contabilidad abra el cierre de ese mes.');
         }
 
@@ -529,7 +539,7 @@ class DistribucionCostosController extends Controller
         $distribucion = $distId ? Distribucion::find($distId) : null;
 
         if ($distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada) {
-            return back()->with('error', 'Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
+            return $responderError('Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
         }
 
         // Determinar el departamento del plano:
@@ -539,7 +549,9 @@ class DistribucionCostosController extends Controller
         $departamento = $usuario?->departamentoUnico() ?: $request->input('departamento');
 
         if (!$distribucion && !in_array($departamento, ['mantenimiento', 'instalaciones'])) {
-            return back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
+            return $esAuto
+                ? response()->json(['ok' => false, 'error' => 'Falta el departamento del plano.'], 422)
+                : back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
         }
 
         // Refuerzo del bloqueo por falta de ingreso: un proyecto sin ingreso en el mes
@@ -654,7 +666,7 @@ class DistribucionCostosController extends Controller
         DB::transaction(function () use (
             &$distribucion, &$noCerradas, &$msg,
             $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $requiereAut,
-            $asignFinal, $poolBolsa, $infoGrande
+            $asignFinal, $poolBolsa, $infoGrande, $esAuto
         ) {
             if (!$distribucion) {
                 // Numeración separada por departamento
@@ -833,9 +845,12 @@ class DistribucionCostosController extends Controller
                     ->update(['reemplazada' => true]);
             }
 
-            // Registrar la versión en la bitácora (foto congelada de este momento)
-            $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
-            $this->registrarVersion($distribucion, $evento, $request);
+            // Registrar la versión en la bitácora (foto congelada de este momento).
+            // En autoguardado NO se registra, para no llenar la bitácora de snapshots.
+            if (! $esAuto) {
+                $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
+                $this->registrarVersion($distribucion, $evento, $request);
+            }
         });
 
         if (!empty($noCerradas)) {
@@ -843,6 +858,14 @@ class DistribucionCostosController extends Controller
         }
         if (!empty($recortes)) {
             $msg .= ' Nota: se recortaron asignaciones que superaban el saldo disponible de la(s) bolsa(s): ' . implode(', ', array_keys($recortes)) . '.';
+        }
+
+        if ($esAuto) {
+            return response()->json([
+                'ok'   => true,
+                'dist' => $distribucion->id,
+                'hora' => now()->format('h:i a'),
+            ]);
         }
 
         return redirect()->route('operativo.distribucion', ['dist' => $distribucion->id])->with('success', $msg);

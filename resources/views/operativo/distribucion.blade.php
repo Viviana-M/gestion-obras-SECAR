@@ -354,7 +354,10 @@
 </div>
 
 @if($kpiObras > 0 && !$bloqueado)
-<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1rem">
+<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:1rem">
+    @if($puedeEditar)
+    <span id="autosave-status" style="font-size:12px;color:#9CA3AF;margin-right:auto"></span>
+    @endif
     <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
     @if($puedeEditar)
     <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
@@ -1033,55 +1036,96 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
-{{-- ══════════ Borrador automático en el navegador (red de seguridad) ══════════
-     Si la persona edita y se tiene que ir sin dar "Guardar borrador", lo que
-     escribió queda auto-guardado en ESTE navegador y al volver se le ofrece
-     recuperarlo. También avisa al salir si hay cambios sin guardar. No toca la BD. --}}
+{{-- ══════════ Autoguardado (red de seguridad) ══════════
+     Mientras la persona edita, cada pocos segundos se guarda un BORRADOR REAL en el
+     servidor (base de datos), de modo que si se daña el equipo o cierra sin guardar,
+     el trabajo queda y se puede retomar desde "Mis distribuciones" en cualquier equipo.
+     Además se deja una copia local (localStorage) como respaldo offline por si el
+     servidor no responde, y se avisa al salir con cambios sin guardar. --}}
 @if($puedeEditar)
 <script>
 (function () {
     const form = document.getElementById('form-dist');
     if (!form) return;
 
-    // Clave por período + departamento + borrador (no cruza datos entre pantallas).
+    const URL_GUARDAR = @json(route('operativo.distribucion.guardar'));
+    // Clave del respaldo local por período + departamento + borrador.
     const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
 
-    // Solo auto-guardamos lo que se teclea: montos "a aplicar" y estado de cada obra.
-    function campos() {
-        return form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]');
-    }
+    let dirty = false, saving = false, submitting = false, tmr = null;
+
+    const statusEl = document.getElementById('autosave-status');
+    function setStatus(txt, color) { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = color || '#9CA3AF'; } }
+
+    // Respaldo local (ligero): montos "a aplicar" y estado por obra.
     function serializar() {
         const data = {};
-        campos().forEach(el => { if (el.name) data[el.name] = el.value; });
+        form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]').forEach(el => { if (el.name) data[el.name] = el.value; });
         return data;
     }
-    // Solo ofrecemos recuperar si hay al menos un monto "a aplicar" > 0 (trabajo real).
-    function tieneTrabajo(data) {
-        return Object.keys(data || {}).some(k => k.indexOf('aplicar') === 0 && Number(data[k]) > 0);
+    function guardarLocal() { try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), data: serializar() })); } catch (e) {} }
+    function tieneTrabajo(data) { return Object.keys(data || {}).some(k => k.indexOf('aplicar') === 0 && Number(data[k]) > 0); }
+
+    // ── Autoguardado en el SERVIDOR (borrador real en la BD) ──
+    function autoguardarServidor() {
+        if (saving || submitting || !dirty) return;
+        saving = true;
+        setStatus('Autoguardando…', '#9CA3AF');
+        const fd = new FormData(form);
+        fd.set('auto', '1');
+        fd.set('accion', 'guardar');
+        fetch(URL_GUARDAR, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            body: fd,
+            credentials: 'same-origin',
+        }).then(r => r.ok ? r.json() : Promise.reject(r))
+          .then(j => {
+              if (!j || !j.ok) throw new Error('resp');
+              // Reutilizar el mismo borrador en los próximos autoguardados y al guardar a mano.
+              if (j.dist) {
+                  const di = form.querySelector('input[name="dist"]');
+                  if (di && !di.value) di.value = j.dist;
+                  try {
+                      const u = new URL(window.location.href);
+                      if (!u.searchParams.get('dist')) { u.searchParams.set('dist', j.dist); history.replaceState(null, '', u.toString()); }
+                  } catch (e) {}
+              }
+              dirty = false;
+              try { localStorage.removeItem(KEY); } catch (e) {}   // el servidor ya lo tiene
+              setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
+          })
+          .catch(() => { setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309'); })
+          .finally(() => { saving = false; });
     }
 
-    let dirty = false, guardadoLocal = true, tmr = null;
-
-    function guardarLocal() {
-        try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), data: serializar() })); guardadoLocal = true; } catch (e) {}
+    function alCambiar() {
+        dirty = true;
+        guardarLocal();                                   // respaldo local inmediato
+        setStatus('Cambios sin guardar…', '#B45309');
+        clearTimeout(tmr);
+        tmr = setTimeout(autoguardarServidor, 3000);      // autoguardado en servidor (debounce)
     }
-    function programar() {
-        dirty = true; guardadoLocal = false;
-        clearTimeout(tmr); tmr = setTimeout(guardarLocal, 800);
-    }
-    form.addEventListener('input', programar);
-    form.addEventListener('change', programar);
-    setInterval(function () { if (!guardadoLocal) guardarLocal(); }, 5000); // respaldo periódico
+    form.addEventListener('input', alCambiar);
+    form.addEventListener('change', alCambiar);
+    setInterval(autoguardarServidor, 25000);              // respaldo periódico
 
-    // Al enviar (guardar borrador / enviar a contabilidad) ya queda en BD: limpiamos el local.
-    form.addEventListener('submit', function () { dirty = false; try { localStorage.removeItem(KEY); } catch (e) {} });
-
-    // Aviso nativo del navegador al salir con cambios sin guardar en BD.
-    window.addEventListener('beforeunload', function (e) {
-        if (dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+    // Guardar/Enviar a mano ya persiste en BD: limpiamos estado y respaldo local.
+    // (El botón "Ver resumen" usa formaction/nuevo tab: no debe limpiar nada.)
+    form.addEventListener('submit', function (e) {
+        const btn = e.submitter;
+        if (btn && btn.name === 'accion') {
+            submitting = true; dirty = false; clearTimeout(tmr);
+            try { localStorage.removeItem(KEY); } catch (e) {}
+        }
     });
 
-    // ¿Quedó un borrador de una sesión anterior en este equipo? Ofrecer recuperarlo.
+    // Aviso al salir si quedan cambios sin persistir.
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty && !submitting) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
+
+    // ── Respaldo local: si un autoguardado no alcanzó a subir, ofrecer recuperarlo ──
     let prev = null;
     try { prev = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
     if (prev && tieneTrabajo(prev.data)) mostrarBanner(prev);
@@ -1100,19 +1144,18 @@ document.addEventListener('DOMContentLoaded', function(){
             + '</span>';
         const cont = document.querySelector('.content');
         cont.insertBefore(bar, cont.firstChild);
-        document.getElementById('dr-rec').addEventListener('click', function () { aplicar(snap.data); bar.remove(); });
+        document.getElementById('dr-rec').addEventListener('click', function () { aplicarLocal(snap.data); bar.remove(); });
         document.getElementById('dr-des').addEventListener('click', function () {
-            try { localStorage.removeItem(KEY); } catch (e) {}
-            dirty = false; guardadoLocal = true; bar.remove();
+            try { localStorage.removeItem(KEY); } catch (e) {} bar.remove();
         });
     }
-    function aplicar(data) {
+    function aplicarLocal(data) {
         Object.keys(data).forEach(name => {
             const el = form.querySelector('[name="' + name + '"]');
             if (el) el.value = data[name];
         });
         if (typeof DATOS === 'object') { for (const cod in DATOS) { try { recalc(cod); } catch (e) {} } }
-        dirty = true; guardadoLocal = false; guardarLocal();
+        alCambiar();   // marca sucio y dispara autoguardado al servidor
     }
 })();
 </script>

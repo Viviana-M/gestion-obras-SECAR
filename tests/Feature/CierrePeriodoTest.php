@@ -100,6 +100,48 @@ class CierrePeriodoTest extends TestCase
     }
 
     #[Test]
+    public function el_autoguardado_en_servidor_persiste_un_borrador_sin_registrar_version(): void
+    {
+        $this->obraConSaldo();
+        CierrePeriodo::create(['mes' => 7, 'anio' => 2026, 'abierto' => true]);
+
+        // Autoguardado (AJAX): responde JSON con el id del borrador y NO redirige.
+        $resp = $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
+            'auto' => 1, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['MO4501' => ['14350105' => 300]],
+        ]);
+        $resp->assertOk()->assertJson(['ok' => true]);
+        $distId = $resp->json('dist');
+        $this->assertNotNull($distId);
+
+        // Quedó un borrador real en la BD con su línea de costo...
+        $this->assertDatabaseHas('distribuciones', ['id' => $distId, 'estado' => 'borrador']);
+        $this->assertDatabaseHas('aplicaciones_costo', ['distribucion_id' => $distId, 'codigo_proyecto' => 'MO4501']);
+        // ...pero el autoguardado NO llena la bitácora de versiones.
+        $this->assertSame(0, \App\Models\DistribucionVersion::count());
+
+        // Un segundo autoguardado reutiliza el MISMO borrador (no crea otra versión).
+        $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
+            'auto' => 1, 'dist' => $distId, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['MO4501' => ['14350105' => 450]],
+        ])->assertOk()->assertJson(['ok' => true, 'dist' => $distId]);
+        $this->assertSame(1, \App\Models\Distribucion::count());
+    }
+
+    #[Test]
+    public function el_autoguardado_rechaza_si_el_cierre_no_esta_abierto(): void
+    {
+        $this->obraConSaldo(); // sin cierre abierto
+
+        $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
+            'auto' => 1, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['MO4501' => ['14350105' => 300]],
+        ])->assertStatus(422)->assertJson(['ok' => false]);
+
+        $this->assertSame(0, \App\Models\Distribucion::count());
+    }
+
+    #[Test]
     public function el_borrador_automatico_local_solo_aparece_cuando_se_puede_editar(): void
     {
         $this->obraConSaldo();
