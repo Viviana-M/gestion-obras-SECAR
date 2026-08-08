@@ -799,11 +799,11 @@ function quitarBolsa(el, cod){
 }
 
 function aplicarTodo(){
-    // "Aplicar todo el pendiente" = proponer el monto topado al facturado del mes
-    // y repartido FIFO por antigüedad (data-tope viene calculado del servidor).
+    // "Aplicar todo el pendiente" = llenar cada cuenta con su saldo pendiente completo
+    // (el max del input). Operaciones ajusta desde ahí.
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
         if (inp.dataset.bloqueado === '1') return; // sin ingreso: no se toca
-        inp.value = Math.round(parseFloat(inp.dataset.tope || 0));
+        inp.value = Math.round(parseFloat(inp.max || 0));
     });
     for (const cod in DATOS) { recalc(cod); }
 }
