@@ -151,10 +151,6 @@
                     <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
-                    <span style="font-size:10px;color:#9CA3AF">Inventario almacén <i>(en actualización)</i></span>
-                    <span style="font-size:13px;font-weight:600;color:#9CA3AF">{{ $fmt($o['pr_inv_almacen']) }}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
                     <span style="font-size:10px;color:#374151;font-weight:600">Costo total</span>
                     <span style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
                 </div>

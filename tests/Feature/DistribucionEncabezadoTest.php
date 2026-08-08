@@ -73,6 +73,8 @@ class DistribucionEncabezadoTest extends TestCase
         $resp->assertDontSee('Costo del mes (cuenta 6)', false);
         $resp->assertDontSee('Aplicado ahora (14→6)', false);
         $resp->assertDontSee('Inventario en obra (cta 14)', false);
+        // El "inventario almacén" no existe: está dentro del costo por aplicar.
+        $resp->assertDontSee('Inventario almacén', false);
     }
 
     #[Test]
