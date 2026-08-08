@@ -17,8 +17,9 @@
     // (Operaciones) cuando el cierre del mes está abierto.
     $puedeEditarBolsa = $puedeEditar;
 @endphp
-{{-- Banner del título --}}
-<div style="background:linear-gradient(120deg,#1B3F6E,#2C5FA0);border-radius:14px;padding:20px 24px;margin-bottom:1.25rem;color:#fff;box-shadow:0 6px 18px rgba(27,63,110,.18)">
+{{-- Banner del título. Color sólido de respaldo ANTES del degradado: si por caché o
+     un navegador viejo el gradient no aplica, el banner se ve azul (nunca gris). --}}
+<div style="background:#1B3F6E;background:linear-gradient(120deg,#1B3F6E,#2C5FA0);border-radius:14px;padding:20px 24px;margin-bottom:1.25rem;color:#fff;box-shadow:0 6px 18px rgba(27,63,110,.18)">
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span style="font-size:28px">📦</span>
         <div>
