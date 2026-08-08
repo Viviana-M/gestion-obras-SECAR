@@ -88,4 +88,34 @@ class DistribucionEncabezadoTest extends TestCase
         $resp->assertSee('MOB08657', false);
         $resp->assertSee('Proy MOB08657', false); // fallback
     }
+
+    #[Test]
+    public function por_defecto_filtra_el_ultimo_periodo_con_informacion(): void
+    {
+        // Hay cargues en abril y junio 2026; sin filtro explícito debe arrancar en junio,
+        // el último período con información, no en el mes en curso.
+        $this->rf('MOB08658', 'Ingreso', 5000, 4, 2026, '41350100');
+        $this->rf('MOB08658', 'Ingreso', 7000, 6, 2026, '41350100');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('value="6" selected', false);      // junio
+        $resp->assertSee('value="2026" selected', false);   // 2026
+    }
+
+    #[Test]
+    public function respeta_el_mes_elegido_por_el_usuario(): void
+    {
+        $this->rf('MOB08659', 'Ingreso', 5000, 4, 2026, '41350100');
+        $this->rf('MOB08659', 'Ingreso', 7000, 6, 2026, '41350100');
+
+        // Si el usuario elige abril explícitamente, se respeta su elección.
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=4&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('value="4" selected', false);      // abril
+    }
 }

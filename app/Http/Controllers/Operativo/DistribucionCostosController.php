@@ -83,8 +83,11 @@ class DistribucionCostosController extends Controller
             $mes  = (int) $distribucion->mes;
             $anio = (int) $distribucion->anio;
         } else {
-            $mes  = (int) $request->get('mes', date('n'));
-            $anio = (int) $request->get('anio', date('Y'));
+            // Por defecto (sin filtro explícito) se muestra el ÚLTIMO período con información
+            // cargada, no el mes en curso: si lo último fue junio, arranca en junio.
+            [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+            $mes  = (int) $request->get('mes', $defMes);
+            $anio = (int) $request->get('anio', $defAnio);
         }
         $tipo         = $request->get('tipo', 'todos');
         $estadoFiltro = $request->get('estado', 'todos');
@@ -454,6 +457,14 @@ class DistribucionCostosController extends Controller
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
         ]);
+    }
+
+    /** Último período (mes, año) con información cargada en RegistroFinanciero (BIABLE). */
+    private function ultimoPeriodoConDatos(): array
+    {
+        $row = RegistroFinanciero::orderByDesc('anio')->orderByDesc('mes')->first(['anio', 'mes']);
+
+        return $row ? [(int) $row->mes, (int) $row->anio] : [(int) date('n'), (int) date('Y')];
     }
 
     /**
