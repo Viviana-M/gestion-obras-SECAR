@@ -179,6 +179,31 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function guardar_montos_de_bolsa_crea_la_distribucion_de_otros_costos(): void
+    {
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.bolsa-montos'), [
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'monto' => ['MTO00099|14200530' => 12000000],
+            'obs'   => ['MTO00099|14200530' => 'Solo parte este mes'],
+        ])->assertRedirect();
+
+        // Se guardó como distribución de "otros costos" (áreas) para Mis distribuciones.
+        $this->assertDatabaseHas('distribuciones', [
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento', 'tipo' => 'areas', 'estado' => 'borrador',
+        ]);
+
+        // La consulta de áreas muestra la cuenta, el monto a cargar y la observación.
+        $dist = \App\Models\Distribucion::where('tipo', 'areas')->first();
+        $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.areas-consultar', $dist->id));
+        $resp->assertOk();
+        $resp->assertSee('14200530', false);
+        $resp->assertSee('Solo parte este mes', false);
+        $resp->assertSee('$12.000.000', false);
+    }
+
+    #[Test]
     public function no_se_pueden_editar_los_montos_si_el_cierre_no_esta_abierto(): void
     {
         // Cerramos el período que el trait abrió.

@@ -79,12 +79,31 @@ class DistribucionCostosController extends Controller
             ];
         });
 
-        // Dos consultas separadas: distribución de obras (inventario en tránsito) y
-        // otros costos (áreas / bolsas). Hoy todo es 'obras'; 'areas' se poblará cuando
-        // esa distribución tenga su propio guardado.
+        // ── Otros costos (áreas / bolsas): sus totales salen de BolsaMonto (monto a
+        // distribuir por cuenta), no de AplicacionCosto. El detalle se consulta aparte. ──
+        $depDeUn = \App\Models\UnBolsa::pluck('departamento', 'codigo'); // codigo UN => departamento
+        $filasAreas = $dists->where('tipo', 'areas')->map(function ($d) use ($usuarios, $depDeUn) {
+            $unsDep = $depDeUn->filter(fn ($dep) => $dep === $d->departamento)->keys();
+            $montos = \App\Models\BolsaMonto::where('mes', $d->mes)->where('anio', $d->anio)
+                ->whereIn('un_codigo', $unsDep);
+            return [
+                'id'           => $d->id,
+                'mes'          => $d->mes,
+                'anio'         => $d->anio,
+                'departamento' => $d->departamento,
+                'estado'       => $d->estado,
+                'cuentas'      => (clone $montos)->count(),
+                'a_distribuir' => (float) (clone $montos)->sum('monto_distribuir'),
+                'guardado_at'  => $d->updated_at,
+                'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
+            ];
+        })->values();
+
+        // Dos consultas separadas: distribución de costos (inventario en tránsito) y
+        // otros costos (áreas / bolsas).
         return view('operativo.distribucion-consultas', [
             'filasObras' => $filas->where('tipo', 'obras')->values(),
-            'filasAreas' => $filas->where('tipo', 'areas')->values(),
+            'filasAreas' => $filasAreas,
         ]);
     }
 
@@ -516,7 +535,20 @@ class DistribucionCostosController extends Controller
             $n++;
         }
 
-        return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). El disponible de la bolsa quedó en la suma de lo editado.");
+        // Guardar el borrador de "otros costos" (áreas / bolsas) como una distribución
+        // propia, para que quede en "Mis distribuciones" → Otros costos, separada de la
+        // distribución de obras. El detalle (cuenta, tercero, monto, observación) vive en
+        // BolsaMonto; esta distribución es el encabezado consultable del mes/departamento.
+        $departamento = $request->input('departamento');
+        if (in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
+            Distribucion::updateOrCreate(
+                ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento, 'tipo' => 'areas'],
+                ['version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false,
+                 'guardado_por' => $request->user()?->id]
+            );
+        }
+
+        return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). Se guardó en Mis distribuciones → Otros costos.");
     }
 
     public function guardar(Request $request)
@@ -1440,6 +1472,35 @@ class DistribucionCostosController extends Controller
             'user_id'         => $request->user()?->id,
             'user_nombre'     => $request->user()?->name,
             'snapshot'        => $this->armarSnapshotResumen($distribucion),
+        ]);
+    }
+
+    /**
+     * Consulta de una distribución de "otros costos" (áreas / bolsas): muestra, por
+     * cuenta, el valor a cargar en el mes, la cuenta, su nombre, el tercero y la
+     * observación. El detalle se arma con las bolsas grandes del período (BolsaMonto).
+     */
+    public function consultarAreas(Distribucion $distribucion)
+    {
+        abort_unless(request()->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        $mes  = (int) $distribucion->mes;
+        $anio = (int) $distribucion->anio;
+        $dep  = $distribucion->departamento;
+        $periodo = Homologacion::periodo($anio, $mes);
+
+        $bolsa  = collect($this->svc->bolsasGrandes($dep, $periodo, $anio, $mes))->first();
+        $lineas = $bolsa['lineas'] ?? [];
+        $total  = (float) ($bolsa['a_distribuir'] ?? 0);
+
+        return view('operativo.distribucion-areas-consulta', [
+            'distribucion' => $distribucion,
+            'lineas'       => $lineas,
+            'total'        => $total,
+            'mes'          => $mes,
+            'anio'         => $anio,
+            'dep'          => $dep,
         ]);
     }
 

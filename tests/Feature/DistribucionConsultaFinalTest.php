@@ -53,7 +53,7 @@ class DistribucionConsultaFinalTest extends TestCase
         $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.consultas'));
 
         $resp->assertOk();
-        $resp->assertSee('Distribución de obras', false);   // sección 1
+        $resp->assertSee('Distribución de costos', false);  // sección 1 (inventario en tránsito)
         $resp->assertSee('Otros costos', false);            // sección 2 (áreas / bolsas)
     }
 

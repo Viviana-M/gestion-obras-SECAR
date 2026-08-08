@@ -109,6 +109,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/operativo/items/{item}/reasignar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reasignarItem'])->name('operativo.items.reasignar');
         Route::get('/operativo/distribucion/{distribucion}/trazabilidad', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'trazabilidad'])->name('operativo.distribucion.trazabilidad');
         Route::get('/operativo/distribucion/version/{version}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'verVersion'])->name('operativo.distribucion.version');
+        Route::get('/operativo/distribucion/areas/{distribucion}/consultar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultarAreas'])->name('operativo.distribucion.areas-consultar');
         Route::delete('/operativo/distribucion/{distribucion}', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'eliminar'])->name('operativo.distribucion.eliminar');
         Route::get('/operativo/distribucion-areas', [\App\Http\Controllers\Operativo\DistribucionAreasController::class, 'index'])->name('operativo.distribucion-areas');
 

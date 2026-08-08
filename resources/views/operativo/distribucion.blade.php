@@ -185,6 +185,7 @@
                 @csrf
                 <input type="hidden" name="mes" value="{{ $mes }}">
                 <input type="hidden" name="anio" value="{{ $anio }}">
+                <input type="hidden" name="departamento" value="{{ $b['codigo'] }}">
                 <div style="overflow-x:auto">
                     <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;background:#fff">
                         <tr style="background:#FFFBEB;color:#92400E;text-align:left">
