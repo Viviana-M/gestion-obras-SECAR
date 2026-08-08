@@ -3,10 +3,11 @@
 @section('title', 'Mis distribuciones')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Mis distribuciones</h1>
-    <a href="{{ route('operativo.distribucion') }}" style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border-radius:8px;text-decoration:none">+ Nuevo borrador</a>
-</div>
+<x-page-banner title="Mis distribuciones" icon="📋">Consulta y edita los borradores de distribución que has guardado.
+    <x-slot:actions>
+        <a href="{{ route('operativo.distribucion') }}" style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border-radius:8px;text-decoration:none">+ Nuevo borrador</a>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin:1rem 0">{{ session('success') }}</div>

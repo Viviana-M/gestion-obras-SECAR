@@ -8,12 +8,9 @@
     $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
 @endphp
 
-<h1 class="page-title" style="margin-bottom:.5rem">Cargue de movimiento comercial (ítems)</h1>
-<p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
-    Sube el Excel BIABLE y se lee la hoja <b>Comercial_Mvto</b>. Cada ítem se cruza con la
-    <b>Llave de cuentas por ítem</b> (tipo de inventario + código de movimiento) para asignar su cuenta y naturaleza.
-    Estos ítems alimentan la conciliación por cuenta en la Distribución. Al recargar un período se reemplaza.
-</p>
+<x-page-banner title="Cargue de movimiento comercial (ítems)" icon="🛒">
+    Sube el Excel BIABLE (hoja <b>Comercial_Mvto</b>); cada ítem se cruza con la llave de cuentas y alimenta la conciliación de la Distribución.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

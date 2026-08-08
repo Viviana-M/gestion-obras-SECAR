@@ -3,7 +3,9 @@
 @section('title', 'Cargar información financiera')
 
 @section('content')
-    <h1 class="page-title">Cierre de mes — Carga de información financiera</h1>
+    <x-page-banner title="Cierre de mes — Carga de información financiera" icon="📥">
+        Sube el Excel o CSV del BIABLE del período; al recargar un mes se reemplaza la información cargada.
+    </x-page-banner>
 
     @if(session('success'))
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem;">

@@ -9,10 +9,9 @@
     $puedeEditar = auth()->user()->puedeEditarModulo('contabilidad');
 @endphp
 
-<h1 class="page-title">Autoliquidación de aportes (PILA)</h1>
-<p style="color:#6B7280;font-size:13px;margin:-6px 0 16px">
-    Carga la planilla mensual de aportes. El período se toma del <b>nombre del archivo</b> (patrón <code>AAAA_MM</code>, ej. <code>2026_06.xlsx</code>); al recargar el mismo mes se reemplaza.
-</p>
+<x-page-banner title="Autoliquidación de aportes (PILA)" icon="🧾">
+    Carga la planilla mensual de aportes; el período se toma del <b>nombre del archivo</b> (patrón <code>AAAA_MM</code>) y al recargar el mes se reemplaza.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>

@@ -3,16 +3,13 @@
 @section('title', 'Mano de obra directa')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Mano de obra directa</h1>
-    <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-        style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Personal de mano de obra directa. La <b>cédula</b> es la llave para cruzar con la planilla de autoliquidación (PILA).
-    Los dos porcentajes definen cómo se reparte la persona a las bolsas de cada departamento (su suma no puede pasar de 100%).
-</p>
+<x-page-banner title="Mano de obra directa" icon="🧰">
+    Personal directo; la <b>cédula</b> cruza con la planilla PILA y los dos porcentajes reparten a la persona entre las bolsas de cada departamento (su suma no puede pasar de 100%).
+    <x-slot:actions>
+        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
+            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

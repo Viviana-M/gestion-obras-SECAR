@@ -3,15 +3,13 @@
 @section('title', 'Terceros de mano de obra')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Terceros de mano de obra · reparto por porcentaje</h1>
-    <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-        style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Personas de mantenimiento cuya mano de obra se reparte por porcentajes entre proyectos. Aquí solo se administran las cédulas y nombres; los porcentajes los define operaciones al distribuir.
-</p>
+<x-page-banner title="Terceros de mano de obra · reparto por porcentaje" icon="👷">
+    Personas cuya mano de obra se reparte por porcentajes entre proyectos; aquí solo administras cédulas y nombres, los porcentajes los define operaciones al distribuir.
+    <x-slot:actions>
+        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
+            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

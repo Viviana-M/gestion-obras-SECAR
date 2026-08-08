@@ -8,11 +8,9 @@
     $colEstado = ['abierta'=>['#F0FDF4','#15803D'],'parcial'=>['#FEF9C3','#854D0E'],'cerrada'=>['#EFF6FF','#1B3F6E']];
 @endphp
 
-<h1 class="page-title">Obras abiertas con costo sin saldo en cuenta 14</h1>
-<p style="color:#6B7280;font-size:13px;margin:-6px 0 16px">
-    Obras que están costando (costo reconocido en cuenta 6) pero ya no tienen saldo por distribuir en la cuenta 14.
-    No hay nada que distribuir: revisa si conviene cerrarlas. <b style="color:#B91C1C">Las de margen negativo son las urgentes.</b>
-</p>
+<x-page-banner title="Obras en revisión" icon="🔎">
+    Obras que ya cargan costo pero <b>no tienen saldo por distribuir</b> en la cuenta 14: revisa si conviene cerrarlas. <b style="color:#B91C1C">Las de margen negativo son las urgentes.</b>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>

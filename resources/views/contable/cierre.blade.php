@@ -9,18 +9,9 @@
     $fmtFecha = fn($f) => $f ? \Illuminate\Support\Carbon::parse($f)->format('d/m/Y H:i') : null;
 @endphp
 
-{{-- Banner del título. Color sólido de respaldo ANTES del degradado (nunca gris). --}}
-<div style="background:#1B3F6E;background:linear-gradient(120deg,#1B3F6E,#2C5FA0);border-radius:14px;padding:20px 24px;margin-bottom:1.25rem;color:#fff;box-shadow:0 6px 18px rgba(27,63,110,.18)">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-size:26px">🗓️</span>
-        <div>
-            <div style="font-size:20px;font-weight:700">Cierre de mes · edición de Distribución</div>
-            <div style="font-size:12.5px;color:#DCE6F5;margin-top:2px">
-                Abre el cierre de un mes para que Operaciones pueda editar su distribución. Mientras esté cerrado, es de solo lectura.
-            </div>
-        </div>
-    </div>
-</div>
+<x-page-banner title="Cierre de mes · edición de Distribución" icon="🗓️">
+    Abre el cierre de un mes para que Operaciones pueda editar su distribución. Mientras esté cerrado, es de solo lectura.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>

@@ -3,7 +3,9 @@
 @section('title', 'Cierre de obras')
 
 @section('content')
-<h1 class="page-title">Cierre de obras</h1>
+<x-page-banner title="Cierre de obras" icon="🏁">
+    Registra el cierre de proyectos por carga masiva de Excel o de forma manual.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">

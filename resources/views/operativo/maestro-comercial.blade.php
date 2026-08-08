@@ -3,7 +3,9 @@
 @section('title', 'Maestro de proyectos')
 
 @section('content')
-<h1 class="page-title">Maestro de proyectos (carga comercial)</h1>
+<x-page-banner title="Maestro de proyectos" icon="🗂️">
+    Ficha comercial de cada obra (OT, cliente, MC y utilidad ofertada): <b>cárgala por Excel</b> o edítala a mano.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#15803D">

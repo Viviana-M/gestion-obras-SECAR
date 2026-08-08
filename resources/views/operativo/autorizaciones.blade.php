@@ -9,10 +9,9 @@
     $pct = fn($v) => $v === null ? '—' : number_format((float) $v, 1, ',', '.').'%';
 @endphp
 
-<h1 class="page-title">Autorizaciones de distribución</h1>
-<p style="color:#6B7280;font-size:13px;margin:-6px 0 16px">
-    Proyectos sin ingreso en el mes que solicitan permiso para recibir costos. Aprueba o rechaza cada solicitud.
-</p>
+<x-page-banner title="Autorizaciones de distribución" icon="✅">
+    Proyectos <b>sin ingreso en el mes</b> que piden permiso para recibir costos: aprueba o rechaza cada solicitud.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>

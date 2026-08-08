@@ -11,56 +11,47 @@
 
 @section('content')
 
-<h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1rem">
-    Distribución de costos de áreas
-    @if($depEfectivo)
-        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
-            {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
-        </span>
-    @endif
-</h1>
-
-<p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
-    Reparte el costo de las Unidades de Negocio (bolsas de área) entre los proyectos, cuidando no bajar el margen del mes ni el acumulado por debajo de lo ofertado.
-</p>
+<x-page-banner title="Distribución de costos de áreas" icon="🏢" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
+    Reparte el costo de las <b>bolsas de área</b> entre los proyectos sin bajar el margen ofertado.
+</x-page-banner>
 
 {{-- Filtros: departamento (si aplica), mes, año, bolsa --}}
-<div class="card" style="margin-bottom:1rem">
+<x-filtros-panel>
     <form method="GET" action="{{ route('operativo.distribucion-areas') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
-            <select name="departamento" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Departamento</label>
+            <select name="departamento" onchange="this.form.submit()" class="filtro-select">
                 <option value="">— Elegir —</option>
                 <option value="mantenimiento" {{ $depEfectivo=='mantenimiento'?'selected':'' }}>Mantenimiento</option>
                 <option value="instalaciones" {{ $depEfectivo=='instalaciones'?'selected':'' }}>Instalaciones</option>
             </select>
         </div>
         @endif
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Bolsa (UN) a repartir</label>
-            <select name="bolsa" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;min-width:260px">
+        <div class="filtro-field" style="flex:2 1 260px">
+            <label class="filtro-label">Bolsa (UN) a repartir</label>
+            <select name="bolsa" onchange="this.form.submit()" class="filtro-select">
                 <option value="">— Elegir bolsa —</option>
                 @foreach($bolsas as $b)
                     <option value="{{ $b->codigo }}" {{ $bolsaSel==$b->codigo?'selected':'' }}>{{ $b->codigo }} · {{ $b->nombre }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i=>$m)
                     <option value="{{ $i+1 }}" {{ ($i+1)==$mes?'selected':'' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <input type="number" name="anio" value="{{ $anio }}" style="width:90px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 90px">
+            <label class="filtro-label">Año</label>
+            <input type="number" name="anio" value="{{ $anio }}" class="filtro-input">
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">Filtrar</button>
     </form>
-</div>
+</x-filtros-panel>
 
 @if(is_null($depEfectivo))
     <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">Elige un departamento para empezar.</div>

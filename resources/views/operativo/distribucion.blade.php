@@ -17,29 +17,12 @@
     // (Operaciones) cuando el cierre del mes está abierto.
     $puedeEditarBolsa = $puedeEditar;
 @endphp
-{{-- Banner del título. Color sólido de respaldo ANTES del degradado: si por caché o
-     un navegador viejo el gradient no aplica, el banner se ve azul (nunca gris). --}}
-<div style="background:#1B3F6E;background:linear-gradient(120deg,#1B3F6E,#2C5FA0);border-radius:14px;padding:20px 24px;margin-bottom:1.25rem;color:#fff;box-shadow:0 6px 18px rgba(27,63,110,.18)">
-    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <span style="font-size:28px">📦</span>
-        <div>
-            <div style="font-size:21px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                Distribución de costos
-                @if($depEfectivo)
-                    <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:rgba(255,255,255,.18);color:#fff">
-                        {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
-                    </span>
-                @endif
-            </div>
-            <div style="font-size:12.5px;color:#DCE6F5;margin-top:3px;max-width:70ch">
-                Reparte el <b>inventario en tránsito</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
-                @if(is_null($depUsuario) && !$depEfectivo)
-                    <span style="color:#FDE68A">— elige un departamento en los filtros para empezar.</span>
-                @endif
-            </div>
-        </div>
-    </div>
-</div>
+<x-page-banner title="Distribución de costos" icon="📦" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
+    Reparte el <b>inventario en tránsito</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
+    @if(is_null($depUsuario) && !$depEfectivo)
+        <span style="color:#FDE68A">— elige un departamento en los filtros para empezar.</span>
+    @endif
+</x-page-banner>
 
 @if(!$edicionAbierta)
 <div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
@@ -55,13 +38,7 @@
 </div>
 @endif
 
-<div class="card filtros-panel" style="margin-bottom:1rem">
-    {{-- Encabezado del panel de filtros --}}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1B3F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        <span style="font-weight:700;color:#1B3F6E;font-size:13px">Filtros</span>
-    </div>
-
+<x-filtros-panel>
     <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros"
           style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
@@ -143,18 +120,7 @@
             <b style="color:#475569">Solo el movimiento del mes elegido</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
         </div>
     </div>
-</div>
-
-<style>
-    .filtro-field { display:flex; flex-direction:column; }
-    .filtro-label { font-size:10.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8A94A6; margin-bottom:5px; }
-    .filtro-select { width:100%; height:38px; padding:8px 12px; border:1px solid #D8DEE9; border-radius:9px; font-size:13px; background:#fff; color:#1F2937; cursor:pointer; transition:border-color .15s, box-shadow .15s; }
-    .filtro-select:hover { border-color:#B9C4D4; }
-    .filtro-select:focus { outline:none; border-color:#2C5FA0; box-shadow:0 0 0 3px rgba(44,95,160,.15); }
-    .filtro-select:disabled { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
-    .btn-filtrar { display:inline-flex; align-items:center; gap:7px; height:38px; padding:0 22px; background:#1B3F6E; color:#fff; border:none; border-radius:9px; font-size:13px; font-weight:600; cursor:pointer; transition:background .15s; }
-    .btn-filtrar:hover { background:#16345C; }
-</style>
+</x-filtros-panel>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

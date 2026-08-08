@@ -51,6 +51,29 @@
         .page-title { font-size: 18px; font-weight: 600; color: #1B3F6E; margin-bottom: 1.25rem; }
         .card { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
         .card h3 { font-size: 14px; font-weight: 600; color: #3D3D3D; margin-bottom: 10px; }
+
+        /* ===== Banner de título de página (componente page-banner) ===== */
+        .page-banner { background: #1B3F6E; background: linear-gradient(120deg, #1B3F6E, #2C5FA0); border-radius: 14px; padding: 20px 24px; margin-bottom: 1.25rem; color: #fff; box-shadow: 0 6px 18px rgba(27,63,110,.18); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .page-banner-main { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .page-banner-ico { font-size: 28px; line-height: 1; }
+        .page-banner-title { font-size: 21px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .page-banner-badge { font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; }
+        .page-banner-sub { font-size: 12.5px; color: #DCE6F5; margin-top: 3px; max-width: 78ch; line-height: 1.5; }
+        .page-banner-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .page-banner-actions a, .page-banner-actions button { font-size: 12.5px; font-weight: 600; text-decoration: none; }
+
+        /* ===== Panel de filtros (componente filtros-panel) ===== */
+        .filtros-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+        .filtros-head-title { font-weight: 700; color: #1B3F6E; font-size: 13px; }
+        .filtro-field { display: flex; flex-direction: column; }
+        .filtro-label { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: #8A94A6; margin-bottom: 5px; }
+        .filtro-select, .filtro-input { width: 100%; height: 38px; padding: 8px 12px; border: 1px solid #D8DEE9; border-radius: 9px; font-size: 13px; background: #fff; color: #1F2937; transition: border-color .15s, box-shadow .15s; }
+        .filtro-select { cursor: pointer; }
+        .filtro-select:hover, .filtro-input:hover { border-color: #B9C4D4; }
+        .filtro-select:focus, .filtro-input:focus { outline: none; border-color: #2C5FA0; box-shadow: 0 0 0 3px rgba(44,95,160,.15); }
+        .filtro-select:disabled { background: #F3F4F6; color: #9CA3AF; cursor: not-allowed; }
+        .btn-filtrar { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 22px; background: #1B3F6E; color: #fff; border: none; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
+        .btn-filtrar:hover { background: #16345C; }
     </style>
 </head>
 <body>

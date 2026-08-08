@@ -3,17 +3,13 @@
 @section('title', 'Llave de cuentas por ítem')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Llave de cuentas por ítem</h1>
-    <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-        style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva llave</button>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Mapea la combinación <b>tipo de inventario + código de movimiento (motivo)</b> → <b>cuenta</b> de costo/gasto,
-    con su <b>naturaleza</b> (Débito suma / Crédito resta). Se cruza por <b>código</b> (más confiable que por nombre).
-    Es la llave que usará el cargue de ítems.
-</p>
+<x-page-banner title="Llave de cuentas por ítem" icon="🔑">
+    Mapea <b>tipo de inventario + código de movimiento</b> → <b>cuenta</b> con su <b>naturaleza</b> (Débito suma / Crédito resta); se cruza por código y la usa el cargue de ítems.
+    <x-slot:actions>
+        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
+            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva llave</button>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -88,14 +84,18 @@
 </div>
 
 {{-- Buscador --}}
-<form method="GET" action="{{ route('admin.llave-items.index') }}" style="margin-bottom:1rem;display:flex;gap:8px">
-    <input type="text" name="q" value="{{ $q }}" placeholder="🔎 Tipo, movimiento o cuenta…" autocomplete="off"
-        style="padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;width:260px">
-    <button type="submit" style="padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Buscar</button>
-    @if($q !== '')
-        <a href="{{ route('admin.llave-items.index') }}" style="padding:8px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none">Limpiar</a>
-    @endif
-</form>
+<x-filtros-panel>
+    <form method="GET" action="{{ route('admin.llave-items.index') }}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div class="filtro-field" style="flex:1 1 260px">
+            <label class="filtro-label">Buscar</label>
+            <input type="text" name="q" class="filtro-input" value="{{ $q }}" placeholder="🔎 Tipo, movimiento o cuenta…" autocomplete="off">
+        </div>
+        <button type="submit" class="btn-filtrar">Buscar</button>
+        @if($q !== '')
+            <a href="{{ route('admin.llave-items.index') }}" style="padding:8px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none">Limpiar</a>
+        @endif
+    </form>
+</x-filtros-panel>
 
 <div class="card" style="padding:0;overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:820px">

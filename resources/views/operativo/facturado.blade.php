@@ -9,48 +9,48 @@
     $depLabel = ['mantenimiento' => 'Mantenimiento', 'instalaciones' => 'Instalaciones'];
 @endphp
 
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:1rem">
-    <h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        Facturado por tipo de obra · {{ $periodo }}
-        @if($depEfectivo)
-            <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">{{ $depLabel[$depEfectivo] ?? $depEfectivo }}</span>
-        @endif
-    </h1>
-</div>
+<x-page-banner title="Facturado por tipo de obra" icon="🧾" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
+    Ingresos facturados de <b>{{ $periodo }}</b> agrupados por tipo de obra, con su participación sobre el total.
+    <x-slot:actions>
+        <a href="{{ route('operativo.facturado', array_merge(request()->only('mes','anio','departamento'), ['descargar' => 1])) }}"
+           style="padding:7px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;text-decoration:none;height:36px;display:inline-flex;align-items:center">⬇ Descargar Excel</a>
+    </x-slot:actions>
+</x-page-banner>
 
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('operativo.facturado') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<x-filtros-panel>
+    <form method="GET" action="{{ route('operativo.facturado') }}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
-            <select name="departamento" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Departamento</label>
+            <select name="departamento" class="filtro-select">
                 <option value="">Todos</option>
                 <option value="mantenimiento" {{ $depEfectivo == 'mantenimiento' ? 'selected' : '' }}>Mantenimiento</option>
                 <option value="instalaciones" {{ $depEfectivo == 'instalaciones' ? 'selected' : '' }}>Instalaciones</option>
             </select>
         </div>
         @endif
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
-        <a href="{{ route('operativo.facturado', array_merge(request()->only('mes','anio','departamento'), ['descargar' => 1])) }}"
-           style="padding:7px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;text-decoration:none;height:36px;display:inline-flex;align-items:center">⬇ Descargar Excel</a>
+        <button type="submit" class="btn-filtrar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtrar
+        </button>
     </form>
-</div>
+</x-filtros-panel>
 
 <div class="card" style="padding:0;overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:420px">

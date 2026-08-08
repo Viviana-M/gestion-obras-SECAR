@@ -67,37 +67,39 @@
     };
 @endphp
 
-<h1 class="page-title">Estados financieros</h1>
+<x-page-banner title="Estados financieros" icon="📑">
+    Estado de resultados de toda la empresa, con comparativo frente al año anterior.
+</x-page-banner>
 
 {{-- FILTROS --}}
-<div class="card" style="margin-bottom:1rem">
+<x-filtros-panel>
     <form method="GET" action="{{ route('financiero.estados') }}" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 90px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Hasta mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Hasta mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach($nombresMes as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Modo</label>
-            <select name="modo" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Modo</label>
+            <select name="modo" class="filtro-select">
                 <option value="acumulado" {{ $modo == 'acumulado' ? 'selected' : '' }}>Acumulado</option>
                 <option value="mes" {{ $modo == 'mes' ? 'selected' : '' }}>Solo el mes</option>
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">Filtrar</button>
     </form>
-</div>
+</x-filtros-panel>
 
 {{-- QUÉ PERÍODO SE ESTÁ VIENDO --}}
 <div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:9px 14px;margin-bottom:1rem;font-size:12.5px;color:#4338CA">

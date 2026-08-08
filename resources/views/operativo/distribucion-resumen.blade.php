@@ -16,16 +16,9 @@
 
 @section('content')
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:10px">
-    <h1 class="page-title" style="margin-bottom:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        Resumen de distribución · {{ $periodo }}
-        @if(!empty($departamento))
-        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
-            {{ ucfirst($departamento) }}
-        </span>
-        @endif
-    </h1>
-    <div style="display:flex;gap:8px">
+<x-page-banner title="Resumen de distribución · {{ $periodo }}" icon="📊" :badge="!empty($departamento) ? ucfirst($departamento) : null">
+    Costo del mes por categoría y su participación sobre el ingreso.
+    <x-slot:actions>
         <a href="{{ route('operativo.distribucion') }}" style="padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none">← Volver</a>
         <form method="POST" action="{{ route('operativo.distribucion.resumen') }}" style="display:inline">
             @csrf
@@ -48,8 +41,8 @@
             @endforeach
             <button type="submit" style="padding:8px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;cursor:pointer">⬇ Descargar Excel</button>
         </form>
-    </div>
-</div>
+    </x-slot:actions>
+</x-page-banner>
 
 <p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
     Costo total del mes por categoría = lo que ya estaba en la cuenta 6 del mes + lo que se aplica ahora de la cuenta 14. Ingreso = facturación del mes.
