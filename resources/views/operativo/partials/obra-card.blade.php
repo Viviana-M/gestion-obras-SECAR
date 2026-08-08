@@ -319,27 +319,35 @@
 
         <div style="margin-top:14px;border-top:1px dashed #E5E7EB;padding-top:10px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;font-weight:600;color:#854D0E">Provisiones (costo en tránsito)</span>
+                <span style="font-size:12px;font-weight:600;color:#854D0E">Provisiones (costo en tránsito) <span style="font-weight:400;color:#9CA3AF">· se conservan cada mes hasta reversarlas</span></span>
+                @if($puedeEditar ?? false)
                 <button type="button" onclick="toggleProvForm('{{ $cod }}')" style="font-size:11px;padding:4px 10px;border:1px solid #1B3F6E;border-radius:6px;background:white;color:#1B3F6E;cursor:pointer">+ Provisión</button>
+                @endif
             </div>
 
             <div id="provs-{{ $cod }}">
-                @foreach($o['provisiones'] as $i => $pr)
-                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 6px;background:#FFFBEB;border-radius:6px;margin-top:4px">
-                    <span>➕ <span style="font-family:monospace">{{ $pr['cuenta_14'] }}</span> → <span style="font-family:monospace">{{ $pr['cuenta_61'] }}</span> · {{ Str::limit($pr['nombre'], 24) }}{{ $pr['descripcion'] ? ' · '.$pr['descripcion'] : '' }}</span>
-                    <span style="display:flex;align-items:center;gap:8px"><b>{{ $fmt($pr['monto']) }}</b>
-                        <a href="#" onclick="this.closest('div').remove();recalc('{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][cuenta]" value="{{ $pr['cuenta_14'] }}">
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][monto]" value="{{ round($pr['monto']) }}" data-cod="{{ $cod }}" data-tipo="prov">
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][desc]" value="{{ $pr['descripcion'] }}">
+                @forelse($o['provisiones'] as $pr)
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px">
+                    <span>🧾 <span style="font-family:monospace">{{ $pr['cuenta_14'] }}</span> → <span style="font-family:monospace">{{ $pr['cuenta_26'] }}</span>{{ $pr['descripcion'] ? ' · '.Str::limit($pr['descripcion'], 28) : '' }}
+                        <span style="color:#9CA3AF">· activa desde {{ $pr['desde'] }}</span>
+                        @if($pr['nueva'])<span style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">nueva</span>@endif
+                    </span>
+                    <span style="display:flex;align-items:center;gap:10px"><b>{{ $fmt($pr['monto']) }}</b>
+                        @if($puedeEditar ?? false)
+                        <a href="#" onclick="reversarProvision({{ $pr['id'] }});return false" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a>
+                        @endif
+                    </span>
                 </div>
-                @endforeach
+                @empty
+                <div style="font-size:11px;color:#9CA3AF;padding:2px 4px">Sin provisiones activas.</div>
+                @endforelse
             </div>
 
+            @if($puedeEditar ?? false)
             <div id="provform-{{ $cod }}" style="display:none;margin-top:8px;background:#F9FAFB;border-radius:8px;padding:10px">
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
                     <div style="flex:2;min-width:180px">
-                        <label style="font-size:10px;color:#6B7280;display:block">Cuenta 14</label>
+                        <label style="font-size:10px;color:#6B7280;display:block">Cuenta 14 (según lo que provisionan)</label>
                         <select id="prov-cta-{{ $cod }}" style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
                             @foreach($catalogo as $cat)
                                 <option value="{{ $cat->cuenta_14 }}">{{ $cat->cuenta_14 }} · {{ Str::limit($cat->nombre, 28) }}</option>
@@ -348,15 +356,16 @@
                     </div>
                     <div style="flex:1;min-width:110px">
                         <label style="font-size:10px;color:#6B7280;display:block">Monto</label>
-                        <input type="number" id="prov-monto-{{ $cod }}" min="0" step="1" placeholder="0" style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
+                        <input type="text" inputmode="numeric" id="prov-monto-{{ $cod }}" placeholder="0" style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
                     </div>
                     <div style="flex:2;min-width:140px">
                         <label style="font-size:10px;color:#6B7280;display:block">Descripción</label>
                         <input type="text" id="prov-desc-{{ $cod }}" placeholder="Factura pendiente..." style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
                     </div>
-                    <button type="button" onclick="addProv('{{ $cod }}')" style="padding:7px 14px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Agregar</button>
+                    <button type="button" onclick="crearProvision('{{ $cod }}')" style="padding:7px 14px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Agregar</button>
                 </div>
             </div>
+            @endif
         </div>
 
         {{-- ASIGNAR DESDE BOLSA DE ÁREA (origen del costo) --}}

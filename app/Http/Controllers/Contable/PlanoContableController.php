@@ -29,7 +29,7 @@ class PlanoContableController extends Controller
     ];
 
     /** Contrapartida de las provisiones (costo en transito). */
-    private const CUENTA_PROVISION = '26050604';
+    public const CUENTA_PROVISION = '26050604';
 
     private const MESES = [
         1 => 'ENERO', 2 => 'FEBRERO', 3 => 'MARZO', 4 => 'ABRIL', 5 => 'MAYO', 6 => 'JUNIO',
@@ -132,6 +132,11 @@ class PlanoContableController extends Controller
             $movimientos[] = $m;
         }
 
+        // Provisiones del período (costo en tránsito): registro (D 14 / C 26) y reversas (D 26 / C 14).
+        foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
+
         // Control de cuadre: si no cuadra, no se exporta.
         $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
         $credito = round(array_sum(array_column($movimientos, 'credito')), 2);
@@ -216,6 +221,38 @@ class PlanoContableController extends Controller
             foreach ($debitos  as $f) $mov[] = $f;
         }
 
+        return $mov;
+    }
+
+    /**
+     * Movimientos de PROVISIONES del período (costo en tránsito, persistentes):
+     *   - Registrada este mes  → Débito cuenta 14 / Crédito cuenta 26 (se contabiliza una vez).
+     *   - Reversada este mes    → Débito cuenta 26 / Crédito cuenta 14 (asiento inverso).
+     * Las provisiones activas de meses anteriores NO generan movimiento (ya se registraron).
+     */
+    public function movimientosProvisiones(int $mes, int $anio, string $depto, int $numeroDoc): array
+    {
+        $prefijos = User::prefijosDeDepartamento($depto);
+        $mov = [];
+        foreach (\App\Models\Provision::all() as $p) {
+            if (! $this->empiezaPor((string) $p->codigo_proyecto, $prefijos)) continue;
+            $monto = round((float) $p->monto, 2);
+            if ($monto <= 0.005) continue;
+            $obra = (string) $p->codigo_proyecto;
+            $c14  = (string) $p->cuenta_14;
+            $c26  = (string) $p->cuenta_26;
+
+            // Registrada este mes: Débito 14 / Crédito 26.
+            if ((int) $p->mes === $mes && (int) $p->anio === $anio) {
+                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, $monto, 0);
+                $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, 0, $monto);
+            }
+            // Reversada este mes: Débito 26 / Crédito 14.
+            if ($p->estado === 'reversada' && (int) $p->reversada_mes === $mes && (int) $p->reversada_anio === $anio) {
+                $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, $monto, 0);
+                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, 0, $monto);
+            }
+        }
         return $mov;
     }
 

@@ -103,6 +103,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
         Route::post('/operativo/distribucion/bolsa-montos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardarBolsaMontos'])->name('operativo.distribucion.bolsa-montos');
+        Route::post('/operativo/provisiones', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'crearProvision'])->name('operativo.provisiones.crear');
+        Route::post('/operativo/provisiones/{provision}/reversar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reversarProvision'])->name('operativo.provisiones.reversar');
         // Informe: facturado por tipo de obra
         Route::get('/operativo/facturado', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'facturado'])->name('operativo.facturado');
         // Fase D: reasignar un ítem de una obra a otra

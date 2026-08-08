@@ -271,6 +271,9 @@ class DistribucionCostosController extends Controller
             $obras[$cod]['total_reversado'] += $reversado;
         }
 
+        // Provisiones ACTIVAS al período (se arrastran cada mes hasta reversarlas).
+        $provisionesPorObra = \App\Models\Provision::activasEn($mes, $anio)->get()->groupBy('codigo_proyecto');
+
         foreach ($obras as $cod => &$o) {
             $o['provisiones'] = [];
             $g = $guardado[$cod] ?? collect();
@@ -302,13 +305,15 @@ class DistribucionCostosController extends Controller
             }
             unset($c);
 
-            foreach ($g->where('es_provision', true) as $p) {
+            foreach ($provisionesPorObra[$cod] ?? [] as $p) {
                 $o['provisiones'][] = [
+                    'id'          => $p->id,
                     'cuenta_14'   => $p->cuenta_14,
-                    'cuenta_61'   => $p->cuenta_61,
-                    'nombre'      => $p->nombre,
-                    'monto'       => (float) $p->monto_aplicar,
+                    'cuenta_26'   => $p->cuenta_26,
+                    'monto'       => (float) $p->monto,
                     'descripcion' => $p->descripcion,
+                    'desde'       => sprintf('%02d/%d', $p->mes, $p->anio),
+                    'nueva'       => ($p->mes === $mes && $p->anio === $anio), // registrada este mes
                 ];
             }
 
@@ -530,6 +535,80 @@ class DistribucionCostosController extends Controller
         }
 
         return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). Se guardó en Mis distribuciones → Otros costos.");
+    }
+
+    /**
+     * Crear una provisión (costo en tránsito) para una obra. Se registra UNA vez en el
+     * período abierto y se arrastra activa cada mes hasta que la reversen. Contablemente:
+     * Débito cuenta 14 elegida / Crédito cuenta 26 (contrapartida de provisión).
+     */
+    public function crearProvision(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'codigo_proyecto' => 'required|string',
+            'cuenta_14'       => 'required|string',
+            'monto'           => 'required',
+            'mes'             => 'required|integer|between:1,12',
+            'anio'            => 'required|integer|min:2020',
+            'departamento'    => 'nullable|string',
+            'descripcion'     => 'nullable|string',
+        ]);
+
+        $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return back()->with('error', 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes crear provisiones.');
+        }
+        $monto = (float) preg_replace('/[^\d]/', '', (string) $datos['monto']); // llega con formato de dinero
+        if ($monto <= 0) {
+            return back()->with('error', 'La provisión debe tener un monto mayor a 0.');
+        }
+
+        \App\Models\Provision::create([
+            'codigo_proyecto' => $datos['codigo_proyecto'],
+            'departamento'    => $datos['departamento'] ?: ($request->user()?->departamentoUnico()),
+            'cuenta_14'       => $datos['cuenta_14'],
+            'cuenta_26'       => \App\Http\Controllers\Contable\PlanoContableController::CUENTA_PROVISION,
+            'monto'           => $monto,
+            'descripcion'     => $datos['descripcion'] ?? null,
+            'mes'             => $mes, 'anio' => $anio, 'estado' => 'activa',
+            'user_id'         => $request->user()?->id,
+        ]);
+
+        return back()->with('success', 'Provisión creada. Se conservará cada mes hasta que la reverses.');
+    }
+
+    /**
+     * Reversar una provisión: hace el asiento inverso (Débito 26 / Crédito 14) en el
+     * período abierto y deja de arrastrarse a partir de ese mes.
+     */
+    public function reversarProvision(Request $request, \App\Models\Provision $provision)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'mes'  => 'required|integer|between:1,12',
+            'anio' => 'required|integer|min:2020',
+        ]);
+        $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
+
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return back()->with('error', 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes reversar provisiones.');
+        }
+        if ($provision->estado === 'reversada') {
+            return back()->with('error', 'Esa provisión ya fue reversada.');
+        }
+
+        $provision->update([
+            'estado' => 'reversada',
+            'reversada_mes' => $mes, 'reversada_anio' => $anio,
+            'reversada_por' => $request->user()?->id,
+        ]);
+
+        return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 14) en '.$mes.'/'.$anio.'.');
     }
 
     public function guardar(Request $request)
@@ -754,24 +833,8 @@ class DistribucionCostosController extends Controller
                 }
             }
 
-            foreach ($provision as $cod => $items) {
-                if ($requiereAut($cod)) continue; // proyecto sin ingreso y sin autorización aprobada
-                foreach ($items as $p) {
-                    $monto = (float) ($p['monto'] ?? 0);
-                    $c14   = $p['cuenta'] ?? null;
-                    if ($monto <= 0 || !$c14) continue;
-                    $h = $homol[(string) $c14] ?? null;
-                    AplicacionCosto::create([
-                        'distribucion_id' => $distribucion->id,
-                        'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                        'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
-                        'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
-                        'monto_aplicar' => $monto, 'es_provision' => true,
-                        'descripcion' => $p['desc'] ?? null,
-                        'estado' => 'borrador', 'user_id' => $request->user()?->id,
-                    ]);
-                }
-            }
+            // Las provisiones ya NO se guardan aquí: son persistentes (tabla provisiones),
+            // se crean/reversan con sus propios botones y se arrastran mes a mes.
 
             // ── Asignaciones de bolsa: persistir y reflejar en el costo del proyecto ──
             // (las líneas origen_bolsa de aplicaciones_costo ya se borraron con el delete

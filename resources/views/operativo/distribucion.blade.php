@@ -725,25 +725,30 @@ function cambiarEstado(cod, val){
     if(sel && ESTCOL[val]){ sel.style.background=ESTCOL[val][0]; sel.style.color=ESTCOL[val][1]; sel.style.borderColor=ESTCOL[val][1]; }
 }
 
-function addProv(cod){
-    const c14=document.getElementById('prov-cta-'+cod).value;
-    const monto=parseFloat(document.getElementById('prov-monto-'+cod).value||0);
-    const desc=document.getElementById('prov-desc-'+cod).value||'';
-    if(!c14||monto<=0){ alert('Elige cuenta y un monto mayor a 0.'); return; }
-    const info=CTA[c14]||{cuenta_61:'?',nombre:''};
-    provIdx[cod]=(provIdx[cod]||0)+1; const i='n'+provIdx[cod];
-    const div=document.createElement('div');
-    div.style.cssText='display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 6px;background:#FFFBEB;border-radius:6px;margin-top:4px';
-    div.innerHTML=`<span>➕ <span style="font-family:monospace">${c14}</span> → <span style="font-family:monospace">${info.cuenta_61}</span> · ${info.nombre||''} ${desc?('· '+desc):''}</span>
-        <span style="display:flex;align-items:center;gap:8px"><b>${fmt(monto)}</b>
-        <a href="#" onclick="this.closest('div').remove();recalc('${cod}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
-        <input type="hidden" name="provision[${cod}][${i}][cuenta]" value="${c14}">
-        <input type="hidden" name="provision[${cod}][${i}][monto]" value="${Math.round(monto)}" data-cod="${cod}" data-tipo="prov">
-        <input type="hidden" name="provision[${cod}][${i}][desc]" value="${desc}">`;
-    document.getElementById('provs-'+cod).appendChild(div);
-    document.getElementById('prov-monto-'+cod).value='';
-    document.getElementById('prov-desc-'+cod).value='';
-    recalc(cod);
+/* ===== Provisiones persistentes (se conservan cada mes hasta reversarlas) ===== */
+// Crear una provisión: se guarda de una (Débito 14 elegida / Crédito 26) y se arrastra.
+function crearProvision(cod){
+    const c14  = document.getElementById('prov-cta-'+cod).value;
+    const monto = Number(String(document.getElementById('prov-monto-'+cod).value||'').replace(/\D/g,''));
+    const desc = document.getElementById('prov-desc-'+cod).value || '';
+    if(!c14 || !(monto>0)){ alert('Elige la cuenta 14 y un monto mayor a 0.'); return; }
+    const f = document.createElement('form');
+    f.method = 'POST'; f.action = @json(route('operativo.provisiones.crear')); f.style.display='none';
+    const add = (n,v)=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; f.appendChild(i); };
+    add('_token', @json(csrf_token()));
+    add('codigo_proyecto', cod); add('cuenta_14', c14); add('monto', monto); add('descripcion', desc);
+    add('mes', @json($mes)); add('anio', @json($anio)); add('departamento', @json($depEfectivo));
+    document.body.appendChild(f); f.submit();
+}
+// Reversar una provisión: asiento inverso (26 → 14) en el mes abierto y deja de arrastrarse.
+function reversarProvision(id){
+    if(!confirm('¿Reversar esta provisión? Se generará el asiento inverso (26 → 14) en el mes en curso y dejará de arrastrarse.')) return;
+    const f = document.createElement('form');
+    f.method = 'POST'; f.action = @json(url('operativo/provisiones')) + '/' + id + '/reversar'; f.style.display='none';
+    const add = (n,v)=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; f.appendChild(i); };
+    add('_token', @json(csrf_token()));
+    add('mes', @json($mes)); add('anio', @json($anio));
+    document.body.appendChild(f); f.submit();
 }
 
 /* ===== Asignación desde bolsas de área ===== */
