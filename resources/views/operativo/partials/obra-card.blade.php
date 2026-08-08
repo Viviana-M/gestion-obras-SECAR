@@ -28,7 +28,7 @@
         </div>
         <div style="text-align:right;flex:none">
             <div style="font-size:11px;color:#854D0E">A aplicar</div>
-            <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + $o['sum_prov']) }}</div>
+            <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
         </div>
     </div>
 
@@ -58,7 +58,7 @@
     {{-- RENTABILIDAD DEL MES (costo del mes + MC dinámico al aplicar 14→6) --}}
     <div style="background:#FFFBEB;padding:10px 16px;border-top:1px solid #E5E7EB">
         <div style="font-size:9px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:6px">RENTABILIDAD DEL MES · {{ mb_strtoupper($mesNombre) }}</div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Ingresos del mes</div>
                 <div style="font-size:14px;font-weight:600;color:#854D0E">{{ $fmt($o['ingreso_mes']) }}</div>
@@ -70,6 +70,10 @@
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Aplicado ahora (14→6)</div>
                 <div style="font-size:14px;font-weight:600;color:#1B3F6E" id="aplic6-{{ $cod }}">{{ $fmt($o['aplicado_mes']) }}</div>
+            </div>
+            <div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo sin aplicar (prov. 14→26)</div>
+                <div style="font-size:14px;font-weight:600;color:#B45309" id="provsa-{{ $cod }}">{{ $fmt($o['costo_sin_aplicar'] ?? 0) }}</div>
             </div>
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">MC del mes ($)</div>

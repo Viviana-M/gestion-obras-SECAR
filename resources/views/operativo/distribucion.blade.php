@@ -443,6 +443,7 @@
             'rev'      => $o['total_reversado'],
             'sinIngreso' => (bool) $o['requiere_autorizacion'],
             'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
+            'prov'     => (float) ($o['sum_prov'] ?? 0),   // provisiones (costo sin aplicar, 14→26)
         ];
     }
 @endphp
@@ -694,19 +695,21 @@ function evaluarCerrable(cod){
 
 function recalc(cod){
     const card=document.getElementById('card-'+cod);
-    let sumA=0, sumP=0, sumB=0;
+    let sumA=0, sumB=0;
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=parseFloat(i.value||0));
-    card.querySelectorAll('input[data-tipo="prov"]').forEach(i=>sumP+=parseFloat(i.value||0));
     card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
-    const aplicado = sumA + sumP + sumB;
+    const prov = Number(d.prov||0);          // provisiones activas (costo sin aplicar, 14→26)
+    const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
-    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado);
-    const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado);
+    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
+    const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado14a6);
+    const psa=document.getElementById('provsa-'+cod); if(psa) psa.textContent=fmt(prov);
 
     evaluarCerrable(cod);
 
-    const costoMesTotal = (d.costoMes||0) + aplicado;
+    // La provisión (14→26) es "costo sin aplicar" pero igual cuenta como costo del mes.
+    const costoMesTotal = (d.costoMes||0) + aplicado14a6 + prov;
     const mcMesPesos = (d.ingMes||0) - costoMesTotal;
     const mcEl=document.getElementById('mcmes-'+cod);
     if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }

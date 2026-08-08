@@ -94,6 +94,25 @@ class ProvisionTest extends TestCase
     }
 
     #[Test]
+    public function la_provision_es_costo_sin_aplicar_y_baja_el_margen(): void
+    {
+        $svc = new \App\Services\DistribucionService();
+        $o = [
+            'ingreso_mes' => 1000000, 'ingreso_acum' => 1000000,
+            'costo_apl_mes' => 0, 'costo_apl_acum' => 0,
+            'sum_aplicar' => 200000, 'sum_prov' => 300000, 'sum_bolsa' => 0,
+            'inventario_obra' => 0, 'inventario_almacen' => 0,
+            'valor_oferta' => 0, 'costo_presup' => 0, 'ofertado' => null,
+        ];
+        $svc->calcularMargenes($o);
+
+        $this->assertEqualsWithDelta(300000, $o['costo_sin_aplicar'], 0.5); // provisión (14→26)
+        $this->assertEqualsWithDelta(200000, $o['aplicado_mes'], 0.5);      // 14→6 real (sin provisión)
+        // MC del mes = 1.000.000 − (0 + 200.000 aplicado + 300.000 provisión) = 500.000
+        $this->assertEqualsWithDelta(500000, $o['mc_mes_pesos'], 0.5);
+    }
+
+    #[Test]
     public function el_plano_registra_14_a_26_al_crear_y_26_a_14_al_reversar(): void
     {
         $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',
