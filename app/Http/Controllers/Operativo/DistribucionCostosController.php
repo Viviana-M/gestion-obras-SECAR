@@ -559,14 +559,16 @@ class DistribucionCostosController extends Controller
 
         $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
         if (! CierrePeriodo::estaAbierto($mes, $anio)) {
-            return back()->with('error', 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes crear provisiones.');
+            $m = 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes crear provisiones.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
         }
         $monto = (float) preg_replace('/[^\d]/', '', (string) $datos['monto']); // llega con formato de dinero
         if ($monto <= 0) {
-            return back()->with('error', 'La provisión debe tener un monto mayor a 0.');
+            $m = 'La provisión debe tener un monto mayor a 0.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
         }
 
-        \App\Models\Provision::create([
+        $prov = \App\Models\Provision::create([
             'codigo_proyecto' => $datos['codigo_proyecto'],
             'departamento'    => $datos['departamento'] ?: ($request->user()?->departamentoUnico()),
             'cuenta_14'       => $datos['cuenta_14'],
@@ -577,6 +579,14 @@ class DistribucionCostosController extends Controller
             'user_id'         => $request->user()?->id,
         ]);
 
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'provision' => [
+                'id' => $prov->id, 'codigo_proyecto' => $prov->codigo_proyecto,
+                'cuenta_14' => $prov->cuenta_14, 'cuenta_26' => $prov->cuenta_26,
+                'monto' => (float) $prov->monto, 'descripcion' => $prov->descripcion,
+                'desde' => sprintf('%02d/%d', $prov->mes, $prov->anio),
+            ]]);
+        }
         return back()->with('success', 'Provisión creada. Se conservará cada mes hasta que la reverses.');
     }
 
@@ -596,10 +606,12 @@ class DistribucionCostosController extends Controller
         $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
 
         if (! CierrePeriodo::estaAbierto($mes, $anio)) {
-            return back()->with('error', 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes reversar provisiones.');
+            $m = 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes reversar provisiones.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
         }
         if ($provision->estado === 'reversada') {
-            return back()->with('error', 'Esa provisión ya fue reversada.');
+            $m = 'Esa provisión ya fue reversada.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
         }
 
         $provision->update([
@@ -608,6 +620,9 @@ class DistribucionCostosController extends Controller
             'reversada_por' => $request->user()?->id,
         ]);
 
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true]);
+        }
         return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 14) en '.$mes.'/'.$anio.'.');
     }
 

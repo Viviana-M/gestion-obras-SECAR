@@ -728,30 +728,58 @@ function cambiarEstado(cod, val){
     if(sel && ESTCOL[val]){ sel.style.background=ESTCOL[val][0]; sel.style.color=ESTCOL[val][1]; sel.style.borderColor=ESTCOL[val][1]; }
 }
 
-/* ===== Provisiones persistentes (se conservan cada mes hasta reversarlas) ===== */
-// Crear una provisión: se guarda de una (Débito 14 elegida / Crédito 26) y se arrastra.
+/* ===== Provisiones persistentes (se conservan cada mes hasta reversarlas) =====
+   Se crean/reversan por AJAX (sin recargar): así NO se pierde lo que estén editando
+   en la distribución ni sale el aviso de "abandonar sitio". Actualizan lista y margen. */
+const PROV_HEADERS = { 'X-Requested-With':'XMLHttpRequest', 'Accept':'application/json', 'X-CSRF-TOKEN': @json(csrf_token()) };
+
 function crearProvision(cod){
     const c14  = document.getElementById('prov-cta-'+cod).value;
     const monto = Number(String(document.getElementById('prov-monto-'+cod).value||'').replace(/\D/g,''));
     const desc = document.getElementById('prov-desc-'+cod).value || '';
     if(!c14 || !(monto>0)){ alert('Elige la cuenta 14 y un monto mayor a 0.'); return; }
-    const f = document.createElement('form');
-    f.method = 'POST'; f.action = @json(route('operativo.provisiones.crear')); f.style.display='none';
-    const add = (n,v)=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; f.appendChild(i); };
-    add('_token', @json(csrf_token()));
-    add('codigo_proyecto', cod); add('cuenta_14', c14); add('monto', monto); add('descripcion', desc);
-    add('mes', @json($mes)); add('anio', @json($anio)); add('departamento', @json($depEfectivo));
-    document.body.appendChild(f); f.submit();
+    const fd = new FormData();
+    fd.append('codigo_proyecto', cod); fd.append('cuenta_14', c14); fd.append('monto', monto); fd.append('descripcion', desc);
+    fd.append('mes', @json($mes)); fd.append('anio', @json($anio)); fd.append('departamento', @json($depEfectivo));
+    fetch(@json(route('operativo.provisiones.crear')), { method:'POST', headers: PROV_HEADERS, body: fd, credentials:'same-origin' })
+        .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
+        .then(j => {
+            if(!j.ok) throw j;
+            const p = j.provision;
+            const cont = document.getElementById('provs-'+cod);
+            const vac = cont.querySelector('.prov-vacio-'+cod); if(vac) vac.style.display='none';
+            const div = document.createElement('div');
+            div.setAttribute('data-prov-id', p.id); div.dataset.cod = cod; div.dataset.monto = Math.round(p.monto);
+            div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+            div.innerHTML = '<span>🧾 <span style="font-family:monospace">'+p.cuenta_14+'</span> → <span style="font-family:monospace">'+p.cuenta_26+'</span>'
+                + (p.descripcion?(' · '+p.descripcion):'') + ' <span style="color:#9CA3AF">· activa desde '+p.desde+'</span>'
+                + ' <span style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">nueva</span></span>'
+                + '<span style="display:flex;align-items:center;gap:10px"><b>'+fmt(p.monto)+'</b>'
+                + '<a href="#" onclick="reversarProvision('+p.id+');return false" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a></span>';
+            cont.insertBefore(div, cont.querySelector('.prov-vacio-'+cod));
+            if(DATOS[cod]) DATOS[cod].prov = Number(DATOS[cod].prov||0) + Number(p.monto||0);
+            recalc(cod);
+            document.getElementById('prov-monto-'+cod).value=''; document.getElementById('prov-desc-'+cod).value='';
+        })
+        .catch(e => alert(e && e.error ? e.error : 'No se pudo crear la provisión.'));
 }
-// Reversar una provisión: asiento inverso (26 → 14) en el mes abierto y deja de arrastrarse.
+
 function reversarProvision(id){
     if(!confirm('¿Reversar esta provisión? Se generará el asiento inverso (26 → 14) en el mes en curso y dejará de arrastrarse.')) return;
-    const f = document.createElement('form');
-    f.method = 'POST'; f.action = @json(url('operativo/provisiones')) + '/' + id + '/reversar'; f.style.display='none';
-    const add = (n,v)=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; f.appendChild(i); };
-    add('_token', @json(csrf_token()));
-    add('mes', @json($mes)); add('anio', @json($anio));
-    document.body.appendChild(f); f.submit();
+    const row = document.querySelector('[data-prov-id="'+id+'"]');
+    const cod = row ? row.dataset.cod : null;
+    const monto = row ? Number(row.dataset.monto||0) : 0;
+    const fd = new FormData(); fd.append('mes', @json($mes)); fd.append('anio', @json($anio));
+    fetch(@json(url('operativo/provisiones'))+'/'+id+'/reversar', { method:'POST', headers: PROV_HEADERS, body: fd, credentials:'same-origin' })
+        .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
+        .then(j => {
+            if(!j.ok) throw j;
+            if(row) row.remove();
+            if(cod && DATOS[cod]){ DATOS[cod].prov = Math.max(0, Number(DATOS[cod].prov||0) - monto); recalc(cod); }
+            if(cod){ const c=document.getElementById('provs-'+cod); const vac=c && c.querySelector('.prov-vacio-'+cod);
+                     if(vac && !c.querySelector('[data-prov-id]')) vac.style.display=''; }
+        })
+        .catch(e => alert(e && e.error ? e.error : 'No se pudo reversar la provisión.'));
 }
 
 /* ===== Asignación desde bolsas de área ===== */
