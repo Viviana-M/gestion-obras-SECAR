@@ -163,6 +163,22 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function acepta_el_monto_a_distribuir_con_formato_de_dinero(): void
+    {
+        // El input llega con puntos de miles ("1.500.000"); el servidor lo guarda como 1500000.
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.bolsa-montos'), [
+            'mes' => 7, 'anio' => 2026,
+            'monto' => ['MTO00099|14200530' => '1.500.000'],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('bolsa_montos', [
+            'un_codigo' => 'MTO00099', 'cuenta_14' => '14200530', 'monto_distribuir' => 1500000.00,
+        ]);
+    }
+
+    #[Test]
     public function no_se_pueden_editar_los_montos_si_el_cierre_no_esta_abierto(): void
     {
         // Cerramos el período que el trait abrió.

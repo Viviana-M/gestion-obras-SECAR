@@ -493,7 +493,8 @@ class DistribucionCostosController extends Controller
             BolsaMonto::updateOrCreate(
                 ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta],
                 [
-                    'monto_distribuir' => max(0.0, (float) str_replace([' ', '$'], '', (string) $val)),
+                    // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
+                    'monto_distribuir' => max(0.0, (float) preg_replace('/[^\d]/', '', (string) $val)),
                     'observaciones'    => trim((string) ($obs[$key] ?? '')) ?: null,
                     'user_id'          => $request->user()?->id,
                 ]

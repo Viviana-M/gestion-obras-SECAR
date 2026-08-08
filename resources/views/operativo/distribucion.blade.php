@@ -213,9 +213,9 @@
                             <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
                             <td style="padding:5px 8px;text-align:right">
                                 @if($puedeEditarBolsa)
-                                    <input type="number" name="monto[{{ $k }}]" value="{{ round($l['monto_distribuir']) }}" min="0" max="{{ round($l['saldo']) }}" step="1"
-                                        data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="quedaMesSig(this)"
-                                        style="width:120px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
+                                    <input type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}"
+                                        data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="onMontoInput(this)"
+                                        style="width:130px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
                                 @else
                                     <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
                                 @endif
@@ -460,22 +460,27 @@ function toggleBolsaDetalle(c){
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
 }
 
-// "Queda para el mes siguiente" por cuenta = saldo − lo que se distribuye este mes.
-// Se recalcula en vivo al editar "A distribuir", junto con el total de la bolsa.
-function quedaMesSig(inp){
+// Solo dígitos de un valor con formato (ej. "1.500.000" → 1500000).
+function soloDigitos(v){ const n = parseInt(String(v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+
+// Al editar "A distribuir": formatea con puntos de miles (es-CO), capea al saldo y
+// recalcula "Queda mes siguiente" por cuenta + los totales de la bolsa en vivo.
+function onMontoInput(inp){
     const saldo = Number(inp.dataset.saldo || 0);
-    let monto = Number(inp.value || 0);
-    if (monto < 0) monto = 0;
-    if (monto > saldo) { monto = saldo; inp.value = saldo; }   // no se puede distribuir más que el saldo
+    let monto = soloDigitos(inp.value);
+    if (monto > saldo) monto = saldo;                 // no se puede distribuir más que el saldo
+    inp.value = monto ? monto.toLocaleString('es-CO') : '';   // formato de dinero con puntos
+
     const cell = document.getElementById('queda-' + inp.dataset.kid);
     if (cell) cell.textContent = fmt(Math.max(0, saldo - monto));
+
     // Totales de la bolsa: "a distribuir" (suma de inputs) y "queda" (saldo − a distribuir).
     const tabla = inp.closest('table');
     let totAdist = 0, totQueda = 0;
     tabla.querySelectorAll('input[data-tipo="bolsamonto"]').forEach(i => {
         const s = Number(i.dataset.saldo || 0);
-        let m = Number(i.value || 0);
-        if (m < 0) m = 0; if (m > s) m = s;
+        let m = soloDigitos(i.value);
+        if (m > s) m = s;
         totAdist += m;
         totQueda += Math.max(0, s - m);
     });
