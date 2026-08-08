@@ -278,6 +278,10 @@
                 style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
             <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
             <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#92400E">
+                <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEF3C7;border:1px solid #F59E0B"></span>
+                Celda modificada por Operaciones
+            </span>
         </div>
     </div>
     @if(!$bloqueado && $puedeEditar)
@@ -467,6 +471,14 @@ function toggleBolsaDetalle(c){
 // Solo dígitos de un valor con formato (ej. "1.500.000" → 1500000).
 function soloDigitos(v){ const n = parseInt(String(v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
 
+/* Marca en amarillo la celda "a distribuir" de una bolsa cuando queda distinta al saldo. */
+function marcarTocadaBolsa(inp){
+    if(!inp) return;
+    const saldo = Math.round(Number(inp.dataset.saldo || 0));
+    const val   = soloDigitos(inp.value);
+    inp.classList.toggle('celda-tocada', val !== saldo);
+}
+
 // Al editar "A distribuir": formatea con puntos de miles (es-CO), capea al saldo y
 // recalcula "Queda mes siguiente" por cuenta + los totales de la bolsa en vivo.
 function onMontoInput(inp){
@@ -474,6 +486,7 @@ function onMontoInput(inp){
     let monto = soloDigitos(inp.value);
     if (monto > saldo) monto = saldo;                 // no se puede distribuir más que el saldo
     inp.value = monto ? monto.toLocaleString('es-CO') : '';   // formato de dinero con puntos
+    marcarTocadaBolsa(inp);                                     // resalta si quedó distinta al saldo
 
     const cell = document.getElementById('queda-' + inp.dataset.kid);
     if (cell) cell.textContent = fmt(Math.max(0, saldo - monto));
@@ -641,6 +654,18 @@ function confirmarReasignar(){
 }
 function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.value||0); if(v>max){inp.value=Math.round(max);} if(v<0){inp.value=0;} }
 
+/* Marca en amarillo la celda "a aplicar" cuando Operaciones la deja distinta al
+   pendiente completo de la cuenta (data-tope = saldo pendiente). Así se ve cuáles tocaron. */
+function marcarTocada(inp){
+    if(!inp || inp.dataset.tipo !== 'aplicar') return;
+    const base = Math.round(parseFloat(inp.dataset.tope || 0));
+    const val  = Math.round(parseFloat(inp.value || 0));
+    inp.classList.toggle('celda-tocada', val !== base);
+}
+function remarcarAplicar(){
+    document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(marcarTocada);
+}
+
 function sumAplicar(cod){
     const card=document.getElementById('card-'+cod); let s=0;
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>s+=parseFloat(i.value||0));
@@ -805,6 +830,7 @@ function aplicarTodo(){
         if (inp.dataset.bloqueado === '1') return; // sin ingreso: no se toca
         inp.value = Math.round(parseFloat(inp.max || 0));
     });
+    remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
 }
 
@@ -813,6 +839,7 @@ function ponerEnCero(){
         if (inp.dataset.bloqueado === '1') return; // solo obras con ingreso
         inp.value = 0;
     });
+    remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
 }
 
@@ -917,6 +944,7 @@ function ejecutarCalculo(){
         recalc(cod);
     }
 
+    remarcarAplicar();
     cerrarCalculo();
     mostrarAlerta(enPerdida, bajoOfertado);
 }
@@ -1034,6 +1062,10 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
         row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
     });
+
+    // Marcar en amarillo las celdas ya modificadas al cargar (borradores guardados).
+    remarcarAplicar();
+    document.querySelectorAll('input[data-tipo="bolsamonto"]').forEach(marcarTocadaBolsa);
 
     // Si llegan desde "Otros costos → Editar montos" con ?bolsa=XXX, abrir esa bolsa.
     const bolsaAbrir = new URLSearchParams(location.search).get('bolsa');
@@ -1165,6 +1197,7 @@ document.addEventListener('DOMContentLoaded', function(){
             if (el) el.value = data[name];
         });
         if (typeof DATOS === 'object') { for (const cod in DATOS) { try { recalc(cod); } catch (e) {} } }
+        if (typeof remarcarAplicar === 'function') remarcarAplicar();
         alCambiar();   // marca sucio y dispara autoguardado al servidor
     }
 })();

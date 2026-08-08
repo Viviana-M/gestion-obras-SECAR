@@ -76,6 +76,9 @@
         .filtro-select:disabled { background: #F3F4F6; color: #9CA3AF; cursor: not-allowed; }
         .btn-filtrar { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 22px; background: #1B3F6E; color: #fff; border: none; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
         .btn-filtrar:hover { background: #16345C; }
+
+        /* Celda modificada por Operaciones (valor distinto al pendiente/saldo completo). */
+        input.celda-tocada { background: #FEF3C7 !important; border-color: #F59E0B !important; box-shadow: 0 0 0 2px rgba(245,158,11,.18); }
     </style>
 </head>
 <body>
