@@ -33,10 +33,12 @@
         .module.open .chevron { transform: rotate(90deg); }
 
         .submenu { max-height: 0; overflow: hidden; transition: max-height .2s ease; }
-        .module.open .submenu { max-height: 500px; }
+        .module.open .submenu { max-height: 640px; }
         .submenu a { display: flex; align-items: center; gap: 6px; padding: 8px 1.25rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; white-space: nowrap; }
         .submenu a:hover { background: #F3F4F6; color: #1B3F6E; }
         .submenu a.active { background: #D6E4F7; color: #1B3F6E; border-left-color: #1B3F6E; font-weight: 500; }
+        .submenu-group-label { padding: 9px 1.25rem 3px 1.9rem; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #9CA3AF; white-space: nowrap; }
+        .submenu-group-label:first-child { padding-top: 4px; }
 
         .pill { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: #FEF9C3; color: #854D0E; line-height: 1.5; }
         .dot-alerta { position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: #D97706; border: 1.5px solid #FFFFFF; }
@@ -150,11 +152,13 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                <div class="submenu-group-label">Distribución</div>
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Mis distribuciones</a>
-                <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
+                <div class="submenu-group-label">Consultas</div>
                 <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Obras en revisión</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturado por tipo</a>
+                <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
             </div>
         </div>
         @endif
@@ -193,11 +197,13 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
-                <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
+                <div class="submenu-group-label">Cargues del mes</div>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
-                <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Abrir edición (Distribución)</a>
                 <a href="{{ route('contable.autoliquidacion.index') }}" class="{{ request()->is('contable/autoliquidacion') ? 'active' : '' }}">Autoliquidación (PILA)</a>
                 <a href="{{ route('contable.movimiento-comercial.index') }}" class="{{ request()->is('contable/movimiento-comercial') ? 'active' : '' }}">Movimiento comercial (ítems)</a>
+                <div class="submenu-group-label">Control</div>
+                <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
+                <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Abrir edición (Distribución)</a>
             </div>
         </div>
         @endif
@@ -213,12 +219,15 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                <div class="submenu-group-label">Accesos</div>
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
+                <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
                 <a href="{{ route('admin.terceros-mano-obra.index') }}">Terceros mano de obra</a>
                 <a href="{{ route('admin.mano-obra-directa.index') }}" class="{{ request()->is('admin/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="{{ route('admin.llave-items.index') }}" class="{{ request()->is('admin/llave-items') ? 'active' : '' }}">Llave de cuentas por ítem</a>
-                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación cuentas</a>
+                <div class="submenu-group-label">Contabilidad avanzada</div>
+                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación de cuentas</a>
                 <a href="/contable/reclasificaciones" class="{{ request()->is('contable/reclasificaciones*') ? 'active' : '' }}">
                     Reclasificaciones
                     @if($reclasPendientes > 0)<span class="pill">{{ $reclasPendientes }}</span>@endif
