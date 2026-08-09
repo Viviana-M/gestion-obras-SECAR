@@ -66,6 +66,8 @@ class DistribucionEncabezadoTest extends TestCase
         // Términos de ingeniería (sin jerga contable "cuenta 6" ni "14→6").
         $resp->assertSee('Inventario en tránsito aplicado', false);
         $resp->assertSee('Provisión (costo sin aplicar)', false);
+        // La proyección muestra la fórmula completa del margen.
+        $resp->assertSee('MC % = (Ingreso proyectado − Costo real) ÷ Ingreso proyectado', false);
         // El acumulado ahora es de cierre e incluye la distribución del mes.
         $resp->assertSee('INCLUYE ESTA DISTRIBUCIÓN', false);
         $resp->assertSee('Costo acumulado (con distribución)', false);

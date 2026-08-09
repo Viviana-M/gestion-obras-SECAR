@@ -118,7 +118,12 @@
                 @else
                 <div style="font-size:10px;color:#9CA3AF;margin-top:8px">Sin oferta registrada</div>
                 @endif
-                <div style="font-size:9px;color:#A5B4FC;margin-top:2px">Proyección = costo acum + inventarios</div>
+                <div style="font-size:9px;color:#818CF8;margin-top:6px;line-height:1.4">
+                    <b>MC % = (Ingreso proyectado − Costo real) ÷ Ingreso proyectado</b>
+                </div>
+                <div style="font-size:9px;color:#A5B4FC;margin-top:2px;line-height:1.4">
+                    Ingreso proyectado = valor oferta comercial · Costo real = costo acum + inventario en tránsito
+                </div>
             </div>
 
             {{-- Grupo 2 · FACTURACIÓN --}}
