@@ -97,6 +97,26 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function una_orden_abierta_sin_ingreso_recibe_costo_de_bolsa_sin_autorizacion(): void
+    {
+        // C-900 es una orden ABIERTA sin ingreso en el mes (solo saldo en cuenta 14),
+        // p. ej. mano de obra del supervisor. Debe poder recibir costo desde la bolsa
+        // SIN autorización (antes se bloqueaba); se reclasifica 14→14 hacia la OT.
+        $this->rf('C-900', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->bolsa('MTO00099', 1000, 6, 2026);
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'estado_obra'      => ['C-900' => 'abierta'],
+            'asignacion_bolsa' => ['C-900' => ['n1' => ['bolsa' => 'mantenimiento', 'monto' => 400]]],
+        ])->assertRedirect();
+
+        $linea = AplicacionCosto::where('codigo_proyecto', 'C-900')->where('origen_bolsa', 'MTO00099')->first();
+        $this->assertNotNull($linea, 'La orden sin ingreso debe recibir el costo de la bolsa sin autorización.');
+        $this->assertEqualsWithDelta(400, (float) $linea->monto_aplicar, 0.5);
+    }
+
+    #[Test]
     public function no_permite_asignar_mas_que_el_disponible_de_la_bolsa(): void
     {
         $this->seedBase(); // disponible por defecto = 1000

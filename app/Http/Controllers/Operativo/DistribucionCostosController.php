@@ -12,7 +12,6 @@ use App\Models\AplicacionCosto;
 use App\Models\ObraEstado;
 use App\Models\ObservacionObra;
 use App\Models\Distribucion;
-use App\Models\AutorizacionDistribucion;
 use App\Models\BolsaAsignacion;
 use App\Models\ItemDistribucion;
 use App\Models\ReasignacionItem;
@@ -219,10 +218,6 @@ class DistribucionCostosController extends Controller
         $observaciones = ObservacionObra::where('anio', $anio)->where('mes', $mes)
             ->pluck('observacion', 'codigo_proyecto');
 
-        // Autorizaciones de gerencia para este mes/año (para proyectos sin ingreso).
-        $autorizaciones = AutorizacionDistribucion::where('mes', $mes)->where('anio', $anio)
-            ->get()->keyBy('codigo_proyecto');
-
         // Líneas guardadas DE ESTE borrador (si estoy editando uno). Se separan las
         // aplicaciones propias de la obra (origen_bolsa null) de las que vienen de una
         // bolsa (origen_bolsa) para no repoblar por error los inputs de la obra.
@@ -355,17 +350,18 @@ class DistribucionCostosController extends Controller
                 ? 'Reclasificar OT áreas → OT operación' : 'Cuenta 14 → 61';
             $o['observacion'] = (string) ($observaciones[$cod] ?? '');
 
-            // Bloqueo por falta de ingreso: si el proyecto no tuvo ingreso en el mes,
-            // no se le puede distribuir costo salvo autorización de gerencia aprobada.
-            $aut = $autorizaciones[$cod] ?? null;
-            $o['requiere_autorizacion'] = abs((float) $o['ingreso_mes']) < 0.5;
-            $o['autorizado']            = $aut && $aut->estado === AutorizacionDistribucion::APROBADA;
-            $o['autorizacion_estado']   = $aut->estado ?? null; // pendiente|aprobada|rechazada|null
-            $o['autorizacion_motivo']   = $aut->motivo ?? null;
-            $o['autorizacion_coment']   = $aut->comentario_gerencia ?? null;
-            $o['autorizacion_monto']    = $aut->monto_a_distribuir ?? null;
-            // Bloqueado en la UI = requiere autorización y aún no está aprobado.
-            $o['bloqueado_ingreso']     = $o['requiere_autorizacion'] && ! $o['autorizado'];
+            // Órdenes sin ingreso en el mes (p. ej. solo visita/mano de obra del supervisor):
+            // Operaciones puede cargarles costo SIN autorización. El costo entra desde la
+            // bolsa de área y se reclasifica 14→14 hacia la OT. La aplicación directa 14→61 sí
+            // exige ingreso (no se reconoce costo contra la 6 sin facturación).
+            $o['sin_ingreso']           = abs((float) $o['ingreso_mes']) < 0.5;
+            $o['requiere_autorizacion'] = false; // ya no se exige autorización de gerencia
+            $o['autorizado']            = false;
+            $o['autorizacion_estado']   = null;
+            $o['autorizacion_motivo']   = null;
+            $o['autorizacion_coment']   = null;
+            $o['autorizacion_monto']    = null;
+            $o['bloqueado_ingreso']     = false; // la tarjeta nunca se bloquea
         }
         unset($o);
 
@@ -682,15 +678,12 @@ class DistribucionCostosController extends Controller
                 : back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
         }
 
-        // Refuerzo del bloqueo por falta de ingreso: un proyecto sin ingreso en el mes
-        // NO puede recibir costos salvo autorización de gerencia aprobada. Esto impide
-        // saltarse el bloqueo manipulando el formulario desde el navegador.
+        // La aplicación directa 14→61 reconoce costo contra la facturación, así que solo
+        // aplica a órdenes CON ingreso en el mes. Las órdenes sin ingreso no reciben
+        // aplicación directa, pero SÍ pueden recibir costo desde la bolsa de área (se
+        // reclasifica 14→14 hacia la OT, más abajo) — ya no se exige autorización.
         $ingresoMesG = $this->sumaMes('Ingreso', $anio, $mes);
-        $aprobados   = AutorizacionDistribucion::aprobadosEn($mes, $anio);
-        $requiereAut = function ($cod) use ($ingresoMesG, $aprobados) {
-            $sinIngreso = abs((float) ($ingresoMesG[$cod] ?? 0)) < 0.5;
-            return $sinIngreso && ! in_array((string) $cod, $aprobados, true);
-        };
+        $sinIngreso  = fn ($cod) => abs((float) ($ingresoMesG[$cod] ?? 0)) < 0.5;
 
         // Refuerzo para proyectos CON ingreso: no aplicar más que el saldo abierto de
         // cada cuenta 14. Operaciones controla los valores: se guarda lo que dejen (ya
@@ -736,7 +729,7 @@ class DistribucionCostosController extends Controller
         $asignInput = $request->input('asignacion_bolsa', []);
         $asignPorObraBolsa = [];
         foreach ((array) $asignInput as $cod => $items) {
-            if ($requiereAut($cod)) continue; // sin ingreso y sin autorización: no recibe costo
+            // Las órdenes sin ingreso SÍ reciben costo desde la bolsa (14→14): no se filtran.
             foreach ((array) $items as $it) {
                 $bolsa = trim((string) ($it['bolsa'] ?? ''));
                 $monto = (float) ($it['monto'] ?? 0);
@@ -786,7 +779,7 @@ class DistribucionCostosController extends Controller
 
         DB::transaction(function () use (
             &$distribucion, &$noCerradas, &$msg,
-            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $requiereAut,
+            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $sinIngreso,
             $asignFinal, $poolBolsa, $infoGrande, $esAuto
         ) {
             if (!$distribucion) {
@@ -839,7 +832,7 @@ class DistribucionCostosController extends Controller
             AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
 
             foreach ($aplicar as $cod => $cuentas) {
-                if ($requiereAut($cod)) continue; // proyecto sin ingreso y sin autorización aprobada
+                if ($sinIngreso($cod)) continue; // sin ingreso: no hay aplicación directa 14→61 (usa bolsa)
                 foreach ($cuentas as $c14 => $monto) {
                     $monto = (float) $monto;
                     if ($monto <= 0) continue;

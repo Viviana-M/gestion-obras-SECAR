@@ -18,10 +18,8 @@
                     <option value="parcial" {{ $o['estado']=='parcial'?'selected':'' }}>Parcial</option>
                     <option value="cerrada" {{ $o['estado']=='cerrada'?'selected':'' }}>Cerrada</option>
                 </select>
-                @if($o['bloqueado_ingreso'])
-                    <span onclick="event.stopPropagation()" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#B91C1C">🔒 Sin ingreso{{ $o['autorizacion_estado'] === 'pendiente' ? ' · pendiente' : ($o['autorizacion_estado'] === 'rechazada' ? ' · rechazada' : '') }}</span>
-                @elseif($o['autorizado'])
-                    <span onclick="event.stopPropagation()" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">✅ Autorizado</span>
+                @if($o['sin_ingreso'] ?? false)
+                    <span onclick="event.stopPropagation()" title="Sin ingreso este mes: recibe costo desde la bolsa de área (se reclasifica 14→14)" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280">Sin ingreso</span>
                 @endif
             </div>
             <div style="font-size:11px;color:#6B7280;margin-top:3px" id="metodo-{{ $cod }}">Método: {{ $o['metodo'] }}</div>
@@ -195,42 +193,14 @@
     </div>
 
     <div id="obra-{{ $cod }}" style="display:none;padding:0 16px 14px;border-top:1px solid #F3F4F6">
-        @if($o['bloqueado_ingreso'])
-        <div style="margin-top:12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 14px">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-                <span style="font-size:12px;font-weight:700;color:#B91C1C">🔒 Sin ingreso en el mes — requiere autorización</span>
-                @if($o['autorizacion_estado'] === 'pendiente')
-                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEF9C3;color:#854D0E">Solicitud pendiente</span>
-                @elseif($o['autorizacion_estado'] === 'rechazada')
-                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#B91C1C">Rechazada</span>
-                @endif
-            </div>
-            <p style="font-size:11.5px;color:#7F1D1D;line-height:1.5;margin:0 0 8px">
-                Este proyecto no tuvo ingreso en el período. Sus cantidades arrancan en $0 pero puedes escribir
-                el monto que quieres distribuir en las categorías; ese monto <b>no se aplica todavía</b>: al solicitar
-                se envía a gerencia con su impacto en el margen, y solo se aplica (14→6) cuando gerencia lo aprueba.
+        @if($o['sin_ingreso'] ?? false)
+        <div style="margin-top:12px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:10px 14px">
+            <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:4px">Sin ingreso este mes</div>
+            <p style="font-size:11.5px;color:#6B7280;line-height:1.5;margin:0">
+                Esta orden abierta no tuvo ingreso, pero puedes cargarle costo igual (por ejemplo, mano de obra
+                del supervisor) <b>sin necesidad de autorización</b>. Asígnalo desde la <b>bolsa de área</b> más abajo:
+                se reclasifica <b>14→14</b> desde la unidad de negocio de la bolsa hacia esta OT.
             </p>
-            @if($o['autorizacion_estado'] === 'pendiente')
-                <div style="font-size:11px;color:#6B7280">
-                    Solicitado: {{ $fmt($o['autorizacion_monto'] ?? 0) }} · Motivo: <i>{{ $o['autorizacion_motivo'] }}</i>
-                </div>
-            @else
-                @if($o['autorizacion_estado'] === 'rechazada' && $o['autorizacion_coment'])
-                    <div style="font-size:11px;color:#B91C1C;margin-bottom:8px">Comentario de gerencia: <i>{{ $o['autorizacion_coment'] }}</i></div>
-                @endif
-                @if($puedeEditar)
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
-                    <textarea id="motivo-aut-{{ $cod }}" rows="2" placeholder="Motivo de la solicitud (obligatorio)..."
-                        style="flex:1;min-width:220px;padding:7px 10px;border:1px solid #FCA5A5;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
-                    <button type="button" onclick="solicitarAut('{{ $cod }}')"
-                        style="padding:8px 14px;background:#B91C1C;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap">Solicitar autorización</button>
-                </div>
-                @endif
-            @endif
-        </div>
-        @elseif($o['autorizado'])
-        <div style="margin-top:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:8px 12px;font-size:11.5px;color:#15803D">
-            ✅ Autorizado por gerencia para distribuir costos este mes.
         </div>
         @endif
         @foreach($categorias as $k => $label)
@@ -269,11 +239,11 @@
                                 value="{{ round($sub['aplicar']) }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
                                 onclick="event.stopPropagation()"
-                                data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ $o['bloqueado_ingreso'] ? '1' : '0' }}"
+                                data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="capear(this);marcarTocada(this);recalc('{{ $cod }}')"
-                                @if($o['bloqueado_ingreso']) title="Se aplicará solo cuando gerencia apruebe la autorización" @endif
-                                style="width:100px;padding:3px 6px;border:1px solid {{ $o['bloqueado_ingreso'] ? '#FCA5A5' : '#E5E7EB' }};border-radius:4px;font-size:11px;text-align:right">
+                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso: la aplicación directa 14→61 no aplica. Carga el costo desde la bolsa de área (se reclasifica 14→14)." @endif
+                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right;{{ ($o['sin_ingreso'] ?? false) ? 'background:#F9FAFB;color:#9CA3AF' : '' }}">
                         </td>
                     </tr>
                     @if($tieneItems)
@@ -410,8 +380,8 @@
             @endif
         </div>
 
-        {{-- ASIGNAR DESDE BOLSA DE ÁREA (origen del costo) --}}
-        @if(!empty($bolsas) && !$o['bloqueado_ingreso'])
+        {{-- ASIGNAR DESDE BOLSA DE ÁREA (origen del costo) — disponible también para órdenes sin ingreso --}}
+        @if(!empty($bolsas))
         <div style="margin-top:14px;border-top:1px dashed #FDE68A;padding-top:10px">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
                 <span style="width:9px;height:9px;border-radius:2px;background:#D97706;display:inline-block"></span>

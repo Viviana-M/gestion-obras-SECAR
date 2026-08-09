@@ -168,18 +168,8 @@
         </div>
         @endif
 
-        @if($usuario->esGerencia())
-        <div class="module {{ request()->is('operativo/autorizaciones') ? 'open active-mod' : '' }}">
-            <button type="button" class="module-head">
-                <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.66 0 3.22.45 4.56 1.24"/></svg></span>
-                <span class="module-name">Autorizaciones</span>
-                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-            </button>
-            <div class="submenu">
-                <a href="{{ route('operativo.autorizaciones.index') }}" class="{{ request()->is('operativo/autorizaciones') ? 'active' : '' }}">Distribución sin ingreso</a>
-            </div>
-        </div>
-        @endif
+        {{-- El flujo de "Autorizaciones · distribución sin ingreso" se retiró: Operaciones
+             puede cargar costos en órdenes abiertas (sin ingreso) sin autorización. --}}
 
         @if($usuario->puedeVerModulo('comercial'))
         <div class="module {{ $comActive ? 'open active-mod' : '' }}">

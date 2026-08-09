@@ -320,8 +320,8 @@
 <input type="hidden" name="departamento" value="{{ $depEfectivo }}">
 
 @php
-    $obrasConIngreso = array_filter($obras, fn($o) => empty($o['requiere_autorizacion']));
-    $obrasSinIngreso = array_filter($obras, fn($o) => !empty($o['requiere_autorizacion']));
+    $obrasConIngreso = array_filter($obras, fn($o) => empty($o['sin_ingreso']));
+    $obrasSinIngreso = array_filter($obras, fn($o) => !empty($o['sin_ingreso']));
 @endphp
 
 {{-- ══════════ GRUPO: CON INGRESO (expandido) ══════════ --}}
@@ -344,9 +344,9 @@
 {{-- ══════════ GRUPO: SIN INGRESO (colapsado) ══════════ --}}
 <div class="grupo-obras" data-grupo="sin" style="margin-top:16px">
     <div id="grupo-head-sin" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
-        <svg id="chev-grupo-sin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#B91C1C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
-        <span style="font-weight:700;color:#B91C1C;font-size:14px">Sin ingreso · requiere autorización</span>
-        <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#FEE2E2;color:#B91C1C">{{ count($obrasSinIngreso) }}</span>
+        <svg id="chev-grupo-sin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#854D0E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
+        <span style="font-weight:700;color:#854D0E;font-size:14px">Sin ingreso · órdenes abiertas</span>
+        <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#FEF3C7;color:#854D0E">{{ count($obrasSinIngreso) }}</span>
     </div>
     <div id="grupo-sin" style="display:none">
         @foreach($obrasSinIngreso as $cod => $o)
@@ -441,7 +441,7 @@
             'nombre'   => $o['nombre'],
             'pend'     => $o['total_pendiente'],
             'rev'      => $o['total_reversado'],
-            'sinIngreso' => (bool) $o['requiere_autorizacion'],
+            'sinIngreso' => (bool) ($o['sin_ingreso'] ?? false),
             'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
             'prov'     => (float) ($o['sum_prov'] ?? 0),   // provisiones (costo sin aplicar, 14→26)
         ];
@@ -894,30 +894,6 @@ function ponerEnCero(){
 
 /* Solicita autorización de gerencia para un proyecto sin ingreso.
    Se hace con un form dinámico para no anidar formularios dentro de #form-dist. */
-function solicitarAut(cod){
-    const ta = document.getElementById('motivo-aut-' + cod);
-    const motivo = (ta ? ta.value : '').trim();
-    if (!motivo) { alert('Escribe el motivo de la solicitud.'); if (ta) ta.focus(); return; }
-    // Monto propuesto = lo que el operador escribió en "a aplicar" + provisiones de la obra.
-    const monto = sumAplicar(cod) + sumProv(cod);
-    if (monto <= 0) { alert('Escribe primero el monto que quieres distribuir en las categorías.'); return; }
-    const f = document.createElement('form');
-    f.method = 'POST';
-    f.action = @json(route('operativo.autorizaciones.solicitar'));
-    f.style.display = 'none';
-    f.innerHTML = '<input type="hidden" name="_token" value="' + @json(csrf_token()) + '">'
-        + '<input type="hidden" name="codigo_proyecto">'
-        + '<input type="hidden" name="mes" value="{{ $mes }}">'
-        + '<input type="hidden" name="anio" value="{{ $anio }}">'
-        + '<input type="hidden" name="monto">'
-        + '<input type="hidden" name="motivo">';
-    f.querySelector('[name="codigo_proyecto"]').value = cod;
-    f.querySelector('[name="monto"]').value = monto;
-    f.querySelector('[name="motivo"]').value = motivo;
-    document.body.appendChild(f);
-    f.submit();
-}
-
 /* ===== Cálculo automático de costo sugerido ===== */
 function abrirCalculo(){ document.getElementById('modal-calc').style.display='flex'; }
 function cerrarCalculo(){ document.getElementById('modal-calc').style.display='none'; }

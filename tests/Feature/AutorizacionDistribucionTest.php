@@ -177,28 +177,6 @@ class AutorizacionDistribucionTest extends TestCase
     }
 
     #[Test]
-    public function guardar_permite_costos_cuando_hay_autorizacion_aprobada(): void
-    {
-        $op = $this->operador();
-
-        AutorizacionDistribucion::create([
-            'codigo_proyecto' => 'C-500', 'mes' => 7, 'anio' => 2026,
-            'estado' => 'aprobada', 'solicitado_at' => now(), 'resuelto_at' => now(),
-        ]);
-
-        $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
-            'accion'       => 'guardar',
-            'mes'          => 7,
-            'anio'         => 2026,
-            'departamento' => 'mantenimiento',
-            'aplicar'      => ['C-500' => ['1435' => 500]],
-        ])->assertRedirect();
-
-        $this->assertSame(1, AplicacionCosto::where('codigo_proyecto', 'C-500')->count(),
-            'Con autorización aprobada, el costo sí debe guardarse.');
-    }
-
-    #[Test]
     public function la_pantalla_de_gerencia_muestra_monto_e_impacto(): void
     {
         AutorizacionDistribucion::create([
@@ -234,7 +212,7 @@ class AutorizacionDistribucionTest extends TestCase
     }
 
     #[Test]
-    public function la_pantalla_muestra_el_bloqueo_para_proyecto_sin_ingreso(): void
+    public function la_pantalla_no_exige_autorizacion_para_proyecto_sin_ingreso(): void
     {
         $this->seedProyectoSinIngreso('C-900');
 
@@ -242,8 +220,9 @@ class AutorizacionDistribucionTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('Sin ingreso en el mes');
-        $resp->assertSee('Solicitar autorización');
+        $resp->assertSee('Sin ingreso', false);                    // la orden abierta aparece
+        $resp->assertSee('sin necesidad de autorización', false);  // nota informativa
+        $resp->assertDontSee('Solicitar autorización', false);      // ya no se pide autorización
     }
 
     #[Test]
@@ -270,22 +249,5 @@ class AutorizacionDistribucionTest extends TestCase
         $resp->assertSee('Sin ingreso');
         $resp->assertSee('id="card-C-800"', false);
         $resp->assertSee('id="card-C-801"', false);
-    }
-
-    #[Test]
-    public function la_pantalla_desbloquea_el_proyecto_una_vez_autorizado(): void
-    {
-        $this->seedProyectoSinIngreso('C-901');
-        AutorizacionDistribucion::create([
-            'codigo_proyecto' => 'C-901', 'mes' => 7, 'anio' => 2026,
-            'estado' => 'aprobada', 'solicitado_at' => now(), 'resuelto_at' => now(),
-        ]);
-
-        $resp = $this->actingAs($this->operador())
-            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
-
-        $resp->assertStatus(200);
-        $resp->assertSee('Autorizado por gerencia');
-        $resp->assertDontSee('Solicitar autorización');
     }
 }
