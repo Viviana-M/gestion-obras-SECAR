@@ -80,6 +80,30 @@ class ReporteSaldos14Test extends TestCase
     }
 
     #[Test]
+    public function sin_departamento_incluye_ambas_areas(): void
+    {
+        Excel::fake();
+
+        // Obra de Mantenimiento (prefijo C) y obra de Instalaciones (prefijo GI), ambas con saldo 14.
+        RegistroFinanciero::create(['codigo_proyecto' => 'C-100', 'nombre_proyecto' => 'Mant',
+            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+        RegistroFinanciero::create(['codigo_proyecto' => 'GI-200', 'nombre_proyecto' => 'Inst',
+            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+
+        // Sin 'departamento' en la petición: se descargan las dos áreas y el archivo no lleva sufijo.
+        $this->actingAs($this->operador())
+            ->get(route('operativo.distribucion.reporte-saldos', ['mes' => 7, 'anio' => 2026]))
+            ->assertOk();
+
+        Excel::assertDownloaded('Saldos_cuenta_14_Julio_2026.xlsx', function ($export) {
+            $plano = json_encode($export->array());
+            return str_contains($plano, 'C-100') && str_contains($plano, 'GI-200');
+        });
+    }
+
+    #[Test]
     public function un_usuario_sin_operacion_no_puede_descargar(): void
     {
         $sinOp = User::factory()->create(['rol' => 'contadora', 'activo' => true,
