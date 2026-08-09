@@ -167,6 +167,20 @@ class User extends Authenticatable
         ][$dep] ?? [];
     }
 
+    /** Departamento al que pertenece un código de obra según su prefijo. */
+    public static function departamentoDeCodigo(string $cod): ?string
+    {
+        $cod = strtoupper(trim($cod));
+        foreach (['mantenimiento', 'instalaciones'] as $dep) {
+            foreach (self::prefijosDeDepartamento($dep) as $p) {
+                if (str_starts_with($cod, strtoupper($p))) {
+                    return $dep;
+                }
+            }
+        }
+        return null;
+    }
+
     public function tieneFiltroDepartamento(): bool
     {
         if ($this->esAdmin()) return false;

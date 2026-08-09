@@ -284,6 +284,23 @@
             </span>
         </div>
     </div>
+    @php
+        $depsLeyenda = $depEfectivo ? [$depEfectivo] : array_keys(\App\Services\DistribucionService::UMBRALES_MARGEN);
+        $CSEM = \App\Services\DistribucionService::COLORES_SEMAFORO;
+    @endphp
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
+        <span style="font-size:11px;font-weight:700;color:#6B7280">Semáforo de margen:</span>
+        @foreach($depsLeyenda as $dl)
+            @php $u = \App\Services\DistribucionService::UMBRALES_MARGEN[$dl]; @endphp
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#374151">
+                <b style="color:#4B5563">{{ \App\Services\DistribucionService::DEPARTAMENTOS[$dl] ?? $dl }}</b>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['verde'][0] }};color:{{ $CSEM['verde'][1] }}">≥ {{ $u['verde'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['amarillo'][0] }};color:{{ $CSEM['amarillo'][1] }}">≥ {{ $u['amarillo'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['rojo'][0] }};color:{{ $CSEM['rojo'][1] }}">≥ {{ $u['rojo'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['gris'][0] }};color:{{ $CSEM['gris'][1] }}">&lt; {{ $u['rojo'] }}%</span>
+            </span>
+        @endforeach
+    </div>
     @if(!$bloqueado && $puedeEditar)
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
         <span style="font-size:12px;color:#6B7280">Acciones rápidas <span style="color:#9CA3AF">(solo obras con ingreso)</span>:</span>
@@ -444,6 +461,7 @@
             'sinIngreso' => (bool) ($o['sin_ingreso'] ?? false),
             'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
             'prov'     => (float) ($o['sum_prov'] ?? 0),   // provisiones (costo sin aplicar, 14→26)
+            'dep'      => $o['depto_margen'] ?? null,       // depto para el semáforo de márgenes
         ];
     }
 @endphp
@@ -452,6 +470,26 @@ const CTA = @json($ctaJs);
 const DATOS = @json($datosJs);
 const BOLSAS = @json(collect($bolsas)->keyBy('codigo'));
 const PERIODO = @json($mesNombre);
+
+// Semáforo de márgenes (mismo criterio que el servidor): umbrales por departamento.
+const UMBRALES_MARGEN = @json(\App\Services\DistribucionService::UMBRALES_MARGEN);
+const COLORES_SEMAFORO = @json(\App\Services\DistribucionService::COLORES_SEMAFORO);
+function colorSemaforo(pct, dep){
+    const u = UMBRALES_MARGEN[dep];
+    let nivel = 'gris';
+    if (pct !== null && pct !== undefined && u) {
+        if (pct >= u.verde) nivel = 'verde';
+        else if (pct >= u.amarillo) nivel = 'amarillo';
+        else if (pct >= u.rojo) nivel = 'rojo';
+    }
+    return COLORES_SEMAFORO[nivel]; // [fondo, texto]
+}
+function pintarSemaforo(el, pct, dep){
+    if (!el) return;
+    const c = colorSemaforo(pct, dep);
+    el.style.background = c[0];
+    el.style.color = c[1];
+}
 // Disponible en vivo por bolsa (arranca en lo que dejó el servidor, ya descontadas
 // las asignaciones guardadas). Se decrementa al asignar y se repone al quitar.
 const dispBolsa = {};
@@ -713,8 +751,9 @@ function recalc(cod){
     const mcMesPesos = (d.ingMes||0) - costoMesTotal;
     const mcEl=document.getElementById('mcmes-'+cod);
     if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }
+    const pctMes = d.ingMes ? (mcMesPesos/d.ingMes*100) : null;
     const pctEl=document.getElementById('mcpct-'+cod);
-    if(pctEl){ pctEl.textContent = d.ingMes ? ((mcMesPesos/d.ingMes*100).toFixed(1)+'%') : '—'; }
+    if(pctEl){ pctEl.textContent = pctMes===null ? '—' : (pctMes.toFixed(1)+'%'); pintarSemaforo(pctEl, pctMes===null?null:Number(pctMes.toFixed(1)), d.dep); }
 
     // Acumulado de cierre: hasta este mes INCLUYENDO la distribución (14→6) y la provisión.
     const costoAcumCierre = (d.costoAcum||0) + aplicado14a6 + prov;
@@ -722,8 +761,9 @@ function recalc(cod){
     const caEl=document.getElementById('costoacum-'+cod); if(caEl) caEl.textContent=fmt(costoAcumCierre);
     const maEl=document.getElementById('mcacum-'+cod);
     if(maEl){ maEl.textContent=fmt(mcAcumPesos); maEl.style.color = mcAcumPesos>=0 ? '#15803D' : '#DC2626'; }
+    const pctAcum = d.ingAcum ? (mcAcumPesos/d.ingAcum*100) : null;
     const mapEl=document.getElementById('mcacumpct-'+cod);
-    if(mapEl){ mapEl.textContent = d.ingAcum ? ((mcAcumPesos/d.ingAcum*100).toFixed(1)+'%') : '—'; }
+    if(mapEl){ mapEl.textContent = pctAcum===null ? '—' : (pctAcum.toFixed(1)+'%'); pintarSemaforo(mapEl, pctAcum===null?null:Number(pctAcum.toFixed(1)), d.dep); }
 }
 
 function cambiarEstado(cod, val){

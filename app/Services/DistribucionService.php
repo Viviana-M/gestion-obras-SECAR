@@ -83,6 +83,37 @@ class DistribucionService
     public const DEPARTAMENTOS = ['mantenimiento' => 'Mantenimiento', 'instalaciones' => 'Instalaciones'];
 
     /**
+     * Umbrales de rentabilidad (semáforo) del margen %, por departamento. El color se
+     * decide de mejor a peor: verde ≥ verde, amarillo ≥ amarillo, rojo ≥ rojo, gris por
+     * debajo. (Mantenimiento y reparaciones vs. Instalaciones tienen metas distintas.)
+     */
+    public const UMBRALES_MARGEN = [
+        'mantenimiento' => ['verde' => 30, 'amarillo' => 27, 'rojo' => 25],
+        'instalaciones' => ['verde' => 23, 'amarillo' => 20, 'rojo' => 18],
+    ];
+
+    /** Colores del semáforo: [fondo, texto]. */
+    public const COLORES_SEMAFORO = [
+        'verde'    => ['#16A34A', '#FFFFFF'],
+        'amarillo' => ['#FDE047', '#854D0E'],
+        'rojo'     => ['#DC2626', '#FFFFFF'],
+        'gris'     => ['#9CA3AF', '#FFFFFF'],
+    ];
+
+    /** Nivel del semáforo (verde|amarillo|rojo|gris) para un margen % y un departamento. */
+    public static function nivelMargen(?float $pct, ?string $depto): string
+    {
+        if ($pct === null || $depto === null || ! isset(self::UMBRALES_MARGEN[$depto])) {
+            return 'gris';
+        }
+        $u = self::UMBRALES_MARGEN[$depto];
+        if ($pct >= $u['verde'])    return 'verde';
+        if ($pct >= $u['amarillo']) return 'amarillo';
+        if ($pct >= $u['rojo'])     return 'rojo';
+        return 'gris';
+    }
+
+    /**
      * DOS bolsas grandes (Mantenimiento, Instalaciones), cada una consolidando TODAS sus
      * UN. Cada línea del detalle es una cuenta 14 de una UN, con su tercero, saldo y el
      * "monto a distribuir" editable (sin registro = saldo completo por defecto). El

@@ -345,6 +345,8 @@ class DistribucionCostosController extends Controller
             $o['inventario_almacen'] = 0; // en actualización: pendiente módulo de almacén
 
             $this->calcularMargenes($o);
+            // Departamento de la obra (por prefijo) para el semáforo de márgenes.
+            $o['depto_margen'] = \App\Models\User::departamentoDeCodigo($cod);
             $o['tipo']   = $this->tipoObra($cod);
             $o['metodo'] = $o['estado'] === 'abierta'
                 ? 'Reclasificar OT áreas → OT operación' : 'Cuenta 14 → 61';

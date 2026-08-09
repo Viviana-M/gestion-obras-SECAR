@@ -1,5 +1,11 @@
-@php $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280']; @endphp
-<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['nombre'] ?? '').' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ $o['requiere_autorizacion'] ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
+@php
+    $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280'];
+    // Semáforo de márgenes (mes y acumulado) según umbrales del departamento de la obra.
+    $depMargen = $o['depto_margen'] ?? null;
+    $semMes  = \App\Services\DistribucionService::COLORES_SEMAFORO[\App\Services\DistribucionService::nivelMargen($o['mc_mes_pct'] ?? null, $depMargen)];
+    $semAcum = \App\Services\DistribucionService::COLORES_SEMAFORO[\App\Services\DistribucionService::nivelMargen($o['mc_acum_cierre_pct'] ?? null, $depMargen)];
+@endphp
+<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['nombre'] ?? '').' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
 
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
         <div style="min-width:0">
@@ -56,7 +62,7 @@
             </div>
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Rentabilidad % MC</div>
-                <div style="font-size:14px;font-weight:600;color:#854D0E" id="mcpct-{{ $cod }}">{{ $o['mc_mes_pct'] === null ? '—' : $o['mc_mes_pct'].'%' }}</div>
+                <div id="mcpct-{{ $cod }}" style="display:inline-block;font-size:13px;font-weight:700;padding:1px 10px;border-radius:9px;background:{{ $semMes[0] }};color:{{ $semMes[1] }}">{{ $o['mc_mes_pct'] === null ? '—' : $o['mc_mes_pct'].'%' }}</div>
             </div>
         </div>
     </div>
@@ -79,7 +85,7 @@
             </div>
             <div>
                 <div style="font-size:9px;color:#9CA3AF;line-height:1.3">MC % acumulado</div>
-                <div style="font-size:14px;font-weight:600;color:#374151" id="mcacumpct-{{ $cod }}">{{ $o['mc_acum_cierre_pct'] === null ? '—' : $o['mc_acum_cierre_pct'].'%' }}</div>
+                <div id="mcacumpct-{{ $cod }}" style="display:inline-block;font-size:13px;font-weight:700;padding:1px 10px;border-radius:9px;background:{{ $semAcum[0] }};color:{{ $semAcum[1] }}">{{ $o['mc_acum_cierre_pct'] === null ? '—' : $o['mc_acum_cierre_pct'].'%' }}</div>
             </div>
         </div>
     </div>
