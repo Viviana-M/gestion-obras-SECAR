@@ -337,6 +337,13 @@ class DistribucionCostosController extends Controller
                 $o['estado'] = $estadoManual[$cod];
             }
 
+            // Estado según el ingreso del mes: las obras que tuvieron ingreso se muestran
+            // como "parcial" y las que no, como "abierta". Las obras cerradas (cierre total
+            // o cierre manual) conservan su estado y no se reabren.
+            if ($o['estado'] !== 'cerrada') {
+                $o['estado'] = abs((float) $o['ingreso_mes']) >= 0.5 ? 'parcial' : 'abierta';
+            }
+
             // Inventario en obra (cuenta 14 total) e inventario de almacén (0 por ahora)
             $saldoInv14 = (float) ($inventario14[$cod] ?? 0);
             $o['inventario_obra']    = $saldoInv14 < 0 ? abs($saldoInv14) : 0;
