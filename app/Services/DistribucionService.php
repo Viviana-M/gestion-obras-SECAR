@@ -92,12 +92,12 @@ class DistribucionService
         'instalaciones' => ['verde' => 23, 'amarillo' => 20, 'rojo' => 18],
     ];
 
-    /** Colores del semáforo: [fondo, texto]. */
+    /** Colores del semáforo: [fondo, texto]. El nivel más bajo se muestra en negro. */
     public const COLORES_SEMAFORO = [
         'verde'    => ['#16A34A', '#FFFFFF'],
         'amarillo' => ['#FDE047', '#854D0E'],
         'rojo'     => ['#DC2626', '#FFFFFF'],
-        'gris'     => ['#9CA3AF', '#FFFFFF'],
+        'gris'     => ['#111827', '#FFFFFF'],
     ];
 
     /** Nivel del semáforo (verde|amarillo|rojo|gris) para un margen % y un departamento. */
