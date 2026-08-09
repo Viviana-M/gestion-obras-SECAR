@@ -1618,6 +1618,163 @@ class DistribucionCostosController extends Controller
     }
 
     /**
+     * Reporte Excel de las OBRAS CON SALDO ABIERTO/PARCIAL en la cuenta 14 (inventario en
+     * tránsito), para enviar a Contabilidad y Operaciones a validar. Trae todo lo de la
+     * tarjeta (código, proyecto, cliente, ingresos, costos, provisión, saldo de la 14 y
+     * márgenes del mes/acumulado/proyección) con los márgenes pintados con el semáforo.
+     */
+    public function reporteSaldos(Request $request)
+    {
+        abort_unless($request->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $defMes);
+        $anio = (int) $request->get('anio', $defAnio);
+
+        // Departamento efectivo (el del supervisor manda; si no, el que eligió el director).
+        $usuario     = $request->user();
+        $depEfectivo = $usuario?->departamentoUnico() ?: $request->get('departamento');
+        $prefijos    = $depEfectivo ? \App\Models\User::prefijosDeDepartamento($depEfectivo) : null;
+
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where(function ($sub) use ($anio, $mes) {
+                $sub->where('anio', '<', $anio)
+                    ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            });
+        };
+
+        // Obras con saldo NETO real en la cuenta 14 (acumulado al mes filtrado).
+        $neto = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where($corteAcum)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->pluck('saldo', 'codigo_proyecto');
+
+        $codigos = collect($neto->keys())
+            ->filter(fn ($cod) => ! $prefijos || $this->empiezaPorAlguno((string) $cod, $prefijos))
+            ->values()->all();
+        sort($codigos);
+
+        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
+        $ingAcum  = $this->sumaAcum('Ingreso', $anio, $mes);
+        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
+        $costoAcum= $this->sumaAcum('Costos aplicados', $anio, $mes);
+        $fichas   = FichaProyecto::whereIn('codigo_proyecto', $codigos)->get()->keyBy('codigo_proyecto');
+        $nombreMov= RegistroFinanciero::whereIn('codigo_proyecto', $codigos)->pluck('nombre_proyecto', 'codigo_proyecto');
+        $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
+        $estadoManual = ObraEstado::pluck('estado', 'codigo_proyecto');
+        $provPorObra  = \App\Models\Provision::activasEn($mes, $anio)->get()
+            ->groupBy('codigo_proyecto')->map(fn ($g) => (float) $g->sum('monto'));
+
+        // Aplicado ya guardado en la última distribución de obras del período (propio y bolsa).
+        $ultimaDist = Distribucion::where('mes', $mes)->where('anio', $anio)
+            ->where('tipo', 'obras')
+            ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
+            ->orderByDesc('version')->first();
+        $aplicadoPropio = []; $aplicadoBolsa = [];
+        if ($ultimaDist) {
+            foreach (AplicacionCosto::where('distribucion_id', $ultimaDist->id)->get() as $l) {
+                $cod = $l->codigo_proyecto; $m = (float) $l->monto_aplicar;
+                if ($l->origen_bolsa) $aplicadoBolsa[$cod] = ($aplicadoBolsa[$cod] ?? 0) + $m;
+                else                  $aplicadoPropio[$cod] = ($aplicadoPropio[$cod] ?? 0) + $m;
+            }
+        }
+
+        $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
+        $hex    = fn ($nivel) => [
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][0], '#'),
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][1], '#'),
+        ];
+
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Saldo cuenta 14 (pendiente)',
+            'Ingresos del mes', 'Costo aplicado del mes', 'Inventario en tránsito aplicado',
+            'Provisión (costo sin aplicar)', 'Margen del mes ($)', 'Rentabilidad % MC',
+            'Facturado acumulado', 'Costo acumulado (con distribución)', 'Margen acumulado ($)', 'MC % acumulado',
+            'Valor oferta comercial', 'Diferencia por facturar', 'Avance de facturación',
+            'Inventario en tránsito', 'Costo total', 'Costo presupuestado', 'Avance ejecución obra',
+            'MC % ofertado', 'MC % proyección'];
+        $filas  = [$head];
+        $pintar = [];       // celdas de margen a pintar con el semáforo
+        $fila   = 1;        // fila 1 = encabezado; los datos arrancan en la 2
+
+        foreach ($codigos as $cod) {
+            $saldo14 = (float) ($neto[$cod] ?? 0);
+            $pend    = $saldo14 < 0 ? abs($saldo14) : 0.0;
+
+            // Estado (igual que la tarjeta): cerrada si está cerrada; si no, por ingreso.
+            $estado = (isset($cerradas[$cod]) || ($estadoManual[$cod] ?? null) === 'cerrada')
+                ? 'cerrada'
+                : (abs((float) ($ingMes[$cod] ?? 0)) >= 0.5 ? 'parcial' : 'abierta');
+            if ($estado === 'cerrada') continue; // solo abiertas/parciales
+
+            $o = [
+                'ingreso_mes'    => (float) ($ingMes[$cod] ?? 0),
+                'ingreso_acum'   => (float) ($ingAcum[$cod] ?? 0),
+                'costo_apl_mes'  => abs((float) ($costoMes[$cod] ?? 0)),
+                'costo_apl_acum' => abs((float) ($costoAcum[$cod] ?? 0)),
+                'sum_aplicar'    => (float) ($aplicadoPropio[$cod] ?? 0),
+                'sum_bolsa'      => (float) ($aplicadoBolsa[$cod] ?? 0),
+                'sum_prov'       => (float) ($provPorObra[$cod] ?? 0),
+                'inventario_obra'    => $saldo14 < 0 ? abs($saldo14) : 0.0,
+                'inventario_almacen' => 0,
+                'valor_oferta'   => (float) ($fichas[$cod]->valor_contratado ?? 0),
+                'costo_presup'   => (float) ($fichas[$cod]->costo_estimado ?? 0),
+                'ofertado'       => $this->normalizarMargen($fichas[$cod]->margen_ofertado ?? null),
+            ];
+            $this->calcularMargenes($o);
+
+            $dep  = \App\Models\User::departamentoDeCodigo($cod);
+            $nMes = \App\Services\DistribucionService::nivelMargen($o['mc_mes_pct'], $dep);
+            $nAcu = \App\Services\DistribucionService::nivelMargen($o['mc_acum_cierre_pct'], $dep);
+            $nPro = \App\Services\DistribucionService::nivelMargen($o['pr_mc_proy'], $dep);
+            // Regla especial: si el ofertado es menor al proyectado, la proyección va en verde.
+            if ($o['pr_mc_proy'] !== null && $o['pr_mc_ofertado'] !== null && $o['pr_mc_ofertado'] < $o['pr_mc_proy']) {
+                $nPro = 'verde';
+            }
+
+            $fila++;
+            [$b, $f] = $hex($nMes); $pintar[] = ['fila' => $fila, 'col' => 'K', 'bg' => $b, 'fg' => $f];
+            [$b, $f] = $hex($nAcu); $pintar[] = ['fila' => $fila, 'col' => 'O', 'bg' => $b, 'fg' => $f];
+            [$b, $f] = $hex($nPro); $pintar[] = ['fila' => $fila, 'col' => 'X', 'bg' => $b, 'fg' => $f];
+
+            $filas[] = [
+                $cod,
+                $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
+                $fichas[$cod]->cliente ?? '',
+                ucfirst($estado),
+                round($pend),
+                round($o['ingreso_mes']), round($o['costo_mes_c6']), round($o['aplicado_mes']),
+                round($o['costo_sin_aplicar']), round($o['mc_mes_pesos']), $fmtPct($o['mc_mes_pct']),
+                round($o['ingreso_acum']), round($o['costo_acum_cierre']), round($o['margen_acum_cierre_pesos']), $fmtPct($o['mc_acum_cierre_pct']),
+                round($o['pr_valor_oferta']), round($o['pr_dif_facturar']), $fmtPct($o['pr_avance_fact']),
+                round($o['pr_inv_obra']), round($o['pr_costo_total']), round($o['pr_costo_presup']), $fmtPct($o['pr_avance_ejec']),
+                $fmtPct($o['pr_mc_ofertado']), $fmtPct($o['pr_mc_proy']),
+            ];
+        }
+
+        $moneyCols = ['E','F','G','H','I','J','L','M','N','P','Q','S','T','U'];
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.($depEfectivo ? '_'.ucfirst((string) $depEfectivo) : '');
+
+        return Excel::download(
+            new \App\Exports\ReporteSaldos14Export($filas, $pintar, $moneyCols),
+            'Saldos_cuenta_14_'.$periodo.'.xlsx'
+        );
+    }
+
+    /** ¿El código empieza por alguno de los prefijos dados? */
+    private function empiezaPorAlguno(string $cod, array $prefijos): bool
+    {
+        $c = strtoupper($cod);
+        foreach ($prefijos as $p) {
+            if (str_starts_with($c, strtoupper($p))) return true;
+        }
+        return false;
+    }
+
+    /**
      * Consulta de una distribución de "otros costos" (áreas / bolsas): muestra, por
      * cuenta, el valor a cargar en el mes, la cuenta, su nombre, el tercero y la
      * observación. El detalle se arma con las bolsas grandes del período (BolsaMonto).

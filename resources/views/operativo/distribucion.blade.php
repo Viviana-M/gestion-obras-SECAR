@@ -278,6 +278,8 @@
                 style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
             <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
             <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+            <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
+               style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500">⬇ Excel saldos 14</a>
             <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#92400E">
                 <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEF3C7;border:1px solid #F59E0B"></span>
                 Celda modificada por Operaciones

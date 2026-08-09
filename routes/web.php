@@ -99,6 +99,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
 
         // Distribución de costos
         Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
+        Route::get('/operativo/distribucion/reporte-saldos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reporteSaldos'])->name('operativo.distribucion.reporte-saldos');
         Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
