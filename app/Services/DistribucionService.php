@@ -100,6 +100,14 @@ class DistribucionService
         'gris'     => ['#111827', '#FFFFFF'],
     ];
 
+    /** Fondo suave (tinte) del semáforo, para pintar tarjetas completas y dejar legible el texto. */
+    public const FONDOS_SEMAFORO = [
+        'verde'    => '#F0FDF4',
+        'amarillo' => '#FEFCE8',
+        'rojo'     => '#FEF2F2',
+        'gris'     => '#F3F4F6',
+    ];
+
     /** Nivel del semáforo (verde|amarillo|rojo|gris) para un margen % y un departamento. */
     public static function nivelMargen(?float $pct, ?string $depto): string
     {

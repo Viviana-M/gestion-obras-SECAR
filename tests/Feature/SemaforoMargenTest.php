@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\FichaProyecto;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -81,5 +82,28 @@ class SemaforoMargenTest extends TestCase
         // El % del mes es un badge verde (fondo #16A34A).
         $resp->assertSee('id="mcpct-C-777"', false);
         $resp->assertSee('background:#16A34A', false);
+    }
+
+    #[Test]
+    public function la_tarjeta_proyeccion_va_verde_si_el_ofertado_es_menor_al_proyectado(): void
+    {
+        // Mantenimiento. Oferta baja (15%) y proyectado real 20% (por debajo del umbral de
+        // 25% que normalmente sería negro). Como operaciones supera la oferta, va en verde.
+        FichaProyecto::create([
+            'codigo_proyecto' => 'C-808', 'nombre_obra' => 'Obra', 'cliente' => 'X',
+            'valor_contratado' => 1000000, 'costo_estimado' => 0, 'margen_ofertado' => 15,
+        ]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-808', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14350105',
+            'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -800000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $op = User::factory()->create(['rol' => 'aux_costos', 'activo' => true, 'permisos_modulos' => ['operacion' => 'editar']]);
+        $resp = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        // La tarjeta de proyección queda pintada de verde (borde verde del semáforo).
+        $resp->assertSee('border:2px solid #16A34A', false);
     }
 }

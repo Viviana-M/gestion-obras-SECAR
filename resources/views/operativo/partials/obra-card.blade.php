@@ -93,16 +93,21 @@
     {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
     @php
         $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
-        $colProy = '#312E81';
-        if ($mcp !== null && $ofc !== null) $colProy = $mcp >= $ofc ? '#15803D' : '#DC2626';
         $deltaMc = ($mcp !== null && $ofc !== null) ? round($mcp - $ofc, 1) : null;
+        // Semáforo de la tarjeta OFERTA vs PROYECTADO: umbrales del departamento sobre el
+        // margen proyectado real. PERO si el ofertado es menor al proyectado, la tarjeta va
+        // en verde: operaciones tomó un proyecto de bajo margen y lo está haciendo rentable.
+        $nivelProy = \App\Services\DistribucionService::nivelMargen($mcp, $depMargen);
+        if ($mcp !== null && $ofc !== null && $ofc < $mcp) $nivelProy = 'verde';
+        $semProy   = \App\Services\DistribucionService::COLORES_SEMAFORO[$nivelProy];
+        $fondoProy = \App\Services\DistribucionService::FONDOS_SEMAFORO[$nivelProy];
     @endphp
     <div style="background:#EEF2FF;padding:10px 16px;border-top:1px solid #E5E7EB">
         <div style="font-size:9px;font-weight:700;color:#4338CA;letter-spacing:.4px;margin-bottom:8px">PROYECCIÓN DE RENTABILIDAD · OFERTA vs REALIDAD</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
 
-            {{-- Grupo 1 · RENTABILIDAD (lo importante: ofertado vs proyectado) --}}
-            <div style="flex:1;min-width:220px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
+            {{-- Grupo 1 · RENTABILIDAD (ofertado vs proyectado): tarjeta pintada con el semáforo --}}
+            <div style="flex:1;min-width:220px;background:{{ $fondoProy }};border:2px solid {{ $semProy[0] }};border-radius:8px;padding:10px 12px">
                 <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:8px">RENTABILIDAD · MC %</div>
                 <div style="display:flex;align-items:center;gap:12px">
                     <div>
@@ -112,7 +117,7 @@
                     <div style="font-size:16px;color:#C7D2FE">→</div>
                     <div>
                         <div style="font-size:9px;color:#9CA3AF">Proyectado (real)</div>
-                        <div style="font-size:20px;font-weight:700;color:{{ $colProy }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
+                        <div style="display:inline-block;font-size:18px;font-weight:700;padding:1px 10px;border-radius:9px;background:{{ $semProy[0] }};color:{{ $semProy[1] }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
                     </div>
                 </div>
                 @if($deltaMc !== null)
