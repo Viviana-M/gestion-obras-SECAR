@@ -34,12 +34,14 @@ class RedistribucionMoEspecialController extends Controller
         [$mes, $anio] = $this->periodo($request);
 
         $costo   = $this->svc->costoPorPersona($mes, $anio);
-        $pcts    = $this->svc->porcentajes($mes, $anio);
+        $efect   = $this->svc->porcentajesEfectivos($mes, $anio);
+        $pcts    = $efect['pct'];
+        $heredados = $efect['heredados'];
         $montos  = $this->svc->montosDistribuir($mes, $anio);
         $resumen = $this->svc->resumenBolsas($mes, $anio);
 
-        // Personas del maestro con su costo, monto a distribuir y % del período.
-        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $pcts, $montos) {
+        // Personas del maestro con su costo, monto a distribuir y % del período (guardados o heredados).
+        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $pcts, $montos, $heredados) {
             $c = $costo[$p->cedula] ?? ['directo' => 0, 'ss' => 0, 'total' => 0, 'buckets' => []];
             $pp = $pcts[$p->cedula] ?? [];
             $total = (float) $c['total'];
@@ -50,15 +52,23 @@ class RedistribucionMoEspecialController extends Controller
                 'directo' => (float) $c['directo'], 'ss' => (float) $c['ss'], 'total' => $total,
                 'monto_distribuir' => $monto, 'pendiente' => round($total - $monto, 2),
                 'porcentajes' => $pp, 'suma_pct' => array_sum($pp),
+                'heredado' => (bool) ($heredados[$p->cedula] ?? false),
             ];
         });
+        $hayHeredados = ! empty($heredados);
 
         $bolsas   = UnBolsa::where('activo', true)->orderBy('codigo')->get(['codigo', 'nombre']);
+        // Paleta de colores por bolsa (para chips, barra y swatches), asignada por orden.
+        $paleta = ['#2563a8', '#12855a', '#a9761a', '#7c5cbf', '#c0392b', '#0e7490', '#b45309', '#9d174d'];
+        $coloresBolsa = [];
+        foreach ($bolsas->values() as $i => $b) {
+            $coloresBolsa[$b->codigo] = $paleta[$i % count($paleta)];
+        }
         $periodos = RegistroFinanciero::selectRaw('anio, mes')->distinct()
             ->orderByDesc('anio')->orderByDesc('mes')->get();
         $sinCruzar = $this->svc->tercerosSinCruzar($mes, $anio);
 
-        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar'));
+        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar', 'coloresBolsa', 'hayHeredados'));
     }
 
     /** Alta de una persona al maestro. Se puede elegir un tercero de la bolsa o escribirlo a mano. */

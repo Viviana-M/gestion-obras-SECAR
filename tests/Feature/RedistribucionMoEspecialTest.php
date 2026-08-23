@@ -276,6 +276,53 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function precarga_los_porcentajes_del_mes_anterior_sin_fijarlos(): void
+    {
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        // Junio guardado 60/40.
+        RedistribucionMoEspecial::insert([
+            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
+            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
+        ]);
+
+        $svc = app(RedistribucionMoEspecialService::class);
+
+        // Julio (sin guardar) hereda 60/40 y queda marcado como heredado, sin persistirse.
+        $jul = $svc->porcentajesEfectivos(7, 2026);
+        $this->assertEqualsWithDelta(60, $jul['pct']['111']['MTO00099'], 0.01);
+        $this->assertEqualsWithDelta(40, $jul['pct']['111']['INS00099'], 0.01);
+        $this->assertTrue($jul['heredados']['111'] ?? false);
+        $this->assertSame(0, RedistribucionMoEspecial::where('mes', 7)->count());
+
+        // Al guardar 70/30 en julio, se fija para julio y junio queda intacto.
+        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.porcentajes'), [
+            'mes' => 7, 'anio' => 2026,
+            'pct' => ['111' => [['un' => 'MTO00099', 'pct' => 70], ['un' => 'INS00099', 'pct' => 30]]],
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $julG = $svc->porcentajesGuardados(7, 2026);
+        $junG = $svc->porcentajesGuardados(6, 2026);
+        $this->assertEqualsWithDelta(70, $julG['111']['MTO00099'], 0.01);
+        $this->assertEqualsWithDelta(30, $julG['111']['INS00099'], 0.01);
+        $this->assertEqualsWithDelta(60, $junG['111']['MTO00099'], 0.01); // junio sin cambios
+        $this->assertFalse($svc->porcentajesEfectivos(7, 2026)['heredados']['111'] ?? false); // ya no es heredado
+    }
+
+    #[Test]
+    public function una_persona_nueva_no_hereda_porcentajes(): void
+    {
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraEspecial::create(['cedula' => '222', 'nombre' => 'NUEVA', 'activo' => true]);
+        RedistribucionMoEspecial::insert([
+            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 100],
+        ]);
+
+        $jul = app(RedistribucionMoEspecialService::class)->porcentajesEfectivos(7, 2026);
+        $this->assertArrayHasKey('111', $jul['pct']);       // ARLEY hereda
+        $this->assertArrayNotHasKey('222', $jul['pct']);    // NUEVA sin historial: sin %
+    }
+
+    #[Test]
     public function guardar_porcentajes_exige_que_sumen_100(): void
     {
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);

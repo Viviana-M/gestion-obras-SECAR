@@ -183,14 +183,55 @@ class RedistribucionMoEspecialService
         return implode(' ', $toks);
     }
 
-    /** Porcentajes por persona/UN del período: [cedula => [un_codigo => porcentaje]]. */
-    public function porcentajes(int $mes, int $anio): array
+    /** Porcentajes GUARDADOS del período (sin herencia): [cedula => [un_codigo => porcentaje]]. */
+    public function porcentajesGuardados(int $mes, int $anio): array
     {
         $out = [];
         foreach (RedistribucionMoEspecial::where('mes', $mes)->where('anio', $anio)->get() as $r) {
             $out[$r->cedula][$r->un_codigo] = (float) $r->porcentaje;
         }
         return $out;
+    }
+
+    /**
+     * Porcentajes EFECTIVOS del período: los guardados y, para las personas que aún no tienen
+     * % en el período, los HEREDADOS del período anterior más reciente que sí los tenga. No se
+     * persisten: quedan heredados hasta que Contabilidad los guarde. Una persona nueva (sin
+     * historial) queda sin %.
+     *
+     * @return array{pct: array<string,array<string,float>>, heredados: array<string,bool>}
+     */
+    public function porcentajesEfectivos(int $mes, int $anio): array
+    {
+        $pct = $this->porcentajesGuardados($mes, $anio);
+        $heredados = [];
+
+        $maestro = ManoObraEspecial::where('activo', true)->pluck('cedula')->all();
+        $faltan = array_values(array_diff($maestro, array_keys($pct)));
+        if (! empty($faltan)) {
+            $periodoActual = $anio * 100 + $mes;
+            $prev = RedistribucionMoEspecial::whereIn('cedula', $faltan)
+                ->whereRaw('(anio * 100 + mes) < ?', [$periodoActual])
+                ->orderByRaw('(anio * 100 + mes) desc')
+                ->get();
+            $masReciente = []; // cedula => período heredado (el primero visto = el más reciente)
+            foreach ($prev as $r) {
+                $per = $r->anio * 100 + $r->mes;
+                if (! isset($masReciente[$r->cedula])) $masReciente[$r->cedula] = $per;
+                if ($per === $masReciente[$r->cedula]) {
+                    $pct[$r->cedula][$r->un_codigo] = (float) $r->porcentaje;
+                    $heredados[$r->cedula] = true;
+                }
+            }
+        }
+
+        return ['pct' => $pct, 'heredados' => $heredados];
+    }
+
+    /** Porcentajes efectivos (guardados o heredados del mes anterior): [cedula => [un_codigo => porcentaje]]. */
+    public function porcentajes(int $mes, int $anio): array
+    {
+        return $this->porcentajesEfectivos($mes, $anio)['pct'];
     }
 
     /** Monto a distribuir por persona del período (lo que Contabilidad decidió repartir): [cedula => monto]. */
