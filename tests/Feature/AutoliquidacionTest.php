@@ -24,17 +24,19 @@ class AutoliquidacionTest extends TestCase
     }
 
     /**
-     * xlsx con la estructura NUEVA (11 columnas) y el período en el NOMBRE del archivo.
-     * Header: ID Cuenta, Cuenta contable, id. C.O. del Mov, Id. Tercero Mov, Razon Social,
-     * Id. U.N. Mov, Descripción Codigo PILA, Empleado, Nombre del empl, NDC, Aporte empresa.
+     * xlsx con la estructura ESTÁNDAR (13 columnas); el período se toma de la columna Fecha.
+     * Header: ID Cuenta, Cuenta contable, Id. Tercero Mov, Razon Social, Id. U.N. Mov, Fecha,
+     * Descripción UN, Descripción Codigo PILA, Empleado, Nombre del empl, Aporte del empl,
+     * Aporte empresa, Real Descontado.
      */
-    private function planilla(array $filas, string $nombre = '2026_06.xlsx'): UploadedFile
+    private function planilla(array $filas, string $nombre = 'Autoliquidación Abril.xlsx'): UploadedFile
     {
         $ss = new Spreadsheet();
         $sheet = $ss->getActiveSheet();
         $sheet->fromArray([
-            'ID Cuenta', 'Cuenta contable', 'id. C.O. del Mov', 'Id. Tercero Mov', 'Razon Social',
-            'Id. U.N. Mov', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl', 'NDC', 'Aporte empresa',
+            'ID Cuenta', 'Cuenta contable', 'Id. Tercero Mov', 'Razon Social', 'Id. U.N. Mov', 'Fecha',
+            'Descripción UN', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl',
+            'Aporte del empl', 'Aporte empresa', 'Real Descontado',
         ], null, 'A1');
         $r = 2;
         foreach ($filas as $f) {
@@ -48,42 +50,69 @@ class AutoliquidacionTest extends TestCase
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
-    private function fila(string $ced, string $un, string $concepto, float $empresa, string $co = 'CO-01', string $ndc = 'ND-9'): array
+    /**
+     * Fila de 13 columnas en el orden estándar.
+     * [ID Cuenta, Cuenta contable, cédula, Razon Social, U.N., Fecha, Descripción UN,
+     *  concepto, Empleado, Nombre, Aporte empl, Aporte empresa, Real Descontado]
+     */
+    private function fila(string $ced, string $un, string $concepto, float $empresa,
+        string $fecha = '2026-04-30', float $empleado = 0, float $real = 0): array
     {
-        // [ID Cuenta, Cuenta contable, C.O., cédula, Razon Social, U.N., concepto, Empleado, Nombre, NDC, Aporte empresa]
-        return ['26109505', 'CUENTA PUENTE EPS', $co, $ced, 'APELLIDO NOMBRE', $un, $concepto, $ced, 'APELLIDO NOMBRE', $ndc, $empresa];
+        return ['26109505', 'CUENTA PUENTE EPS', $ced, 'APELLIDO NOMBRE', $un, $fecha,
+            'AREA '.$un, $concepto, $ced, 'APELLIDO NOMBRE', $empleado, $empresa, $real];
     }
 
     #[Test]
-    public function toma_el_periodo_del_nombre_del_archivo_y_guarda_la_estructura_nueva(): void
+    public function toma_el_periodo_de_la_columna_fecha_y_guarda_la_estructura_estandar(): void
     {
         $archivo = $this->planilla([
-            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000, 'CO-ADM', 'NDC-1'),
-            $this->fila('222', 'OB4501', 'Aporte AFP', 25000, 'CO-OBR', 'NDC-2'),
-            $this->fila('111', 'ADM00099', 'Aporte ARL', 12000, 'CO-ADM', 'NDC-3'),
-        ], '2026_06.xlsx');
+            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000, '2026-04-30', 4000, 34000),
+            $this->fila('222', 'OB4501', 'Aporte AFP', 25000, '2026-04-30', 3000, 28000),
+            $this->fila('111', 'ADM00099', 'Aporte ARL', 12000, '2026-04-30', 0, 12000),
+        ], 'Autoliquidación Abril.xlsx');
 
         $this->actingAs($this->contable())
             ->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHas('success');
 
-        // Período tomado del nombre "2026_06" → junio 2026.
-        $this->assertSame(3, AutoliquidacionAporte::where('mes', 6)->where('anio', 2026)->count());
-        // Guarda las columnas nuevas (centro_operacion, ndc) y el aporte empresa.
+        // Período tomado de la columna Fecha (2026-04-30) → abril 2026.
+        $this->assertSame(3, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
+        // Guarda las columnas del estándar (un_descripcion, aporte_empleado, real_descontado).
         $this->assertDatabaseHas('autoliquidacion_aportes', [
             'cedula' => '222', 'un_codigo' => 'OB4501', 'concepto_pila' => 'Aporte AFP',
-            'centro_operacion' => 'CO-OBR', 'ndc' => 'NDC-2', 'aporte_empresa' => 25000,
-            'mes' => 6, 'anio' => 2026,
+            'un_descripcion' => 'AREA OB4501', 'aporte_empleado' => 3000, 'aporte_empresa' => 25000,
+            'real_descontado' => 28000, 'mes' => 4, 'anio' => 2026,
         ]);
         // 2 personas distintas.
-        $this->assertSame(2, AutoliquidacionAporte::where('mes', 6)->distinct()->count('cedula'));
+        $this->assertSame(2, AutoliquidacionAporte::where('mes', 4)->distinct()->count('cedula'));
     }
 
     #[Test]
-    public function el_nombre_sin_patron_aaaa_mm_avisa_y_no_carga(): void
+    public function el_resumen_de_abril_muestra_el_total_de_aporte_empresa_por_un(): void
+    {
+        $archivo = $this->planilla([
+            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
+            $this->fila('222', 'OB4501', 'Aporte AFP', 25000),
+        ], 'Autoliquidación Abril.xlsx');
+
+        $c = $this->contable();
+        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
+            ->assertRedirect();
+
+        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026]));
+        $resp->assertStatus(200);
+        $resp->assertSee('Por unidad de negocio');
+        $resp->assertSee('ADM00099');
+        $resp->assertSee('OB4501');
+        $resp->assertSee('$30.000', false); // aporte empresa de la UN ADM00099
+    }
+
+    #[Test]
+    public function sin_fecha_valida_avisa_y_no_carga(): void
     {
         $this->actingAs($this->contable())->post(route('contable.autoliquidacion.store'), [
-            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000)], 'planilla_pila.xlsx'),
+            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000, '')], 'plana.xlsx'),
         ])->assertRedirect()->assertSessionHas('error');
 
         $this->assertSame(0, AutoliquidacionAporte::count());
@@ -94,19 +123,19 @@ class AutoliquidacionTest extends TestCase
     {
         $c = $this->contable();
         $this->actingAs($c)->post(route('contable.autoliquidacion.store'), [
-            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000)], '2026_06.xlsx'),
+            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000, '2026-04-30')]),
         ])->assertRedirect();
-        $this->assertSame(1, AutoliquidacionAporte::where('mes', 6)->where('anio', 2026)->count());
+        $this->assertSame(1, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
 
-        // Recarga con otras filas del MISMO período => reemplaza.
+        // Recarga con otras filas del MISMO período (abril) => reemplaza.
         $this->actingAs($c)->post(route('contable.autoliquidacion.store'), [
             'archivo' => $this->planilla([
-                $this->fila('999', 'OB4501', 'AFP', 5000),
-                $this->fila('888', 'OB4501', 'ARL', 8000),
-            ], '2026_06.xlsx'),
+                $this->fila('999', 'OB4501', 'AFP', 5000, '2026-04-30'),
+                $this->fila('888', 'OB4501', 'ARL', 8000, '2026-04-30'),
+            ]),
         ])->assertRedirect();
 
-        $this->assertSame(2, AutoliquidacionAporte::where('mes', 6)->where('anio', 2026)->count());
+        $this->assertSame(2, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
         $this->assertSame(0, AutoliquidacionAporte::where('cedula', '111')->count()); // lo viejo se borró
     }
 
@@ -114,8 +143,21 @@ class AutoliquidacionTest extends TestCase
     public function un_usuario_sin_permiso_de_editar_no_puede_cargar(): void
     {
         $this->actingAs($this->contable('ver'))->post(route('contable.autoliquidacion.store'), [
-            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000)], '2026_06.xlsx'),
+            'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000)]),
         ])->assertForbidden();
+    }
+
+    #[Test]
+    public function la_pantalla_indica_las_columnas_del_archivo_plano(): void
+    {
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.autoliquidacion.index'));
+
+        $resp->assertStatus(200);
+        $resp->assertSee('debe traer estas 13 columnas', false);
+        $resp->assertSee('Id. Tercero Mov', false);
+        $resp->assertSee('Descripción Codigo PILA', false);
+        $resp->assertSee('Real Descontado', false);
     }
 
     #[Test]

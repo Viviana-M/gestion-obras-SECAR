@@ -3,23 +3,32 @@
 namespace App\Imports\Contable;
 
 use App\Models\AutoliquidacionAporte;
+use Carbon\Carbon;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithBatchInserts;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithStartRow;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 /**
- * Importa la planilla PILA por posición de columna (orden fijo), en chunks y por
- * lotes (como el importador BIABLE). El período (mes/anio) se fija por fuera (se toma
- * del nombre del archivo) y se aplica a todas las filas.
+ * Importa la planilla PILA por posición de columna (orden fijo), en chunks y por lotes.
+ * El período (mes/anio) se fija por fuera (se toma de la columna Fecha) y se aplica a
+ * todas las filas.
  *
- * Estructura NUEVA (11 columnas, 0-index):
- *  0 ID Cuenta | 1 Cuenta contable | 2 id. C.O. del Mov (centro operación) |
- *  3 Id. Tercero Mov (cédula) | 4 Razon Social | 5 Id. U.N. Mov |
- *  6 Descripción Codigo PILA | 7 Empleado (redundante) | 8 Nombre del empl (redundante) |
- *  9 NDC | 10 Aporte empresa
- *
- * Ya NO trae Descripción UN, Aporte del empl ni Real Descontado.
+ * Estructura ESTÁNDAR (13 columnas, 0-index):
+ *  0 ID Cuenta               → id_cuenta
+ *  1 Cuenta contable         → cuenta_contable
+ *  2 Id. Tercero Mov         → cedula
+ *  3 Razon Social            → razon_social
+ *  4 Id. U.N. Mov            → un_codigo
+ *  5 Fecha                   → (período mes/anio)
+ *  6 Descripción UN          → un_descripcion
+ *  7 Descripción Codigo PILA → concepto_pila
+ *  8 Empleado                → (no se guarda)
+ *  9 Nombre del empl         → (no se guarda)
+ * 10 Aporte del empl         → aporte_empleado
+ * 11 Aporte empresa          → aporte_empresa
+ * 12 Real Descontado         → real_descontado
  */
 class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInserts, WithStartRow
 {
@@ -45,7 +54,7 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
 
     public function model(array $row)
     {
-        $cedula = trim((string) ($row[3] ?? ''));
+        $cedula = trim((string) ($row[2] ?? ''));
         if ($cedula === '') {
             return null; // fila vacía / sin persona
         }
@@ -53,16 +62,49 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
         return new AutoliquidacionAporte([
             'id_cuenta'        => $this->texto($row[0] ?? null),
             'cuenta_contable'  => $this->texto($row[1] ?? null),
-            'centro_operacion' => $this->texto($row[2] ?? null),
             'cedula'           => $cedula,
-            'razon_social'     => $this->texto($row[4] ?? null),
-            'un_codigo'        => $this->texto($row[5] ?? null),
-            'concepto_pila'    => $this->texto($row[6] ?? null),
-            'ndc'              => $this->texto($row[9] ?? null),
-            'aporte_empresa'   => $this->num($row[10] ?? 0),
+            'razon_social'     => $this->texto($row[3] ?? null),
+            'un_codigo'        => $this->texto($row[4] ?? null),
+            'fecha'            => self::parsearFecha($row[5] ?? null)?->format('Y-m-d'),
+            'un_descripcion'   => $this->texto($row[6] ?? null),
+            'concepto_pila'    => $this->texto($row[7] ?? null),
+            'aporte_empleado'  => $this->num($row[10] ?? 0),
+            'aporte_empresa'   => $this->num($row[11] ?? 0),
+            'real_descontado'  => $this->num($row[12] ?? 0),
             'mes'              => $this->mes,
-            'anio'             => $this->anio,
+            'anio'            => $this->anio,
         ]);
+    }
+
+    /**
+     * Interpreta la columna Fecha: serial de Excel (número), ISO "2026-04-30" o
+     * "dd/mm/aaaa". Devuelve un Carbon o null si no se puede leer.
+     */
+    public static function parsearFecha($v): ?Carbon
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (is_numeric($v)) {
+            try {
+                return Carbon::instance(ExcelDate::excelToDateTimeObject((float) $v));
+            } catch (\Throwable $e) {
+                return null;
+            }
+        }
+        $s = trim((string) $v);
+        if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $s)) {
+            try {
+                return Carbon::createFromFormat('d/m/Y', $s)->startOfDay();
+            } catch (\Throwable $e) {
+                // sigue al parseo genérico
+            }
+        }
+        try {
+            return Carbon::parse($s);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function texto($v): ?string

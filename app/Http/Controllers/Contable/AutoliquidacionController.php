@@ -57,20 +57,22 @@ class AutoliquidacionController extends Controller
 
         @set_time_limit(0);
 
-        // El período se toma del NOMBRE del archivo (patrón AAAA_MM, ej. "2026_06.xlsx").
-        $nombre  = $request->file('archivo')->getClientOriginalName();
-        $periodo = $this->periodoDesdeNombre($nombre);
+        $archivo = $request->file('archivo');
+
+        // El período se toma de la columna FECHA (ej. 2026-04-30 → abril 2026). Se lee una
+        // muestra del archivo y se usa la primera fecha válida encontrada.
+        $periodo = $this->periodoDesdeFecha($archivo);
         if (! $periodo) {
             return back()->with('error',
-                'El nombre del archivo debe incluir el período con el patrón AAAA_MM (ej. "2026_06.xlsx"). '.
-                "Recibí \"{$nombre}\". Renómbralo y vuelve a subir.");
+                'No pude leer el período de la columna "Fecha". Revisa que el archivo tenga '.
+                'las 13 columnas estándar y que la columna Fecha traiga fechas válidas (ej. 2026-04-30).');
         }
         [$mesArchivo, $anioArchivo] = $periodo;
 
         // Reemplazar la planilla del mismo período (borrar e insertar).
         AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
 
-        Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $request->file('archivo'));
+        Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $archivo);
 
         $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
         $filas    = (clone $base)->count();
@@ -83,15 +85,24 @@ class AutoliquidacionController extends Controller
     }
 
     /**
-     * Extrae [mes, anio] del nombre del archivo con patrón AAAA_MM (ej. "2026_06.xlsx",
-     * "PILA_2026_06_final.xlsx"). Exige año 20xx y mes 01-12. Null si no cumple.
+     * Lee el período [mes, anio] de la columna Fecha (índice 5) de la planilla, tomando
+     * la primera fila de datos con una fecha válida. Null si ninguna es legible.
      */
-    private function periodoDesdeNombre(string $nombre): ?array
+    private function periodoDesdeFecha(\Illuminate\Http\UploadedFile $archivo): ?array
     {
-        if (! preg_match('/(20\d{2})[_-](0[1-9]|1[0-2])/', $nombre, $m)) {
-            return null;
+        $hojas = Excel::toArray(new class {}, $archivo);
+        $filas = $hojas[0] ?? [];
+
+        foreach ($filas as $i => $fila) {
+            if ($i === 0) {
+                continue; // encabezado
+            }
+            $fecha = AutoliquidacionImport::parsearFecha($fila[5] ?? null);
+            if ($fecha) {
+                return [(int) $fecha->month, (int) $fecha->year];
+            }
         }
 
-        return [(int) $m[2], (int) $m[1]]; // [mes, anio]
+        return null;
     }
 }

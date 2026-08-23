@@ -10,7 +10,7 @@
 @endphp
 
 <x-page-banner title="Autoliquidación de aportes (PILA)" icon="🧾">
-    Carga la planilla mensual de aportes; el período se toma del <b>nombre del archivo</b> (patrón <code>AAAA_MM</code>) y al recargar el mes se reemplaza.
+    Carga la planilla mensual de aportes; el período se toma de la columna <b>Fecha</b> del archivo y al recargar el mismo mes se reemplaza.
 </x-page-banner>
 
 @if(session('success'))
@@ -20,6 +20,13 @@
 <div style="background:#FEF2F2;border:1px solid #FECACA;color:#DC2626;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('error') }}</div>
 @endif
 
+@php
+    // Columnas que DEBE traer el archivo plano, en este orden.
+    $columnasPila = ['ID Cuenta', 'Cuenta contable', 'Id. Tercero Mov', 'Razon Social', 'Id. U.N. Mov',
+        'Fecha', 'Descripción UN', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl',
+        'Aporte del empl', 'Aporte empresa', 'Real Descontado'];
+@endphp
+
 @if($puedeEditar)
 <div class="card" style="padding:16px;margin-bottom:1.25rem">
     <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:10px">Cargar planilla</h2>
@@ -27,13 +34,25 @@
         style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Archivo Excel (.xlsx) — nómbralo <code>AAAA_MM</code></label>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Archivo Excel (.xlsx)</label>
             <input type="file" name="archivo" accept=".xlsx,.xls" required
                 style="font-size:12px;padding:6px;border:1px solid #E5E7EB;border-radius:8px;background:white">
         </div>
         <button type="submit" style="padding:8px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Cargar</button>
     </form>
-    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma del nombre del archivo, ej. <code>2026_06.xlsx</code> → junio 2026.</p>
+    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma de la columna <b>Fecha</b> del archivo (ej. <code>2026-04-30</code> → abril 2026). Al recargar el mismo mes se reemplaza.</p>
+
+    {{-- Columnas exactas que debe traer el archivo plano --}}
+    <div style="margin-top:12px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:#1B3F6E;margin-bottom:8px">El archivo plano debe traer estas 13 columnas, en este orden:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+            @foreach($columnasPila as $i => $col)
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;background:white;border:1px solid #E5E7EB;border-radius:6px;padding:3px 8px;color:#374151">
+                    <span style="font-weight:700;color:#9CA3AF">{{ $i + 1 }}</span>{{ $col }}
+                </span>
+            @endforeach
+        </div>
+    </div>
 </div>
 @endif
 
