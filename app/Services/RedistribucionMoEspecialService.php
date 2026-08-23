@@ -9,6 +9,7 @@ use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Grupo B: mano de obra de personal especial que se REDISTRIBUYE por porcentaje entre las
@@ -195,6 +196,10 @@ class RedistribucionMoEspecialService
     /** Monto a distribuir por persona del período (lo que Contabilidad decidió repartir): [cedula => monto]. */
     public function montosDistribuir(int $mes, int $anio): array
     {
+        // Salvaguarda: si la migración aún no se ha corrido, no revienta (se distribuye el total).
+        if (! Schema::hasTable('monto_distribuir_mo_especial')) {
+            return [];
+        }
         $out = [];
         foreach (MontoDistribuirMoEspecial::where('mes', $mes)->where('anio', $anio)->get() as $r) {
             $out[$r->cedula] = (float) $r->monto_distribuir;

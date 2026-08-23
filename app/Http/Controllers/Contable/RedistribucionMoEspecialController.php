@@ -12,6 +12,7 @@ use App\Services\RedistribucionMoEspecialService;
 use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Módulo de Contabilidad: redistribución por % de la mano de obra del personal especial
@@ -95,7 +96,9 @@ class RedistribucionMoEspecialController extends Controller
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
 
         RedistribucionMoEspecial::where('cedula', $persona->cedula)->delete();
-        MontoDistribuirMoEspecial::where('cedula', $persona->cedula)->delete();
+        if (Schema::hasTable('monto_distribuir_mo_especial')) {
+            MontoDistribuirMoEspecial::where('cedula', $persona->cedula)->delete();
+        }
         $persona->delete();
 
         return back()->with('success', 'Persona eliminada de MO Apoyo administrativo y operativo.');
@@ -153,7 +156,7 @@ class RedistribucionMoEspecialController extends Controller
                 }
             }
             // Reemplaza el monto a distribuir del período para las personas enviadas.
-            if (! empty($montos)) {
+            if (! empty($montos) && Schema::hasTable('monto_distribuir_mo_especial')) {
                 MontoDistribuirMoEspecial::where('mes', $mes)->where('anio', $anio)
                     ->whereIn('cedula', array_keys($montos))->delete();
                 foreach ($montos as $cedula => $m) {
