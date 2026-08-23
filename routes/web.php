@@ -61,6 +61,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Autoliquidación de aportes (PILA) — carga y resumen (fase 1).
         Route::get('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'index'])->name('contable.autoliquidacion.index');
         Route::post('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'store'])->name('contable.autoliquidacion.store');
+        // Vaciar (borrar) los aportes de un período, para recargar limpio.
+        Route::post('/contable/autoliquidacion/vaciar', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'vaciar'])->name('contable.autoliquidacion.vaciar');
         // Descarga a Excel del costo de seguridad social por persona (pestaña del módulo).
         Route::get('/contable/autoliquidacion/personas/excel', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personasExcel'])->name('contable.autoliquidacion.personas.excel');
         // Cargue del movimiento comercial (ítems → items_distribucion)

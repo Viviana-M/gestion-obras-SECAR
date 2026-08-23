@@ -100,6 +100,22 @@
         </div>
     </div>
 
+    @if($puedeEditar && $resumen['filas'] > 0)
+    <div class="card" style="padding:12px 16px;margin-bottom:1.25rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid #FECACA;background:#FEF2F2">
+        <div style="flex:1;min-width:220px;font-size:12px;color:#7F1D1D">
+            ¿Datos duplicados o incorrectos en <b>{{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</b>? Vacía el período y vuelve a cargar la planilla.
+        </div>
+        <form method="POST" action="{{ route('contable.autoliquidacion.vaciar') }}"
+            onsubmit="return confirm('¿Vaciar TODOS los aportes de {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}? Se borrarán {{ number_format($resumen['filas'],0,',','.') }} filas. Luego deberás volver a cargar la planilla.');"
+            style="margin:0">
+            @csrf
+            <input type="hidden" name="mes" value="{{ $mes }}">
+            <input type="hidden" name="anio" value="{{ $anio }}">
+            <button type="submit" style="padding:8px 14px;background:#DC2626;color:white;border:none;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap">🗑 Vaciar {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</button>
+        </form>
+    </div>
+    @endif
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" class="grid-desgloses">
         <div class="card" style="padding:0;overflow-x:auto">
             <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;padding:14px 16px 8px">Por unidad de negocio</h2>

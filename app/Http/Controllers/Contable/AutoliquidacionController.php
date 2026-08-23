@@ -212,6 +212,24 @@ class AutoliquidacionController extends Controller
     }
 
     /**
+     * Vacía (borra) todos los aportes de un período. Sirve para recargar limpio cuando
+     * quedaron datos duplicados o incorrectos.
+     */
+    public function vaciar(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
+        $mes  = (int) $request->input('mes');
+        $anio = (int) $request->input('anio');
+
+        $n = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)->delete();
+
+        return redirect()->route('contable.autoliquidacion.index', ['mes' => $mes, 'anio' => $anio, 'tab' => 'resumen'])
+            ->with('success', "Período {$mes}/{$anio} vaciado: {$n} filas borradas. Ahora vuelve a cargar la planilla.");
+    }
+
+    /**
      * Lee el período [mes, anio] de la columna Fecha (índice 5) de la planilla, tomando
      * la primera fila de datos con una fecha válida. Null si ninguna es legible.
      */

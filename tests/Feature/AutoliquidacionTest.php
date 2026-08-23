@@ -140,6 +140,33 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function vaciar_borra_los_aportes_del_periodo(): void
+    {
+        AutoliquidacionAporte::create(['cedula' => '1', 'concepto_pila' => 'EPS', 'aporte_empresa' => 100, 'mes' => 4, 'anio' => 2026]);
+        AutoliquidacionAporte::create(['cedula' => '2', 'concepto_pila' => 'AFP', 'aporte_empresa' => 200, 'mes' => 4, 'anio' => 2026]);
+        AutoliquidacionAporte::create(['cedula' => '3', 'concepto_pila' => 'EPS', 'aporte_empresa' => 300, 'mes' => 5, 'anio' => 2026]); // otro mes: se conserva
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.autoliquidacion.vaciar'), ['mes' => 4, 'anio' => 2026])
+            ->assertRedirect()->assertSessionHas('success');
+
+        $this->assertSame(0, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
+        $this->assertSame(1, AutoliquidacionAporte::where('mes', 5)->where('anio', 2026)->count()); // no toca mayo
+    }
+
+    #[Test]
+    public function un_usuario_sin_permiso_de_editar_no_puede_vaciar(): void
+    {
+        AutoliquidacionAporte::create(['cedula' => '1', 'concepto_pila' => 'EPS', 'aporte_empresa' => 100, 'mes' => 4, 'anio' => 2026]);
+
+        $this->actingAs($this->contable('ver'))
+            ->post(route('contable.autoliquidacion.vaciar'), ['mes' => 4, 'anio' => 2026])
+            ->assertForbidden();
+
+        $this->assertSame(1, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
+    }
+
+    #[Test]
     public function un_usuario_sin_permiso_de_editar_no_puede_cargar(): void
     {
         $this->actingAs($this->contable('ver'))->post(route('contable.autoliquidacion.store'), [
