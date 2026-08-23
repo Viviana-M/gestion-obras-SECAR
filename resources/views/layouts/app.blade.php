@@ -94,7 +94,6 @@
 
     $finActive = request()->is('dashboard') || request()->is('financiero/*');
     $opActive  = request()->is('operativo/*');
-    $comActive = request()->is('comercial/*');
     $conActive = request()->is('contable/*') && !$adminEnContable;
     $admActive = request()->is('admin/*') || $adminEnContable;
 
@@ -171,18 +170,6 @@
         {{-- El flujo de "Autorizaciones · distribución sin ingreso" se retiró: Operaciones
              puede cargar costos en órdenes abiertas (sin ingreso) sin autorización. --}}
 
-        @if($usuario->puedeVerModulo('comercial'))
-        <div class="module {{ $comActive ? 'open active-mod' : '' }}">
-            <button type="button" class="module-head">
-                <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9-9-9z"/><circle cx="8" cy="8" r="1.5"/></svg></span>
-                <span class="module-name">Comercial</span>
-                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-            </button>
-            <div class="submenu">
-                <a href="/comercial/cotizaciones" class="{{ request()->is('comercial/cotizaciones') ? 'active' : '' }}">Cotizaciones y ofertas</a>
-            </div>
-        </div>
-        @endif
 
         @if($usuario->puedeVerModulo('contabilidad'))
         <div class="module {{ $conActive ? 'open active-mod' : '' }}">

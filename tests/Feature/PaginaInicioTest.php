@@ -27,7 +27,6 @@ class PaginaInicioTest extends TestCase
     {
         $this->assertSame('/dashboard', $this->usuario(['gestion_financiera' => 'ver'])->paginaInicio());
         $this->assertSame('/operativo/distribucion', $this->usuario(['operacion' => 'editar'])->paginaInicio());
-        $this->assertSame('/comercial/cotizaciones', $this->usuario(['comercial' => 'ver'])->paginaInicio());
         $this->assertSame('/contable/homologaciones', $this->usuario(['contabilidad' => 'ver'])->paginaInicio());
 
         // Con varios módulos, gana el primero del menú (financiero antes que operación).

@@ -145,12 +145,6 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/operativo/autorizaciones/{autorizacion}/rechazar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'rechazar'])->name('operativo.autorizaciones.rechazar');
 
     // ══════════════════════ COMERCIAL ══════════════════════
-    Route::middleware('modulo:comercial')->group(function () {
-        Route::get('/comercial/cotizaciones', function () {
-            return view('comercial.cotizaciones');
-        });
-    });
-
     // ══════════════════════ ADMINISTRACIÓN (solo admin, verificado en el controlador) ══════════════════════
     Route::get('/admin/usuarios', [UsuarioController::class, 'index'])->name('admin.usuarios.index');
     Route::get('/admin/usuarios/crear', [UsuarioController::class, 'create'])->name('admin.usuarios.create');

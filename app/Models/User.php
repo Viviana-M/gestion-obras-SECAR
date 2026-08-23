@@ -108,7 +108,6 @@ class User extends Authenticatable
         $modulos = [
             'gestion_financiera' => '/dashboard',
             'operacion'          => '/operativo/distribucion',
-            'comercial'          => '/comercial/cotizaciones',
             'contabilidad'       => '/contable/homologaciones',
         ];
 
