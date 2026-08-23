@@ -74,6 +74,33 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function cruza_la_mo_directa_por_nombre_del_tercero(): void
+    {
+        // Producción: el tercero de la bolsa viene con el NOMBRE en la razón social (no la cédula),
+        // a veces con acentos/mayúsculas distintas. Debe cruzar igual.
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'Arley González', 'activo' => true]);
+
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '', 'razon_social' => 'ARLEY GONZALEZ',
+            'estado_er' => -700000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+        // SS cruzada por la cédula del empleado en la autoliquidación (el tercero contable es el fondo).
+        AutoliquidacionAporte::create([
+            'cedula' => '800100', 'razon_social' => 'NUEVA EPS', 'empleado' => '111', 'empleado_nombre' => 'ARLEY GONZALEZ',
+            'un_codigo' => 'MTO00099', 'cuenta_contable' => '14200530', 'concepto_pila' => 'EPS',
+            'aporte_empresa' => 300000, 'aporte_empleado' => 0, 'real_descontado' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(6, 2026);
+
+        $this->assertEqualsWithDelta(700000, $costo['111']['directo'], 0.5);
+        $this->assertEqualsWithDelta(300000, $costo['111']['ss'], 0.5);
+        $this->assertEqualsWithDelta(1000000, $costo['111']['total'], 0.5);
+    }
+
+    #[Test]
     public function retira_de_las_bolsas_y_redistribuye_por_porcentaje(): void
     {
         $this->homologarMO('14200530');

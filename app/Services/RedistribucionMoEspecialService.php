@@ -47,29 +47,49 @@ class RedistribucionMoEspecialService
             return [];
         }
         $cedulas   = $maestro->pluck('cedula')->all();
+        $nombres   = $maestro->pluck('nombre')->all();
         $nombreMae = $maestro->pluck('nombre', 'cedula');
+
+        // Índice de identificadores → cédula. Cruzamos el tercero del financiero (razón
+        // social o tercero_dcto) y el empleado de la autoliquidación contra la CÉDULA o el
+        // NOMBRE de la persona, normalizados (sin acentos/mayúsculas/espacios de más), porque
+        // en producción el tercero de la bolsa suele venir con el NOMBRE, no la cédula.
+        $idx = [];
+        foreach ($maestro as $p) {
+            foreach ([$p->cedula, $p->nombre] as $ident) {
+                $n = $this->norm($ident);
+                if ($n !== '') {
+                    $idx[$n] = $p->cedula;
+                }
+            }
+        }
 
         $unBolsa   = UnBolsa::codigos();
         $cuentasMO = $this->cuentasMO($mes, $anio);
 
-        // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período con tercero = la cédula.
+        // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período. Se traen agrupadas por
+        //    tercero (razón social + tercero_dcto) y se atribuyen en PHP a la persona por
+        //    coincidencia normalizada de cédula o nombre (robusto ante acentos/mayúsculas).
         $directo = collect();
-        if (! empty($cuentasMO)) {
+        if (! empty($cuentasMO) && ! empty($unBolsa)) {
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
-                ->whereIn('tercero_dcto', $cedulas)
                 ->where('mes', $mes)->where('anio', $anio)
-                ->selectRaw('tercero_dcto as cedula, codigo_proyecto as un, cuenta_contable as cuenta, SUM(estado_er) as saldo')
-                ->groupBy('tercero_dcto', 'codigo_proyecto', 'cuenta_contable')
+                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, razon_social, tercero_dcto, SUM(estado_er) as saldo')
+                ->groupBy('codigo_proyecto', 'cuenta_contable', 'razon_social', 'tercero_dcto')
                 ->get();
         }
 
-        // 2) SEGURIDAD SOCIAL: aportes de la autoliquidación por cédula del empleado.
-        $ss = AutoliquidacionAporte::whereIn('empleado', $cedulas)
-            ->where('mes', $mes)->where('anio', $anio)
-            ->selectRaw('empleado as cedula, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
-            ->groupBy('empleado', 'un_codigo', 'cuenta_contable')
+        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la cédula
+        //    (empleado) o el nombre (empleado_nombre) de la persona. En el financiero estos
+        //    aportes vienen a nombre del fondo/EPS, por eso se cruzan por la autoliquidación.
+        $ss = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+            ->where(function ($q) use ($cedulas, $nombres) {
+                $q->whereIn('empleado', $cedulas)->orWhereIn('empleado_nombre', $nombres);
+            })
+            ->selectRaw('empleado, empleado_nombre, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
+            ->groupBy('empleado', 'empleado_nombre', 'un_codigo', 'cuenta_contable')
             ->havingRaw('SUM(aporte_empresa) > 0.005')
             ->get();
 
@@ -80,22 +100,34 @@ class RedistribucionMoEspecialService
         }
 
         foreach ($directo as $r) {
+            $ced = $idx[$this->norm($r->razon_social)] ?? $idx[$this->norm($r->tercero_dcto)] ?? null;
+            if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
-            $out[$r->cedula]['directo'] += $m;
-            $out[$r->cedula]['total']   += $m;
-            $out[$r->cedula]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo'];
+            $out[$ced]['directo'] += $m;
+            $out[$ced]['total']   += $m;
+            $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo'];
         }
 
         foreach ($ss as $r) {
+            $ced = $idx[$this->norm($r->empleado)] ?? $idx[$this->norm($r->empleado_nombre)] ?? null;
+            if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->monto;
-            if ($m <= 0.005 || ! isset($out[$r->cedula])) continue;
-            $out[$r->cedula]['ss']    += $m;
-            $out[$r->cedula]['total'] += $m;
-            $out[$r->cedula]['buckets'][] = ['un' => (string) ($r->un ?: '—'), 'cuenta' => (string) ($r->cuenta ?: ''), 'monto' => $m, 'tipo' => 'ss'];
+            if ($m <= 0.005) continue;
+            $out[$ced]['ss']    += $m;
+            $out[$ced]['total'] += $m;
+            $out[$ced]['buckets'][] = ['un' => (string) ($r->un ?: '—'), 'cuenta' => (string) ($r->cuenta ?: ''), 'monto' => $m, 'tipo' => 'ss'];
         }
 
         return $out;
+    }
+
+    /** Normaliza un identificador (cédula o nombre) para cruzar terceros: minúsculas, sin acentos ni espacios de más. */
+    private function norm(?string $s): string
+    {
+        $s = trim(mb_strtolower((string) $s));
+        $s = preg_replace('/\s+/', ' ', $s);
+        return strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n', 'ü' => 'u']);
     }
 
     /** Porcentajes por persona/UN del período: [cedula => [un_codigo => porcentaje]]. */

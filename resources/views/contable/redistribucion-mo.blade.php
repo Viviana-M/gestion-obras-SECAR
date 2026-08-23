@@ -80,13 +80,15 @@
                 <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Redistribuir entre bolsas (deben sumar 100%):
                     <span class="suma-pct" data-ced="{{ $per['cedula'] }}" style="font-weight:700;color:{{ abs($per['suma_pct']-100)<0.05 || $per['suma_pct']==0 ? '#15803D' : '#DC2626' }}">{{ rtrim(rtrim(number_format($per['suma_pct'],1),'0'),'.') }}%</span>
                 </div>
-                <div id="filas-{{ $loop->index }}" data-ced="{{ $per['cedula'] }}">
+                <div id="filas-{{ $loop->index }}" data-ced="{{ $per['cedula'] }}" data-total="{{ $per['total'] }}">
                     @foreach($per['porcentajes'] as $un => $pct)
                     <div class="fila-pct" style="display:flex;gap:8px;margin-bottom:4px;align-items:center">
                         <select name="pct[{{ $per['cedula'] }}][{{ $loop->index }}][un]" onchange="recalcPct('{{ $per['cedula'] }}')" style="padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;min-width:220px">
                             @foreach($bolsas as $b)<option value="{{ $b->codigo }}" {{ $un==$b->codigo?'selected':'' }}>{{ $b->codigo }} · {{ \Illuminate\Support\Str::limit($b->nombre,28) }}</option>@endforeach
                         </select>
                         <input type="number" step="0.01" min="0" max="100" name="pct[{{ $per['cedula'] }}][{{ $loop->index }}][pct]" value="{{ rtrim(rtrim(number_format($pct,2),'0'),'.') }}" oninput="recalcPct('{{ $per['cedula'] }}')" style="width:90px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">%
+                        <span style="color:#9CA3AF;font-size:11px">→</span>
+                        <span class="val-dist" style="font-size:12px;color:#15803D;font-weight:700;min-width:96px">{{ $per['total'] > 0 ? $fmt($per['total'] * $pct / 100) : '' }}</span>
                         <a href="#" onclick="this.closest('.fila-pct').remove();recalcPct('{{ $per['cedula'] }}');return false" style="color:#DC2626;text-decoration:none">✕</a>
                     </div>
                     @endforeach
@@ -164,6 +166,8 @@
             @foreach($bolsas as $b)<option value="{{ $b->codigo }}">{{ $b->codigo }} · {{ \Illuminate\Support\Str::limit($b->nombre,28) }}</option>@endforeach
         </select>
         <input type="number" step="0.01" min="0" max="100" data-name="pct" value="" style="width:90px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">%
+        <span style="color:#9CA3AF;font-size:11px">→</span>
+        <span class="val-dist" style="font-size:12px;color:#15803D;font-weight:700;min-width:96px"></span>
         <a href="#" onclick="this.closest('.fila-pct').remove();return false" style="color:#DC2626;text-decoration:none">✕</a>
     </div>
 </template>
@@ -179,11 +183,20 @@ function agregarFila(cedula, idx){
     sel.name = `pct[${cedula}][${i}][un]`; sel.setAttribute('onchange', `recalcPct('${cedula}')`);
     inp.name = `pct[${cedula}][${i}][pct]`; inp.setAttribute('oninput', `recalcPct('${cedula}')`);
     cont.appendChild(tpl);
+    recalcPct(cedula);
 }
 function recalcPct(cedula){
-    const cont = document.querySelector(`[data-ced="${cedula}"]#filas-0, [data-ced="${cedula}"]`);
     let suma = 0;
-    document.querySelectorAll(`[id^="filas-"][data-ced="${cedula}"] input[name$="[pct]"]`).forEach(i => suma += parseFloat(i.value||0));
+    document.querySelectorAll(`[id^="filas-"][data-ced="${cedula}"]`).forEach(cont => {
+        const total = parseFloat(cont.dataset.total || 0);
+        cont.querySelectorAll('.fila-pct').forEach(row => {
+            const inp = row.querySelector('input[name$="[pct]"]');
+            const pct = parseFloat((inp && inp.value) || 0);
+            suma += pct;
+            const span = row.querySelector('.val-dist');
+            if (span) span.textContent = (total > 0 && pct > 0) ? '$' + Math.round(total * pct / 100).toLocaleString('es-CO') : '';
+        });
+    });
     const badge = document.querySelector(`.suma-pct[data-ced="${cedula}"]`);
     if (badge){ badge.textContent = (Math.round(suma*10)/10)+'%'; badge.style.color = (Math.abs(suma-100)<0.05||suma===0) ? '#15803D' : '#DC2626'; }
 }
