@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Imports\Contable\AutoliquidacionImport;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
@@ -193,12 +194,15 @@ class AutoliquidacionController extends Controller
         }
         [$mesArchivo, $anioArchivo] = $periodo;
 
-        // Reemplazar la planilla del mismo período (borrar e insertar) de forma ATÓMICA:
-        // así, si alguien da doble clic o el navegador reenvía, dos cargues simultáneos no
-        // dejan los datos duplicados (uno espera al otro y el borrado siempre precede al insert).
-        DB::transaction(function () use ($mesArchivo, $anioArchivo, $archivo) {
-            AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
-            Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $archivo);
+        // Reemplazar la planilla del mismo período (borrar e insertar). Se serializa con un
+        // candado por período: si el archivo es grande y tarda, un doble clic o un reenvío del
+        // navegador NO procesa dos veces a la vez (el segundo espera y, al entrar, vuelve a
+        // borrar antes de insertar). Además el borrado+insert es atómico (transacción).
+        Cache::lock("autoliquidacion:{$mesArchivo}:{$anioArchivo}", 300)->block(45, function () use ($mesArchivo, $anioArchivo, $archivo) {
+            DB::transaction(function () use ($mesArchivo, $anioArchivo, $archivo) {
+                AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
+                Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $archivo);
+            });
         });
 
         $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
