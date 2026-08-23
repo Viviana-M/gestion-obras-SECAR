@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Imports\Contable\AutoliquidacionImport;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
 class AutoliquidacionController extends Controller
@@ -23,8 +24,11 @@ class AutoliquidacionController extends Controller
 
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio);
 
-        // "Personas" = empleados distintos (no terceros/fondos).
-        $persona = "COALESCE(NULLIF(empleado, ''), cedula)";
+        // "Personas" = empleados distintos (no terceros/fondos). Si la planilla aún no tiene
+        // la columna empleado (migración pendiente), cae a la cédula del tercero.
+        $persona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
+            ? "COALESCE(NULLIF(empleado, ''), cedula)"
+            : 'cedula';
 
         $resumen = [
             'personas'       => (int) (clone $base)->selectRaw("COUNT(DISTINCT $persona) as n")->value('n'),
@@ -96,43 +100,64 @@ class AutoliquidacionController extends Controller
      */
     private function datosSeguridadPersona(int $mes, int $anio, ?string $un): array
     {
-        $persona = "COALESCE(NULLIF(empleado, ''), cedula)";
-        $nombre  = "COALESCE(NULLIF(MAX(empleado_nombre), ''), MAX(razon_social))";
+        // Se agrupa en PHP (no en SQL) para no depender del dialecto (only_full_group_by de
+        // MySQL) y para funcionar aunque la columna empleado aún no exista (migración pendiente).
+        $tieneEmpleado = Schema::hasColumn('autoliquidacion_aportes', 'empleado');
 
-        $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
-            ->when($un, fn ($q) => $q->where('un_codigo', $un));
+        $cols = ['cedula', 'razon_social', 'un_codigo', 'concepto_pila', 'aporte_empresa'];
+        if ($tieneEmpleado) {
+            $cols[] = 'empleado';
+            $cols[] = 'empleado_nombre';
+        }
 
-        $totales = (clone $base)
-            ->selectRaw("$persona as cedula, $nombre as nombre, SUM(aporte_empresa) as total")
-            ->groupByRaw($persona)
-            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005')
-            ->orderByDesc('total')
-            ->get();
+        $filas = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+            ->when($un, fn ($q) => $q->where('un_codigo', $un))
+            ->get($cols);
 
-        $conceptos = (clone $base)
-            ->selectRaw("$persona as cedula, concepto_pila, SUM(aporte_empresa) as aporte")
-            ->groupByRaw("$persona, concepto_pila")
-            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005')
-            ->orderByDesc('aporte')
-            ->get()->groupBy('cedula');
+        $acc = [];
+        foreach ($filas as $r) {
+            // Persona = EMPLEADO (si viene); si no, cae al tercero (planillas antiguas).
+            $emp = $tieneEmpleado ? trim((string) $r->empleado) : '';
+            $key = $emp !== '' ? $emp : (string) $r->cedula;
+            $nombre = ($tieneEmpleado && trim((string) $r->empleado_nombre) !== '')
+                ? $r->empleado_nombre
+                : ($r->razon_social ?: '—');
 
-        $unPorPersona = (clone $base)
-            ->selectRaw("$persona as cedula, un_codigo, SUM(aporte_empresa) as apo")
-            ->groupByRaw("$persona, un_codigo")
-            ->orderByDesc('apo')
-            ->get()->groupBy('cedula');
+            if (! isset($acc[$key])) {
+                $acc[$key] = ['cedula' => $key, 'nombre' => $nombre, 'total' => 0.0, 'conceptos' => [], 'un' => []];
+            }
+            if (($acc[$key]['nombre'] === '—' || $acc[$key]['nombre'] === '') && $nombre) {
+                $acc[$key]['nombre'] = $nombre;
+            }
 
-        $personas = $totales->map(fn ($p) => [
-            'cedula'    => $p->cedula,
-            'nombre'    => $p->nombre ?: '—',
-            'un'        => optional(($unPorPersona[$p->cedula] ?? collect())->first())->un_codigo ?: '—',
-            'total'     => (float) $p->total,
-            'conceptos' => ($conceptos[$p->cedula] ?? collect())
-                ->map(fn ($d) => ['concepto' => $d->concepto_pila ?: '—', 'aporte' => (float) $d->aporte])
-                ->values()->all(),
-        ])->values();
+            $ap = (float) $r->aporte_empresa;
+            $acc[$key]['total'] += $ap;
+            $acc[$key]['conceptos'][$r->concepto_pila ?: '—'] = ($acc[$key]['conceptos'][$r->concepto_pila ?: '—'] ?? 0) + $ap;
+            $acc[$key]['un'][$r->un_codigo ?: '—'] = ($acc[$key]['un'][$r->un_codigo ?: '—'] ?? 0) + $ap;
+        }
 
-        return ['personas' => $personas, 'total' => (float) $totales->sum('total')];
+        $personas = collect($acc)
+            ->filter(fn ($p) => abs($p['total']) > 0.005)             // no personas en 0
+            ->map(function ($p) {
+                arsort($p['un']);
+                $conceptos = collect($p['conceptos'])
+                    ->filter(fn ($v) => abs($v) > 0.005)              // no conceptos en 0
+                    ->sortDesc()
+                    ->map(fn ($v, $k) => ['concepto' => $k, 'aporte' => (float) $v])
+                    ->values()->all();
+
+                return [
+                    'cedula'    => $p['cedula'],
+                    'nombre'    => $p['nombre'] ?: '—',
+                    'un'        => (string) (array_key_first($p['un']) ?: '—'),
+                    'total'     => (float) $p['total'],
+                    'conceptos' => $conceptos,
+                ];
+            })
+            ->sortByDesc('total')
+            ->values();
+
+        return ['personas' => $personas, 'total' => (float) $personas->sum('total')];
     }
 
     public function store(Request $request)
