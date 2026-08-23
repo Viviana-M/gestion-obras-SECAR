@@ -16,6 +16,13 @@
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>
 @endif
 
+@if(count($obras) > 0)
+<div style="display:flex;justify-content:flex-end;margin-bottom:1rem">
+    <a href="{{ route('operativo.obras-revision.excel') }}"
+       style="padding:9px 16px;background:#15803D;color:white;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">⬇ Descargar Excel</a>
+</div>
+@endif
+
 @if(count($obras) === 0)
 <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras que revisar. 🎉</div>
 @else

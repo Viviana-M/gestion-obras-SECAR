@@ -135,6 +135,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
 
         // Obras abiertas con costo pero sin saldo en cuenta 14 (lista de revisión).
         Route::get('/operativo/obras-revision', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'index'])->name('operativo.obras-revision.index');
+        Route::get('/operativo/obras-revision/excel', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'exportarExcel'])->name('operativo.obras-revision.excel');
         Route::post('/operativo/obras-revision/observar', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'observar'])->name('operativo.obras-revision.observar');
     });
 

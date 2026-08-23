@@ -6,6 +6,7 @@ use App\Models\ObservacionRevision;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Maatwebsite\Excel\Facades\Excel;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -70,6 +71,33 @@ class ObrasRevisionTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('GM000045');       // sin saldo en 14 pero con costo: sí
         $resp->assertDontSee('C-800');      // tiene saldo en 14: no va a revisión
+    }
+
+    #[Test]
+    public function exporta_las_obras_en_revision_a_excel(): void
+    {
+        Excel::fake();
+        $this->seedGM000045();
+        $this->seedConSaldo();
+
+        $this->actingAs($this->operador())->get(route('operativo.obras-revision.excel'))->assertOk();
+
+        Excel::assertDownloaded('Obras_en_revision_'.date('Ymd').'.xlsx', function ($export) {
+            $plano = json_encode($export->array());
+            return str_contains($plano, 'GM000045')      // sin saldo 14 pero con costo: sí
+                && ! str_contains($plano, 'C-800')        // con saldo 14: no va a revisión
+                && str_contains($plano, 'Margen ($)')
+                && str_contains($plano, 'TOTAL');
+        });
+    }
+
+    #[Test]
+    public function un_usuario_sin_operacion_no_puede_exportar(): void
+    {
+        $sin = User::factory()->create([
+            'rol' => 'comercial', 'activo' => true, 'permisos_modulos' => ['comercial' => 'ver'],
+        ]);
+        $this->actingAs($sin)->get(route('operativo.obras-revision.excel'))->assertForbidden();
     }
 
     #[Test]

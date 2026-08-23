@@ -9,6 +9,7 @@ use App\Models\ObservacionRevision;
 use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use Illuminate\Http\Request;
+use Maatwebsite\Excel\Facades\Excel;
 
 /**
  * Obras ABIERTAS que están costando (costo reconocido en cuenta 6) pero YA NO
@@ -20,6 +21,47 @@ class ObrasRevisionController extends Controller
     private const UMBRAL = 0.5;
 
     public function index(Request $request)
+    {
+        return view('operativo.obras-revision', [
+            'obras'       => $this->datosObras(),
+            'puedeEditar' => $request->user()->puedeEditarModulo('operacion'),
+        ]);
+    }
+
+    /** Descarga a Excel de las obras en revisión (mismos datos que la pantalla). */
+    public function exportarExcel(Request $request)
+    {
+        abort_unless($request->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        $obras = $this->datosObras();
+
+        $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso', 'Costo total',
+            'Margen ($)', 'Margen (%)', 'Observación', 'Observado por', 'Fecha observación'];
+        $filas = [$head];
+
+        $tIng = 0.0; $tCosto = 0.0; $tMargen = 0.0;
+        foreach ($obras as $o) {
+            $filas[] = [
+                $o['codigo'], $o['nombre'] ?? '', $o['cliente'] ?? '', ucfirst($o['estado']),
+                round($o['ingreso']), round($o['costo_total']), round($o['margen_pesos']),
+                $fmtPct($o['margen_pct']),
+                $o['observacion'] ?? '', $o['obs_user'] ?? '',
+                $o['obs_fecha'] ? $o['obs_fecha']->format('Y-m-d') : '',
+            ];
+            $tIng += $o['ingreso']; $tCosto += $o['costo_total']; $tMargen += $o['margen_pesos'];
+        }
+        $filas[] = ['TOTAL', '', '', '', round($tIng), round($tCosto), round($tMargen), '', '', '', ''];
+
+        return Excel::download(
+            new \App\Exports\ObrasRevisionExport($filas),
+            'Obras_en_revision_'.date('Ymd').'.xlsx'
+        );
+    }
+
+    /** Arma la lista de obras en revisión (compartida por la pantalla y el Excel). */
+    private function datosObras(): array
     {
         // Sumas acumuladas por proyecto (toda la historia).
         $costo6 = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
@@ -69,10 +111,7 @@ class ObrasRevisionController extends Controller
         // Urgentes primero: margen más negativo arriba.
         usort($obras, fn ($a, $b) => $a['margen_pesos'] <=> $b['margen_pesos']);
 
-        return view('operativo.obras-revision', [
-            'obras'       => $obras,
-            'puedeEditar' => $request->user()->puedeEditarModulo('operacion'),
-        ]);
+        return $obras;
     }
 
     /** Guarda una observación/justificación para dejar la obra abierta. */
