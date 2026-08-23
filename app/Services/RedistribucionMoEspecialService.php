@@ -67,7 +67,7 @@ class RedistribucionMoEspecialService
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
-                ->where('mes', $mes)->where('anio', $anio)
+                ->where($this->corteAcum($anio, $mes))
                 ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
                 ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
                 ->get();
@@ -76,7 +76,7 @@ class RedistribucionMoEspecialService
         // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la cédula del
         //    empleado (o su nombre). En el financiero estos aportes vienen a nombre del fondo/EPS,
         //    por eso se cruzan por la autoliquidación.
-        $ss = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+        $ss = AutoliquidacionAporte::where($this->corteAcum($anio, $mes))
             ->selectRaw('empleado, empleado_nombre, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
             ->groupBy('empleado', 'empleado_nombre', 'un_codigo', 'cuenta_contable')
             ->havingRaw('SUM(aporte_empresa) > 0.005')
@@ -151,6 +151,20 @@ class RedistribucionMoEspecialService
         return $this->tercerosSinCruzar($mes, $anio);
     }
 
+    /**
+     * Corte ACUMULADO AL MES: todos los períodos anteriores + el mes filtrado. Mismo criterio
+     * que el saldo de las bolsas. Así el saldo no distribuido de un mes queda disponible el mes
+     * siguiente (y cuando se importa el plano a SIESA, la cuenta 14 baja y el pendiente se reduce).
+     */
+    private function corteAcum(int $anio, int $mes): \Closure
+    {
+        return function ($q) use ($anio, $mes) {
+            $q->where('anio', '<', $anio)->orWhere(function ($q2) use ($anio, $mes) {
+                $q2->where('anio', $anio)->where('mes', '<=', $mes);
+            });
+        };
+    }
+
     /** Normaliza una cédula/NIT: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */
     private function normCedula(?string $s): string
     {
@@ -216,7 +230,7 @@ class RedistribucionMoEspecialService
             $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
-                ->where('mes', $mes)->where('anio', $anio)
+                ->where($this->corteAcum($anio, $mes))
                 ->selectRaw('codigo_proyecto as un, SUM(estado_er) as saldo')
                 ->groupBy('codigo_proyecto')->get();
             foreach ($rows as $r) {
@@ -378,7 +392,7 @@ class RedistribucionMoEspecialService
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $unBolsa)
             ->whereIn('cuenta_contable', $cuentasMO)
-            ->where('mes', $mes)->where('anio', $anio)
+            ->where($this->corteAcum($anio, $mes))
             ->selectRaw('tercero_dcto, razon_social, SUM(estado_er) as saldo')
             ->groupBy('tercero_dcto', 'razon_social')
             ->get();

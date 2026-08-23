@@ -254,8 +254,25 @@ class RedistribucionMoEspecialTest extends TestCase
         $abr = collect($svc->resumenBolsas(4, 2026)['filas'])->keyBy('un');
         $may = collect($svc->resumenBolsas(5, 2026)['filas'])->keyBy('un');
 
-        $this->assertEqualsWithDelta(400000, $abr['INS00099']['redistribuido'], 0.5); // 40%
-        $this->assertEqualsWithDelta(700000, $may['INS00099']['redistribuido'], 0.5); // 70% (respeta el nuevo período)
+        // Los % son por período: abril reparte con 60/40, mayo con 30/70. El disponible es
+        // acumulado (mayo arrastra lo de abril no distribuido): abril=1.000.000, mayo=2.000.000.
+        $this->assertEqualsWithDelta(400000, $abr['INS00099']['redistribuido'], 0.5);  // 40% de 1.000.000
+        $this->assertEqualsWithDelta(1400000, $may['INS00099']['redistribuido'], 0.5); // 70% de 2.000.000 (acumulado)
+    }
+
+    #[Test]
+    public function el_saldo_no_distribuido_se_arrastra_al_mes_siguiente(): void
+    {
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '111', 600000, 4, 2026); // MO de abril
+        $this->moBolsa('MTO00099', '14200530', '111', 500000, 5, 2026); // MO de mayo
+
+        $svc = app(RedistribucionMoEspecialService::class);
+        // En abril hay 600.000 disponibles.
+        $this->assertEqualsWithDelta(600000, $svc->costoPorPersona(4, 2026)['111']['total'], 0.5);
+        // En mayo, el saldo de abril se arrastra: 600.000 + 500.000 = 1.100.000 disponibles.
+        $this->assertEqualsWithDelta(1100000, $svc->costoPorPersona(5, 2026)['111']['total'], 0.5);
     }
 
     #[Test]

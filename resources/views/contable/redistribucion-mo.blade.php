@@ -12,7 +12,8 @@
 <x-page-banner title="MO Apoyo administrativo y operativo" icon="🔀">
     Mano de obra de <b>apoyo administrativo y operativo</b> que se retira de las bolsas y se <b>redistribuye por porcentaje</b>
     entre ellas (no por proyecto). El costo por persona suma su <b>MO directa</b> más su <b>seguridad social</b>
-    (cruzada de la autoliquidación por cédula). Los % son <b>por período</b>.
+    (cruzada de la autoliquidación por cédula). Los % son <b>por período</b> y el saldo <b>no distribuido se arrastra</b>
+    al mes siguiente (queda en la cuenta 14 hasta llevarlo a costo real).
 </x-page-banner>
 
 @if(session('success'))<div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('success') }}</div>@endif
@@ -99,10 +100,10 @@
                     <span style="font-weight:600;color:#1B3F6E">{{ $per['nombre'] }}</span>
                     <span style="font-family:monospace;color:#9CA3AF;font-size:11px">· {{ $per['cedula'] }}</span>
                 </div>
-                <div style="font-size:12px;color:#6B7280">
+                <div style="font-size:12px;color:#6B7280" title="Saldo acumulado en la cuenta 14: incluye lo no distribuido de meses anteriores">
                     MO directa <b style="color:#374151">{{ $fmt($per['directo']) }}</b> +
                     Seg. social <b style="color:#374151">{{ $fmt($per['ss']) }}</b> =
-                    Total <b style="color:#15803D">{{ $fmt($per['total']) }}</b>
+                    Disponible (acum.) <b style="color:#15803D">{{ $fmt($per['total']) }}</b>
                     @if($puedeEditar)
                     <a href="#" onclick="if(confirm('¿Eliminar a {{ $per['nombre'] }} de MO Apoyo administrativo y operativo?')){document.getElementById('del-{{ $per['id'] }}').submit()}return false" style="color:#DC2626;text-decoration:none;margin-left:8px">✕</a>
                     @endif
