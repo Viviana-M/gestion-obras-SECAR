@@ -186,6 +186,7 @@
                 <div class="submenu-group-label">Cierre y ajustes</div>
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano Cierre Contable</a>
                 <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano Saldos contrarios</a>
+                <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">Redistribución MO especial</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Habilitar edición del mes</a>
             </div>
         </div>

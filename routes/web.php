@@ -56,6 +56,13 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'index'])->name('contable.plano-reversion.index');
         Route::get('/contable/plano-reversion/excel', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano-reversion.excel');
 
+        // Redistribución por % de la mano de obra del personal especial (Grupo B).
+        Route::get('/contable/redistribucion-mo', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'index'])->name('contable.redistribucion-mo.index');
+        Route::post('/contable/redistribucion-mo/persona', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'guardarPersona'])->name('contable.redistribucion-mo.persona');
+        Route::delete('/contable/redistribucion-mo/persona/{persona}', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'eliminarPersona'])->name('contable.redistribucion-mo.persona.eliminar');
+        Route::post('/contable/redistribucion-mo/porcentajes', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'guardarPorcentajes'])->name('contable.redistribucion-mo.porcentajes');
+        Route::get('/contable/redistribucion-mo/plano', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'plano'])->name('contable.redistribucion-mo.plano');
+
         // Cierre / apertura del período de edición de la Distribución.
         Route::get('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'index'])->name('contable.cierre.index');
         Route::post('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'toggle'])->name('contable.cierre.toggle');
