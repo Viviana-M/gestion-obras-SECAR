@@ -74,30 +74,35 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function cruza_la_mo_directa_por_nombre_del_tercero(): void
+    public function cruza_por_cedula_normalizando_el_formato(): void
     {
-        // Producción: el tercero de la bolsa viene con el NOMBRE en la razón social (no la cédula),
-        // a veces con acentos/mayúsculas distintas. Debe cruzar igual.
+        // El cruce es SOLO por cédula. El documento del financiero/autoliquidación puede venir
+        // con puntos/espacios ("12.345.678") y la del maestro sin ellos ("12345678"): debe cruzar.
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'Arley González', 'activo' => true]);
+        ManoObraEspecial::create(['cedula' => '12345678', 'nombre' => 'ARLEY GONZALEZ', 'activo' => true]);
 
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
-            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '', 'razon_social' => 'ARLEY GONZALEZ',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '12.345.678', 'razon_social' => 'NUEVA EPS',
             'estado_er' => -700000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
-        // SS cruzada por la cédula del empleado en la autoliquidación (el tercero contable es el fondo).
+        // Un tercero distinto (nombre parecido) NO debe contar: solo cruza la cédula.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '99999', 'razon_social' => 'ARLEY GONZALEZ',
+            'estado_er' => -250000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
         AutoliquidacionAporte::create([
-            'cedula' => '800100', 'razon_social' => 'NUEVA EPS', 'empleado' => '111', 'empleado_nombre' => 'ARLEY GONZALEZ',
+            'cedula' => '800100', 'razon_social' => 'NUEVA EPS', 'empleado' => '12 345 678', 'empleado_nombre' => 'ARLEY G.',
             'un_codigo' => 'MTO00099', 'cuenta_contable' => '14200530', 'concepto_pila' => 'EPS',
             'aporte_empresa' => 300000, 'aporte_empleado' => 0, 'real_descontado' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
 
         $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(6, 2026);
 
-        $this->assertEqualsWithDelta(700000, $costo['111']['directo'], 0.5);
-        $this->assertEqualsWithDelta(300000, $costo['111']['ss'], 0.5);
-        $this->assertEqualsWithDelta(1000000, $costo['111']['total'], 0.5);
+        $this->assertEqualsWithDelta(700000, $costo['12345678']['directo'], 0.5);
+        $this->assertEqualsWithDelta(300000, $costo['12345678']['ss'], 0.5);
+        $this->assertEqualsWithDelta(1000000, $costo['12345678']['total'], 0.5);
     }
 
     #[Test]

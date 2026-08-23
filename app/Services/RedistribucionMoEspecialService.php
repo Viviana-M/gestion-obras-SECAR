@@ -46,61 +46,57 @@ class RedistribucionMoEspecialService
         if ($maestro->isEmpty()) {
             return [];
         }
-        $cedulas   = $maestro->pluck('cedula')->all();
-        $nombres   = $maestro->pluck('nombre')->all();
         $nombreMae = $maestro->pluck('nombre', 'cedula');
 
-        // Índice de identificadores → cédula. Cruzamos el tercero del financiero (razón
-        // social o tercero_dcto) y el empleado de la autoliquidación contra la CÉDULA o el
-        // NOMBRE de la persona, normalizados (sin acentos/mayúsculas/espacios de más), porque
-        // en producción el tercero de la bolsa suele venir con el NOMBRE, no la cédula.
+        // Índice CÉDULA normalizada → cédula del maestro. El cruce es SOLO por cédula (ni el
+        // financiero ni la autoliquidación cruzan por nombre, porque los nombres difieren en
+        // acentos/orden/abreviaturas). Normalizamos el documento quitando puntos/espacios/guiones
+        // para que "12.345.678" == "12345678", que es la causa típica de que no cruzara.
         $idx = [];
         foreach ($maestro as $p) {
-            foreach ([$p->cedula, $p->nombre] as $ident) {
-                $n = $this->norm($ident);
-                if ($n !== '') {
-                    $idx[$n] = $p->cedula;
-                }
+            $n = $this->normCedula($p->cedula);
+            if ($n !== '') {
+                $idx[$n] = $p->cedula;
             }
+        }
+        if (empty($idx)) {
+            return [];
         }
 
         $unBolsa   = UnBolsa::codigos();
         $cuentasMO = $this->cuentasMO($mes, $anio);
 
         // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período. Se traen agrupadas por
-        //    tercero (razón social + tercero_dcto) y se atribuyen en PHP a la persona por
-        //    coincidencia normalizada de cédula o nombre (robusto ante acentos/mayúsculas).
+        //    documento del tercero (tercero_dcto = cédula/NIT) y se atribuyen a la persona por
+        //    coincidencia de cédula normalizada (robusto ante diferencias de formato).
         $directo = collect();
         if (! empty($cuentasMO) && ! empty($unBolsa)) {
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
                 ->where('mes', $mes)->where('anio', $anio)
-                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, razon_social, tercero_dcto, SUM(estado_er) as saldo')
-                ->groupBy('codigo_proyecto', 'cuenta_contable', 'razon_social', 'tercero_dcto')
+                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, SUM(estado_er) as saldo')
+                ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto')
                 ->get();
         }
 
-        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la cédula
-        //    (empleado) o el nombre (empleado_nombre) de la persona. En el financiero estos
-        //    aportes vienen a nombre del fondo/EPS, por eso se cruzan por la autoliquidación.
+        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la CÉDULA del
+        //    empleado (en el financiero estos aportes vienen a nombre del fondo/EPS, por eso se
+        //    cruzan por la autoliquidación). También por cédula, con la misma normalización.
         $ss = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
-            ->where(function ($q) use ($cedulas, $nombres) {
-                $q->whereIn('empleado', $cedulas)->orWhereIn('empleado_nombre', $nombres);
-            })
-            ->selectRaw('empleado, empleado_nombre, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
-            ->groupBy('empleado', 'empleado_nombre', 'un_codigo', 'cuenta_contable')
+            ->selectRaw('empleado, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
+            ->groupBy('empleado', 'un_codigo', 'cuenta_contable')
             ->havingRaw('SUM(aporte_empresa) > 0.005')
             ->get();
 
         $out = [];
-        foreach ($cedulas as $ced) {
+        foreach ($idx as $ced) {
             $out[$ced] = ['cedula' => $ced, 'nombre' => $nombreMae[$ced] ?? $ced,
                 'directo' => 0.0, 'ss' => 0.0, 'total' => 0.0, 'buckets' => []];
         }
 
         foreach ($directo as $r) {
-            $ced = $idx[$this->norm($r->razon_social)] ?? $idx[$this->norm($r->tercero_dcto)] ?? null;
+            $ced = $idx[$this->normCedula($r->tercero_dcto)] ?? null;
             if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
@@ -110,7 +106,7 @@ class RedistribucionMoEspecialService
         }
 
         foreach ($ss as $r) {
-            $ced = $idx[$this->norm($r->empleado)] ?? $idx[$this->norm($r->empleado_nombre)] ?? null;
+            $ced = $idx[$this->normCedula($r->empleado)] ?? null;
             if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->monto;
             if ($m <= 0.005) continue;
@@ -122,12 +118,10 @@ class RedistribucionMoEspecialService
         return $out;
     }
 
-    /** Normaliza un identificador (cédula o nombre) para cruzar terceros: minúsculas, sin acentos ni espacios de más. */
-    private function norm(?string $s): string
+    /** Normaliza una cédula/NIT para cruzar terceros: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */
+    private function normCedula(?string $s): string
     {
-        $s = trim(mb_strtolower((string) $s));
-        $s = preg_replace('/\s+/', ' ', $s);
-        return strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n', 'ü' => 'u']);
+        return preg_replace('/[^a-z0-9]/', '', mb_strtolower(trim((string) $s)));
     }
 
     /** Porcentajes por persona/UN del período: [cedula => [un_codigo => porcentaje]]. */
