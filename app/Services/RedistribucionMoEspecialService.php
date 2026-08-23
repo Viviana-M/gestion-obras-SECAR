@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\AutoliquidacionAporte;
-use App\Models\Homologacion;
 use App\Models\ManoObraEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
@@ -17,20 +16,19 @@ use App\Models\UnBolsa;
  */
 class RedistribucionMoEspecialService
 {
-    /** Estructuras de homologación que son mano de obra. */
-    public const ESTRUCTURAS_MO = ['MOI', 'MOE', 'MOFIJAOPER'];
+    /**
+     * Cuentas 14 que son mano de obra. Es una lista fija y taxativa: SOLO estas cuentas
+     * cuentan como mano de obra del personal de apoyo administrativo y operativo.
+     */
+    public const CUENTAS_MO = [
+        '14200506', '14200527', '14200545', '14200570', '14200572', '14200568',
+        '14200569', '14200530', '14200533', '14200536', '14200539',
+    ];
 
-    /** Cuentas 14 que son mano de obra según la homologación del período. */
+    /** Cuentas 14 que son mano de obra (lista fija). */
     public function cuentasMO(int $mes, int $anio): array
     {
-        $periodo = Homologacion::periodo($anio, $mes);
-        $mo = [];
-        foreach (Homologacion::mapaEn($periodo) as $c14 => $h) {
-            if (in_array($h->estructura ?? null, self::ESTRUCTURAS_MO, true)) {
-                $mo[] = (string) $c14;
-            }
-        }
-        return $mo;
+        return self::CUENTAS_MO;
     }
 
     /**

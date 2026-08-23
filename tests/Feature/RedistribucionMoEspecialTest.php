@@ -74,6 +74,19 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function solo_cuentan_las_cuentas_de_mano_de_obra_definidas(): void
+    {
+        // La MO son solo las cuentas de la lista fija; una cuenta 14 fuera de la lista no cuenta.
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200506', '111', 600000);  // cuenta MO válida
+        $this->moBolsa('MTO00099', '14209999', '111', 900000);  // cuenta 14 NO es MO → se ignora
+
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(4, 2026);
+
+        $this->assertEqualsWithDelta(600000, $costo['111']['directo'], 0.5);
+    }
+
+    #[Test]
     public function cruza_por_cedula_normalizando_el_formato(): void
     {
         // El cruce es SOLO por cédula. El documento del financiero/autoliquidación puede venir
