@@ -18,6 +18,7 @@ class AutoliquidacionController extends Controller
 
         $mes  = (int) $request->get('mes', $periodos->first()->mes ?? (int) date('n'));
         $anio = (int) $request->get('anio', $periodos->first()->anio ?? (int) date('Y'));
+        $un   = trim((string) $request->get('un', '')) ?: null; // filtro opcional por UN
 
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio);
 
@@ -41,8 +42,41 @@ class AutoliquidacionController extends Controller
             ->orderByDesc('aporte_empresa')
             ->get();
 
+        // UNs disponibles en el período (para el filtro del costo por persona).
+        $unidades = (clone $base)->whereNotNull('un_codigo')
+            ->distinct()->orderBy('un_codigo')->pluck('un_codigo');
+
+        // Costo de seguridad social POR PERSONA (solo Aporte empresa), con filtro opcional
+        // por UN. Total por persona + desglose por concepto PILA. Ordenado de mayor a menor.
+        $basePersona = (clone $base)->when($un, fn ($q) => $q->where('un_codigo', $un));
+
+        $totales = (clone $basePersona)
+            ->selectRaw('cedula, MAX(razon_social) as nombre, SUM(aporte_empresa) as total')
+            ->groupBy('cedula')
+            ->orderByDesc('total')
+            ->get();
+
+        $detalle = (clone $basePersona)
+            ->selectRaw('cedula, concepto_pila, SUM(aporte_empresa) as aporte')
+            ->groupBy('cedula', 'concepto_pila')
+            ->orderByDesc('aporte')
+            ->get()
+            ->groupBy('cedula');
+
+        $porPersona = $totales->map(fn ($p) => [
+            'cedula'    => $p->cedula,
+            'nombre'    => $p->nombre,
+            'total'     => (float) $p->total,
+            'conceptos' => ($detalle[$p->cedula] ?? collect())
+                ->map(fn ($d) => ['concepto' => $d->concepto_pila, 'aporte' => (float) $d->aporte])
+                ->values()->all(),
+        ]);
+
+        $totalPersonas = (float) $totales->sum('total');
+
         return view('contable.autoliquidacion', compact(
-            'periodos', 'mes', 'anio', 'resumen', 'porUN', 'porConcepto'
+            'periodos', 'mes', 'anio', 'un', 'resumen', 'porUN', 'porConcepto',
+            'unidades', 'porPersona', 'totalPersonas'
         ));
     }
 

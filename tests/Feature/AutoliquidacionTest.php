@@ -161,6 +161,59 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function el_costo_por_persona_agrupa_total_y_desglose_y_cuadra(): void
+    {
+        $archivo = $this->planilla([
+            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
+            $this->fila('222', 'OB4501', 'Aporte AFP', 25000),
+            $this->fila('111', 'ADM00099', 'Aporte ARL', 12000),
+            $this->fila('333', 'OB4501', 'Aporte Caja', 9000),
+        ], 'Autoliquidación Abril.xlsx');
+
+        $c = $this->contable();
+        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
+
+        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026]));
+        $resp->assertStatus(200);
+        $resp->assertSee('Costo de seguridad social por persona', false); // sección presente
+
+        $porPersona = $resp->viewData('porPersona');
+        // Ordenado de mayor a menor por total: 111 (42.000) > 222 (25.000) > 333 (9.000).
+        $this->assertSame(['111', '222', '333'], $porPersona->pluck('cedula')->all());
+
+        $p111 = $porPersona->firstWhere('cedula', '111');
+        $this->assertEqualsWithDelta(42000, $p111['total'], 0.5);
+        $conceptos = collect($p111['conceptos'])->pluck('aporte', 'concepto');
+        $this->assertEqualsWithDelta(30000, $conceptos['Aporte EPS'], 0.5);
+        $this->assertEqualsWithDelta(12000, $conceptos['Aporte ARL'], 0.5);
+
+        // El total general cuadra con la suma de la columna Aporte empresa.
+        $sumaColumna = (float) AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->sum('aporte_empresa');
+        $this->assertEqualsWithDelta(76000, $sumaColumna, 0.5);
+        $this->assertEqualsWithDelta($sumaColumna, $resp->viewData('totalPersonas'), 0.5);
+    }
+
+    #[Test]
+    public function el_costo_por_persona_se_filtra_por_un(): void
+    {
+        $archivo = $this->planilla([
+            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
+            $this->fila('222', 'OB4501', 'Aporte AFP', 25000),
+            $this->fila('333', 'OB4501', 'Aporte Caja', 9000),
+        ]);
+
+        $c = $this->contable();
+        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
+
+        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026, 'un' => 'OB4501']));
+        $resp->assertStatus(200);
+
+        $porPersona = $resp->viewData('porPersona');
+        $this->assertSame(['222', '333'], $porPersona->pluck('cedula')->all()); // solo la UN filtrada
+        $this->assertEqualsWithDelta(34000, $resp->viewData('totalPersonas'), 0.5); // 25.000 + 9.000
+    }
+
+    #[Test]
     public function el_resumen_muestra_total_aporte_empresa_y_desgloses(): void
     {
         AutoliquidacionAporte::create(['cedula' => '111', 'un_codigo' => 'ADM00099', 'concepto_pila' => 'Aporte EPS', 'aporte_empresa' => 30000, 'mes' => 6, 'anio' => 2026]);
