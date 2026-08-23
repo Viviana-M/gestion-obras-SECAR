@@ -79,6 +79,27 @@ class SeguridadSocialPersonaTest extends TestCase
     }
 
     #[Test]
+    public function agrupa_por_nombre_cuando_falta_la_cedula_del_empleado(): void
+    {
+        // "Empleado" (cédula) vacío pero "Nombre del empl" presente → agrupa por el nombre,
+        // NO por el tercero/fondo.
+        AutoliquidacionAporte::create(['cedula' => '800100', 'razon_social' => 'NUEVA EPS',
+            'empleado' => '', 'empleado_nombre' => 'JUAN PEREZ', 'un_codigo' => 'ADM00099',
+            'concepto_pila' => 'EPS', 'aporte_empresa' => 30000, 'mes' => 4, 'anio' => 2026]);
+        AutoliquidacionAporte::create(['cedula' => '800226175', 'razon_social' => 'COLMENA ARP',
+            'empleado' => '', 'empleado_nombre' => 'JUAN PEREZ', 'un_codigo' => 'ADM00099',
+            'concepto_pila' => 'ARL', 'aporte_empresa' => 12000, 'mes' => 4, 'anio' => 2026]);
+
+        $resp = $this->ver($this->contable());
+        $personas = $resp->viewData('personas');
+
+        $this->assertCount(1, $personas);
+        $this->assertSame('JUAN PEREZ', $personas->first()['nombre']);
+        $this->assertEqualsWithDelta(42000, $personas->first()['total'], 0.5);
+        $this->assertNotContains('NUEVA EPS', $personas->pluck('nombre')->all());
+    }
+
+    #[Test]
     public function calcula_los_kpis_y_cuadra_con_la_columna(): void
     {
         $this->sembrar();

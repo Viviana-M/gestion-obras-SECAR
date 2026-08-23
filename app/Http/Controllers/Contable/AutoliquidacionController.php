@@ -20,14 +20,15 @@ class AutoliquidacionController extends Controller
         $mes  = (int) $request->get('mes', $periodos->first()->mes ?? (int) date('n'));
         $anio = (int) $request->get('anio', $periodos->first()->anio ?? (int) date('Y'));
         $un   = trim((string) $request->get('un', '')) ?: null;      // filtro (pestaña por persona)
-        $tab  = $request->get('tab') === 'personas' ? 'personas' : 'resumen';
+        // Por defecto abre la vista por persona (maestro-detalle); "resumen" solo si se pide.
+        $tab  = $request->get('tab') === 'resumen' ? 'resumen' : 'personas';
 
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio);
 
         // "Personas" = empleados distintos (no terceros/fondos). Si la planilla aún no tiene
         // la columna empleado (migración pendiente), cae a la cédula del tercero.
         $persona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
-            ? "COALESCE(NULLIF(empleado, ''), cedula)"
+            ? "COALESCE(NULLIF(empleado, ''), NULLIF(empleado_nombre, ''), cedula)"
             : 'cedula';
 
         $resumen = [
@@ -116,15 +117,23 @@ class AutoliquidacionController extends Controller
 
         $acc = [];
         foreach ($filas as $r) {
-            // Persona = EMPLEADO (si viene); si no, cae al tercero (planillas antiguas).
-            $emp = $tieneEmpleado ? trim((string) $r->empleado) : '';
-            $key = $emp !== '' ? $emp : (string) $r->cedula;
-            $nombre = ($tieneEmpleado && trim((string) $r->empleado_nombre) !== '')
-                ? $r->empleado_nombre
-                : ($r->razon_social ?: '—');
+            // Persona = EMPLEADO. Se agrupa por la cédula del empleado ("Empleado"); si esa
+            // viene vacía, se agrupa por su NOMBRE ("Nombre del empl"); y solo si tampoco hay
+            // nombre, cae al tercero (planillas antiguas). El nombre mostrado siempre prefiere
+            // "Nombre del empl".
+            $empCed = $tieneEmpleado ? trim((string) $r->empleado) : '';
+            $empNom = $tieneEmpleado ? trim((string) $r->empleado_nombre) : '';
+
+            if ($empCed !== '') {
+                $key = 'C:'.$empCed;  $cedDisp = $empCed;         $nombre = $empNom ?: '—';
+            } elseif ($empNom !== '') {
+                $key = 'N:'.$empNom;  $cedDisp = '';              $nombre = $empNom;
+            } else {
+                $key = 'T:'.$r->cedula; $cedDisp = (string) $r->cedula; $nombre = $r->razon_social ?: '—';
+            }
 
             if (! isset($acc[$key])) {
-                $acc[$key] = ['cedula' => $key, 'nombre' => $nombre, 'total' => 0.0, 'conceptos' => [], 'un' => []];
+                $acc[$key] = ['cedula' => $cedDisp, 'nombre' => $nombre, 'total' => 0.0, 'conceptos' => [], 'un' => []];
             }
             if (($acc[$key]['nombre'] === '—' || $acc[$key]['nombre'] === '') && $nombre) {
                 $acc[$key]['nombre'] = $nombre;
