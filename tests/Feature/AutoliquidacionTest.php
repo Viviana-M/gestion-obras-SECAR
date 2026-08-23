@@ -194,6 +194,38 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function no_muestra_valores_en_cero(): void
+    {
+        $archivo = $this->planilla([
+            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
+            $this->fila('111', 'ADM00099', 'Aporte FSP', 0),                 // concepto en 0 → no se muestra
+            $this->fila('444', 'ADM00099', 'Solo empleado', 0, '2026-04-30', 5000, 5000), // persona total 0
+        ], 'Autoliquidación Abril.xlsx');
+
+        $c = $this->contable();
+        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
+
+        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026]));
+        $resp->assertStatus(200);
+
+        $porPersona = $resp->viewData('porPersona');
+        // La persona con total 0 no aparece; la de 30.000 sí.
+        $this->assertSame(['111'], $porPersona->pluck('cedula')->all());
+        // El concepto en 0 no aparece en el desglose de la persona.
+        $conceptos = collect($porPersona->firstWhere('cedula', '111')['conceptos'])->pluck('concepto')->all();
+        $this->assertContains('Aporte EPS', $conceptos);
+        $this->assertNotContains('Aporte FSP', $conceptos);
+
+        // Tampoco en el desglose por concepto PILA.
+        $porConcepto = $resp->viewData('porConcepto')->pluck('concepto_pila')->all();
+        $this->assertContains('Aporte EPS', $porConcepto);
+        $this->assertNotContains('Aporte FSP', $porConcepto);
+        $this->assertNotContains('Solo empleado', $porConcepto);
+
+        $this->assertEqualsWithDelta(30000, $resp->viewData('totalPersonas'), 0.5);
+    }
+
+    #[Test]
     public function el_costo_por_persona_se_filtra_por_un(): void
     {
         $archivo = $this->planilla([

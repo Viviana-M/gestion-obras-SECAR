@@ -33,12 +33,14 @@ class AutoliquidacionController extends Controller
                 COUNT(DISTINCT cedula) as personas,
                 SUM(aporte_empresa) as aporte_empresa')
             ->groupBy('un_codigo')
+            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005') // no mostrar valores en 0
             ->orderByDesc('aporte_empresa')
             ->get();
 
         $porConcepto = (clone $base)
             ->selectRaw('concepto_pila, SUM(aporte_empresa) as aporte_empresa')
             ->groupBy('concepto_pila')
+            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005') // no mostrar valores en 0
             ->orderByDesc('aporte_empresa')
             ->get();
 
@@ -53,12 +55,14 @@ class AutoliquidacionController extends Controller
         $totales = (clone $basePersona)
             ->selectRaw('cedula, MAX(razon_social) as nombre, SUM(aporte_empresa) as total')
             ->groupBy('cedula')
+            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005') // no mostrar personas con total en 0
             ->orderByDesc('total')
             ->get();
 
         $detalle = (clone $basePersona)
             ->selectRaw('cedula, concepto_pila, SUM(aporte_empresa) as aporte')
             ->groupBy('cedula', 'concepto_pila')
+            ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005') // no mostrar conceptos en 0
             ->orderByDesc('aporte')
             ->get()
             ->groupBy('cedula');
