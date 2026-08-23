@@ -43,16 +43,7 @@
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma de la columna <b>Fecha</b> del archivo (ej. <code>2026-04-30</code> → abril 2026). Al recargar el mismo mes se reemplaza.</p>
 
     {{-- Columnas exactas que debe traer el archivo plano --}}
-    <div style="margin-top:12px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px">
-        <div style="font-size:12px;font-weight:700;color:#1B3F6E;margin-bottom:8px">El archivo plano debe traer estas 13 columnas, en este orden:</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-            @foreach($columnasPila as $i => $col)
-                <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;background:white;border:1px solid #E5E7EB;border-radius:6px;padding:3px 8px;color:#374151">
-                    <span style="font-weight:700;color:#9CA3AF">{{ $i + 1 }}</span>{{ $col }}
-                </span>
-            @endforeach
-        </div>
-    </div>
+    <x-columnas-plano titulo="El archivo plano debe traer estas 13 columnas, en este orden:" :columnas="$columnasPila" />
 </div>
 @endif
 

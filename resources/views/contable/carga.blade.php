@@ -56,25 +56,22 @@
                 <input type="file" name="archivo" accept=".xlsx,.xls,.csv"
                     style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
                 <small style="font-size:11px;color:#9CA3AF">Formatos aceptados: .xlsx, .xls, .csv — máximo 50MB</small>
-<div style="margin-top:8px;padding:10px 12px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;font-size:12px;color:#0369A1">
-    <strong>Columnas requeridas del archivo BIABLE:</strong><br>
-    <span style="font-family:monospace">
-        A: Unidad de negocio &nbsp;|&nbsp;
-        B: Cuenta contable &nbsp;|&nbsp;
-        C: Descripción cuenta &nbsp;|&nbsp;
-        D: Valor débito &nbsp;|&nbsp;
-        E: Valor crédito &nbsp;|&nbsp;
-        F: Movto libro 2 &nbsp;|&nbsp;
-        G: Tercero Docto &nbsp;|&nbsp;
-        H: Razon social Docto
-    </span><br>
-    <span style="font-size:11px;margin-top:6px;display:block;color:#0369A1">
-        Las columnas <strong>Tercero Docto</strong> y <strong>Razon social Docto</strong> son necesarias para el plano de cargue al ERP. No las elimine del archivo.
-    </span>
-    <span style="color:#DC2626;font-size:11px;margin-top:4px;display:block">
-        ⚠ El archivo debe guardarse como <strong>Valores</strong> en Excel antes de subir (sin fórmulas).
-    </span>
-</div>
+                @php
+                    $columnasBiable = [
+                        ['pos' => 'A', 'nombre' => 'Unidad de negocio'],
+                        ['pos' => 'B', 'nombre' => 'Cuenta contable'],
+                        ['pos' => 'C', 'nombre' => 'Descripción cuenta'],
+                        ['pos' => 'D', 'nombre' => 'Valor débito'],
+                        ['pos' => 'E', 'nombre' => 'Valor crédito'],
+                        ['pos' => 'F', 'nombre' => 'Movto libro 2'],
+                        ['pos' => 'G', 'nombre' => 'Tercero Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
+                        ['pos' => 'H', 'nombre' => 'Razon social Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
+                    ];
+                @endphp
+                <x-columnas-plano titulo="El archivo BIABLE debe traer estas columnas, en este orden:" :columnas="$columnasBiable">
+                    Las columnas <b>Tercero Docto</b> y <b>Razon social Docto</b> son necesarias para el plano de cargue al ERP.
+                    <span style="color:#DC2626">⚠ Guarda el archivo como <b>Valores</b> en Excel antes de subir (sin fórmulas).</span>
+                </x-columnas-plano>
             </div>
 
             <button type="submit"

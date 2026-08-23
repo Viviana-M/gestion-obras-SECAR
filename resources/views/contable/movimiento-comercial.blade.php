@@ -36,6 +36,26 @@
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
         El período (mes/año) se toma de la columna <b>Periodo</b> (YYYYMM) de cada fila. Los ítems que no crucen con la llave se reportan.
     </p>
+    @php
+        $columnasMovimiento = [
+            ['nombre' => 'Unidad de Negocio', 'nota' => 'Código de la obra/OT'],
+            ['nombre' => 'Periodo', 'nota' => 'YYYYMM; define el mes/año'],
+            ['nombre' => 'Tipo de Inventario'],
+            ['nombre' => 'Motivo', 'nota' => 'Código de movimiento'],
+            ['nombre' => 'Costo_prom_net', 'nota' => 'Costo promedio neto'],
+            ['nombre' => 'Motivo (descripción)', 'opcional' => true],
+            ['nombre' => 'Nombre Item', 'opcional' => true],
+            ['nombre' => 'Nombre Tercero', 'opcional' => true],
+            ['nombre' => 'Cantidad_net_1', 'opcional' => true],
+            ['nombre' => 'Fecha', 'opcional' => true],
+            ['nombre' => 'Numero Documento', 'opcional' => true],
+        ];
+    @endphp
+    <x-columnas-plano :numerar="false"
+        titulo="La hoja Comercial_Mvto debe traer estas columnas (se identifican por su nombre):"
+        :columnas="$columnasMovimiento">
+        Las columnas marcadas se reconocen por su encabezado (no importa el orden). Las <i>(opcional)</i> enriquecen el detalle pero no son obligatorias.
+    </x-columnas-plano>
 </div>
 @else
 <div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
