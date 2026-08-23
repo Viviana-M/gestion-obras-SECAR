@@ -34,6 +34,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     // Preferencias de la interfaz (cualquier usuario autenticado)
     Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 
+    // Seguridad social por persona (Contabilidad / Nómina / admin — permiso en el controlador).
+    Route::get('/contable/autoliquidacion/personas', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personas'])->name('contable.autoliquidacion.personas');
+    Route::get('/contable/autoliquidacion/personas/excel', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personasExcel'])->name('contable.autoliquidacion.personas.excel');
+
     // ══════════════════════ CONTABILIDAD ══════════════════════
     Route::middleware('modulo:contabilidad')->group(function () {
 
