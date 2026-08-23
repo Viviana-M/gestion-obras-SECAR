@@ -272,6 +272,26 @@ class RedistribucionMoEspecialService
     }
 
     /**
+     * Retiro de MO por (UN|cuenta 14) de los terceros registrados, para descontarlo de las
+     * bolsas de Operaciones (solo la MO directa, cuyo tercero ES la persona registrada; la
+     * seguridad social viene a nombre del fondo y no se retira por aquí).
+     *
+     * @return array<string, float>  [ "un|cuenta" => monto ]
+     */
+    public function retiroPorUnCuenta(int $mes, int $anio): array
+    {
+        $out = [];
+        foreach ($this->costoPorPersona($mes, $anio) as $p) {
+            foreach ($p['buckets'] as $b) {
+                if (($b['tipo'] ?? '') !== 'directo') continue;
+                $k = $b['un'].'|'.$b['cuenta'];
+                $out[$k] = ($out[$k] ?? 0) + (float) $b['monto'];
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Terceros con MO en bolsas del período que NO cruzaron con ninguna persona del maestro
      * (para diagnóstico: qué falta agregar/corregir en el maestro). Devuelve [{doc,nombre,monto}].
      *

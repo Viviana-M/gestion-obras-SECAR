@@ -8,6 +8,7 @@ use App\Models\ManoObraEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
+use App\Services\DistribucionService;
 use App\Services\RedistribucionMoEspecialService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
@@ -258,6 +259,28 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->assertEqualsWithDelta($deb, $cred, 0.5);        // asiento cuadrado
         $this->assertEqualsWithDelta(1000000, $credEn14, 0.5); // toda la MO sale de la cuenta 14
         $this->assertEqualsWithDelta(1000000, $debEn6, 0.5);   // y entra a su cuenta 6 correspondiente
+    }
+
+    #[Test]
+    public function retira_la_mo_de_los_terceros_registrados_de_las_bolsas_de_operaciones(): void
+    {
+        $this->homologarMO('14200506');
+        $this->moBolsa('MTO00099', '14200506', '111', 600000); // MO de ARLEY (se registrará)
+        $this->moBolsa('MTO00099', '14200506', '999', 400000); // MO de otro (no registrado)
+
+        $svc     = app(DistribucionService::class);
+        $periodo = Homologacion::periodo(2026, 4);
+
+        // Sin registrar a ARLEY: la bolsa muestra la MO completa (600k + 400k).
+        $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
+        $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
+        $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
+
+        // Al registrar a ARLEY, su MO se retira de la bolsa: queda solo la del otro (400k).
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
+        $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
+        $this->assertEqualsWithDelta(400000, $linea['pendiente'], 0.5);
     }
 
     #[Test]

@@ -327,6 +327,25 @@ class DistribucionService
         }
         unset($lineas);
 
+        // Retiro de la MO del personal de apoyo administrativo y operativo: esas cuentas 14 las
+        // gestiona Contabilidad (módulo MO Apoyo), así que se descuentan del "por repartir" de la
+        // bolsa para que Operaciones no las distribuya. Si no hay personas registradas, no cambia nada.
+        $retiro = app(RedistribucionMoEspecialService::class)->retiroPorUnCuenta($mes, $anio);
+        if (! empty($retiro)) {
+            foreach ($out as $cod => &$lineas) {
+                foreach ($lineas as $i => &$l) {
+                    $r = (float) ($retiro[$cod.'|'.$l['cuenta_14']] ?? 0);
+                    if ($r <= 0.005) continue;
+                    $l['pendiente'] = max(0.0, round($l['pendiente'] - $r, 2));
+                    if ($l['pendiente'] <= 0.5) unset($lineas[$i]);
+                }
+                unset($l);
+                $lineas = array_values($lineas);
+            }
+            unset($lineas);
+            $out = array_filter($out, fn ($ls) => ! empty($ls));
+        }
+
         return $out;
     }
 
