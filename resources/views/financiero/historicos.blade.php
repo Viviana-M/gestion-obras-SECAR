@@ -93,9 +93,9 @@
         </select>
         <span id="contador-hist" style="font-size:12px;color:#9CA3AF"></span>
     </div>
-    <a href="{{ route('contable.plano.reversion') }}"
-        style="padding:7px 16px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;text-decoration:none;white-space:nowrap">
-        ⬇ Descargar plano de reversión (saldo 14)
+    <a href="{{ route('contable.plano-reversion.index') }}"
+        style="padding:7px 16px;background:white;color:#1B3F6E;border:1px solid #1B3F6E;border-radius:8px;font-size:13px;text-decoration:none;white-space:nowrap">
+        🔁 Cuentas 14 con saldo contrario →
     </a>
 </div>
 

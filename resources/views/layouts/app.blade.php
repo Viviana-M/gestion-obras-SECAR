@@ -198,6 +198,7 @@
                 <a href="{{ route('contable.movimiento-comercial.index') }}" class="{{ request()->is('contable/movimiento-comercial') ? 'active' : '' }}">Movimiento comercial (ítems)</a>
                 <div class="submenu-group-label">Control</div>
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
+                <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano cuentas 14 – saldos contrarios</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Abrir edición (Distribución)</a>
             </div>
         </div>

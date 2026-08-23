@@ -52,7 +52,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
         Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
         Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
-        Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano.reversion');
+        // Plano de cuentas 14 con saldos contrarios (reversión): página + descarga.
+        Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'index'])->name('contable.plano-reversion.index');
+        Route::get('/contable/plano-reversion/excel', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano-reversion.excel');
 
         // Cierre / apertura del período de edición de la Distribución.
         Route::get('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'index'])->name('contable.cierre.index');
