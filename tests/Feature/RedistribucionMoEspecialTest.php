@@ -129,10 +129,10 @@ class RedistribucionMoEspecialTest extends TestCase
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '12.345.678', 'razon_social' => 'NUEVA EPS',
             'estado_er' => -700000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
-        // Un tercero distinto (nombre parecido) NO debe contar: solo cruza la cédula.
+        // Un tercero distinto (otra cédula y otro nombre) NO debe contar.
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
-            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '99999', 'razon_social' => 'ARLEY GONZALEZ',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '99999', 'razon_social' => 'OTRO PROVEEDOR',
             'estado_er' => -250000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
         AutoliquidacionAporte::create([
@@ -259,6 +259,25 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->assertEqualsWithDelta($deb, $cred, 0.5);        // asiento cuadrado
         $this->assertEqualsWithDelta(1000000, $credEn14, 0.5); // toda la MO sale de la cuenta 14
         $this->assertEqualsWithDelta(1000000, $debEn6, 0.5);   // y entra a su cuenta 6 correspondiente
+    }
+
+    #[Test]
+    public function se_puede_agregar_una_persona_solo_por_nombre_y_cruza(): void
+    {
+        // Alta desde la lista de la bolsa: sin cédula, solo el nombre exacto de la razón social.
+        $this->homologarMO('14200506');
+        $this->moBolsa('MTO00099', '14200506', '', 3874907); // tercero sin documento
+        RegistroFinanciero::where('codigo_proyecto', 'MTO00099')->update(['razon_social' => 'VALENCIA VILLABONA ARLEY']);
+
+        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.persona'), [
+            'cedula' => '', 'nombre' => 'VALENCIA VILLABONA ARLEY',
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $this->assertSame(1, ManoObraEspecial::count());
+        $persona = ManoObraEspecial::first();
+
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(4, 2026);
+        $this->assertEqualsWithDelta(3874907, $costo[$persona->cedula]['directo'], 0.5);
     }
 
     #[Test]

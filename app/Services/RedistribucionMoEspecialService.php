@@ -125,19 +125,29 @@ class RedistribucionMoEspecialService
     }
 
     /**
-     * Cruza un tercero (documento + nombre) contra el maestro. Si el registro TRAE documento,
-     * manda la cédula: si esa cédula no está en el maestro es otra persona (no se cae al nombre,
-     * para no confundir a alguien con documento distinto pero nombre parecido). Solo cuando el
-     * registro no trae documento (como en producción) se cruza por nombre normalizado.
+     * Cruza un tercero (documento + nombre) contra el maestro: primero por cédula y, si no
+     * cruza, por nombre normalizado (sin acentos ni orden de palabras). En este financiero el
+     * tercero suele venir solo con el NOMBRE en la razón social, por eso el nombre debe cruzar
+     * aunque la línea traiga algún documento distinto (p. ej. un auxiliar de cuenta).
      */
     private function cruzar(?string $doc, ?string $nombre, array $porCed, array $porNom): ?string
     {
         $c = $this->normCedula($doc);
-        if ($c !== '') {
-            return $porCed[$c] ?? null;
-        }
+        if ($c !== '' && isset($porCed[$c])) return $porCed[$c];
         $n = $this->normNombre($nombre);
-        return $n !== '' ? ($porNom[$n] ?? null) : null;
+        if ($n !== '' && isset($porNom[$n])) return $porNom[$n];
+        return null;
+    }
+
+    /**
+     * Terceros con MO en bolsas (para elegirlos al registrar y evitar diferencias de digitación):
+     * documento, nombre y monto total. Excluye los que ya están cruzando con el maestro.
+     *
+     * @return array<int, array{doc:string,nombre:string,monto:float}>
+     */
+    public function tercerosDisponibles(int $mes, int $anio): array
+    {
+        return $this->tercerosSinCruzar($mes, $anio);
     }
 
     /** Normaliza una cédula/NIT: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */

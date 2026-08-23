@@ -54,18 +54,30 @@ class RedistribucionMoEspecialController extends Controller
         return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar'));
     }
 
-    /** Alta de una persona al maestro Grupo B. */
+    /** Alta de una persona al maestro. Se puede elegir un tercero de la bolsa o escribirlo a mano. */
     public function guardarPersona(Request $request)
     {
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
 
         $datos = $request->validate([
-            'cedula' => 'required|string|max:255|unique:mano_obra_especial,cedula',
+            'cedula' => 'nullable|string|max:255',
             'nombre' => 'required|string|max:255',
         ], [], ['cedula' => 'cédula']);
 
+        $nombre = trim($datos['nombre']);
+        $cedula = trim((string) ($datos['cedula'] ?? ''));
+        // Si el tercero de la bolsa no trae documento, se genera una clave estable a partir del
+        // nombre (el cruce se hará por nombre); así no exigimos una cédula que el financiero no tiene.
+        if ($cedula === '') {
+            $cedula = 'SD-'.substr(md5(mb_strtolower($nombre)), 0, 12);
+        }
+
+        if (ManoObraEspecial::where('cedula', $cedula)->exists()) {
+            return back()->with('error', 'Esa persona ya está registrada.');
+        }
+
         ManoObraEspecial::create([
-            'cedula' => trim($datos['cedula']), 'nombre' => trim($datos['nombre']),
+            'cedula' => $cedula, 'nombre' => $nombre,
             'activo' => true, 'user_id' => $request->user()->id,
         ]);
 

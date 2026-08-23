@@ -37,33 +37,45 @@
 {{-- Maestro MO Apoyo administrativo y operativo --}}
 @if($puedeEditar)
 <div class="card" style="padding:14px 16px;margin-bottom:1rem">
-    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:10px">Agregar persona de apoyo administrativo y operativo</h2>
+    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:4px">Agregar persona de apoyo administrativo y operativo</h2>
+    <p style="font-size:11.5px;color:#6B7280;margin:0 0 10px">Lo más seguro es agregarlas desde la lista de abajo (usan el identificador exacto de la bolsa). También puedes escribir el nombre a mano; la cédula es opcional.</p>
     <form method="POST" action="{{ route('contable.redistribucion-mo.persona') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
         @csrf
-        <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Cédula</label>
-            <input type="text" name="cedula" required style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px"></div>
-        <div style="flex:1;min-width:200px"><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Nombre</label>
+        <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Cédula (opcional)</label>
+            <input type="text" name="cedula" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px"></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Nombre (igual al de la bolsa)</label>
             <input type="text" name="nombre" required style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px"></div>
         <button type="submit" style="padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">Agregar</button>
     </form>
 </div>
 @endif
 
-{{-- Diagnóstico: terceros de MO en bolsas que NO cruzaron con el maestro --}}
+{{-- Diagnóstico: terceros de MO en bolsas que NO cruzaron con el maestro (con alta directa) --}}
 @if(!empty($sinCruzar))
 <div class="card" style="padding:14px 16px;margin-bottom:1rem;border-left:4px solid #D97706">
-    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que no cruzaron con una persona registrada</h2>
-    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Su costo NO se está tomando. Agrégalos arriba con su cédula (o el mismo nombre) para que entren al cálculo.</p>
+    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que aún no gestiona este módulo</h2>
+    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Su costo sigue en la bolsa de Operaciones. Pulsa <b>Agregar</b> para registrarlos con su identificador exacto: así cruzan seguro, se retiran de la bolsa y entran a la redistribución.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="text-align:left;color:#6B7280;border-bottom:1px solid #E5E7EB">
             <th style="padding:5px 8px">Documento</th><th style="padding:5px 8px">Nombre (razón social)</th><th style="padding:5px 8px;text-align:right">Monto MO</th>
+            @if($puedeEditar)<th style="padding:5px 8px;text-align:right">Acción</th>@endif
         </tr></thead>
         <tbody>
-        @foreach(array_slice($sinCruzar, 0, 30) as $t)
+        @foreach(array_slice($sinCruzar, 0, 50) as $t)
             <tr style="border-bottom:1px solid #F3F4F6">
                 <td style="padding:5px 8px;font-family:monospace">{{ $t['doc'] !== '' ? $t['doc'] : '—' }}</td>
                 <td style="padding:5px 8px">{{ $t['nombre'] !== '' ? $t['nombre'] : '—' }}</td>
                 <td style="padding:5px 8px;text-align:right">{{ $fmt($t['monto']) }}</td>
+                @if($puedeEditar)
+                <td style="padding:5px 8px;text-align:right">
+                    <form method="POST" action="{{ route('contable.redistribucion-mo.persona') }}" style="margin:0;display:inline">
+                        @csrf
+                        <input type="hidden" name="cedula" value="{{ $t['doc'] }}">
+                        <input type="hidden" name="nombre" value="{{ $t['nombre'] }}">
+                        <button type="submit" @disabled($t['nombre']==='') style="padding:4px 12px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">+ Agregar</button>
+                    </form>
+                </td>
+                @endif
             </tr>
         @endforeach
         </tbody>
