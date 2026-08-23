@@ -9,13 +9,13 @@ use App\Models\Distribucion;
 use App\Models\ReasignacionItem;
 use App\Models\User;
 use App\Services\RepartoFifoTerceros;
+use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 class PlanoContableController extends Controller
 {
+    use GeneraPlanoSiesa;
+
     /** NIT de SECAR: es el tercero de la cabecera del documento. */
     private const NIT_SECAR = '890319324';
 
@@ -302,103 +302,10 @@ class PlanoContableController extends Controller
         ];
     }
 
-    /** Construye el xlsx de 4 hojas que espera SIESA. */
+    /** Construye el xlsx de 4 hojas que espera SIESA (formato compartido con la reversión). */
     private function generarExcel(array $movimientos, int $numeroDoc, string $fecha, string $observacion): string
     {
-        $ss = new Spreadsheet();
-        $ss->removeSheetByIndex(0);
-
-        // Hoja 1: Documentocontable (cabecera del asiento)
-        $h1 = $ss->createSheet();
-        $h1->setTitle('Documentocontable');
-        $this->escribirEncabezados($h1, [
-            'Tipo de documento',
-            'Numero de documento',
-            'Fecha del documento - El formato debe ser AAAAMMDD',
-            'Tercero del documento',
-            'Observaciones del documento',
-        ]);
-        $h1->fromArray([[self::TIPO_DOC, $numeroDoc, $fecha, self::NIT_SECAR, $observacion]], null, 'A2');
-
-        // Hoja 2: Movimientocontable (las 12 columnas del detalle)
-        $h2 = $ss->createSheet();
-        $h2->setTitle('Movimientocontable');
-        $fmt = ' - el formato debe ser (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)';
-        $this->escribirEncabezados($h2, [
-            'Tipo de documento',
-            'Numero de documento',
-            'Auxiliar de cuenta contable',
-            'Tercero',
-            'Unidad de negocio',
-            'Auxiliar de centro de costos',
-            'Auxiliar de concepto de fuljo de efectivo',
-            'Valor debito' . $fmt,
-            'Valor credito' . $fmt,
-            'Valor base gravable' . $fmt,
-            'Tipo de documento de banco',
-            'Numero de documento de banco',
-        ]);
-
-        $filas = [];
-        foreach ($movimientos as $m) {
-            $filas[] = [
-                $m['tipo_doc'], $m['numero_doc'], $m['cuenta'], $m['tercero'], $m['unidad'],
-                $m['centro_costos'], $m['flujo'], $m['debito'], $m['credito'],
-                $m['base_gravable'], $m['tipo_doc_banco'], $m['num_doc_banco'],
-            ];
-        }
-        $h2->fromArray($filas, null, 'A2');
-
-        // Hojas 3 y 4: van vacias, pero SIESA las exige con sus encabezados
-        $h3 = $ss->createSheet();
-        $h3->setTitle('MovimientoCxC');
-        $this->escribirEncabezados($h3, [
-            'Tipo de documento', 'Numero de documento', 'Auxiliar de cuenta contable', 'Tercero',
-            'Unidad de negocio',
-            'Valor debito  -  (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Valor crédito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Sucursal cliente', 'Tipo de documento de cruce', 'Numero de documento de cruce',
-            'Fecha de vencimiento del documento - el formato debe ser AAAAMMDD',
-            'Fecha de pronto pago del documento - el formato debe ser AAAAMMDD',
-            'Tercero vendedor', 'Observaciones del movimiento de saldo abierto',
-        ]);
-
-        $h4 = $ss->createSheet();
-        $h4->setTitle('MovimientoCxP');
-        $this->escribirEncabezados($h4, [
-            'Tipo de documento', 'Numero de documento', 'Auxiliar de cuenta contable', 'Tercero',
-            'Unidad de negocio',
-            'Valor debito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Valor crédito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Sucursal proveedor',
-            'Prefijo de documento de cruce - Es el prefijo del documento del proveedor, no se valida contra nada y puede dejarse vacío.',
-            'Numero de documento de cruce', 'Auxiliar de concepto de fuljo de efectivo',
-            'Fecha de vencimiento del documento - el formato debe ser AAAAMMDD.',
-            'Fecha de pronto pago del documento - el formato debe ser AAAAMMDD',
-            'Fecha del documento de cruce - el formato debe ser AAAAMMDD',
-            'Observaciones del movimiento de saldo abierto',
-        ]);
-
-        $ss->setActiveSheetIndex(1);
-
-        $tmp = storage_path('app/plano_' . uniqid() . '.xlsx');
-        (new Xlsx($ss))->save($tmp);
-
-        return $tmp;
-    }
-
-    private function escribirEncabezados($hoja, array $encabezados): void
-    {
-        $col = 1;
-        foreach ($encabezados as $e) {
-            $hoja->setCellValue([$col, 1], $e);
-            $hoja->getColumnDimensionByColumn($col)->setWidth(22);
-            $col++;
-        }
-        $rango = 'A1:' . $hoja->getHighestColumn() . '1';
-        $hoja->getStyle($rango)->getFont()->setBold(true);
-        $hoja->getStyle($rango)->getFill()->setFillType(Fill::FILL_SOLID)
-             ->getStartColor()->setRGB('F3F4F6');
+        return $this->generarPlanoSiesa($movimientos, self::TIPO_DOC, self::NIT_SECAR, $numeroDoc, $fecha, $observacion);
     }
 
     private function ultimoDiaDelMes(int $anio, int $mes): string

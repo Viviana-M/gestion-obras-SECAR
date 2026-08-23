@@ -36,8 +36,17 @@
                 style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
         </div>
     </form>
-    <a href="{{ route('contable.plano-reversion.excel', ['mes'=>$mes,'anio'=>$anio]) }}"
-       style="padding:9px 16px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">⬇ Descargar plano (Excel)</a>
+    <form method="GET" action="{{ route('contable.plano-reversion.excel') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0">
+        <input type="hidden" name="mes" value="{{ $mes }}">
+        <input type="hidden" name="anio" value="{{ $anio }}">
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
+            <input type="number" name="documento" min="1" value="1" title="Número de documento del asiento para SIESA"
+                style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <button type="submit"
+            style="padding:9px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Descargar plano (Excel)</button>
+    </form>
 </div>
 
 {{-- KPIs --}}

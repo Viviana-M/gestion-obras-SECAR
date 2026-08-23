@@ -6,13 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\Homologacion;
 use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
+use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 class PlanoReversionController extends Controller
 {
+    use GeneraPlanoSiesa;
+
+    /** Mismo tipo de documento y tercero (SECAR) que el Plano de Cierre Contable. */
+    private const TIPO_DOC  = 'CCC';
+    private const NIT_SECAR = '890319324';
+
     /**
      * Página de Contabilidad: vista previa de las cuentas 14 con saldo CONTRARIO
      * ("reversión excesiva" = saldo de la 14 del lado equivocado) y descarga del plano.
@@ -35,25 +39,6 @@ class PlanoReversionController extends Controller
 
         return view('contable.plano-reversion', compact('filas', 'total', 'mes', 'anio', 'periodos'));
     }
-    /**
-     * COLUMNAS DEL PLANO (extensible).
-     * Para agregar un campo de SIESA en el futuro:
-     *   1) añade aquí 'clave' => 'Encabezado'
-     *   2) puebla esa 'clave' en el método fila()
-     */
-    private array $columnas = [
-        'cuenta'          => 'Cuenta',
-        'nombre'          => 'Nombre cuenta',
-        'codigo_proyecto' => 'Proyecto',
-        'debito'          => 'Débito',
-        'credito'         => 'Crédito',
-        // 'fecha'        => 'Fecha',
-        // 'documento'    => 'Documento',
-        // 'naturaleza'   => 'Naturaleza',
-        // 'tercero'      => 'Tercero',
-        // 'centro_costo' => 'Centro de costo',
-    ];
-
     public function exportarPlano(Request $request)
     {
         abort_unless($request->user()->puedeVerModulo('contabilidad'), 403,
@@ -63,40 +48,22 @@ class PlanoReversionController extends Controller
         $anio = $request->filled('anio') ? (int) $request->get('anio') : null;
         if ($mes === null || $anio === null) { $mes = null; $anio = null; }
 
-        $lineas = $this->construirLineas($mes, $anio);
+        // N° de documento del asiento (SIESA). Lo puede fijar contabilidad; por defecto 1.
+        $numeroDoc = max(1, (int) $request->get('documento', 1));
 
-        $ss = new Spreadsheet();
-        $sheet = $ss->getActiveSheet();
-        $sheet->setTitle('Plano reversión');
-
-        // Encabezados
-        $col = 1;
-        foreach ($this->columnas as $titulo) {
-            $sheet->setCellValue([$col, 1], $titulo);
-            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
-            $col++;
-        }
-        $rango = 'A1:' . $sheet->getHighestColumn() . '1';
-        $sheet->getStyle($rango)->getFont()->setBold(true);
-        $sheet->getStyle($rango)->getFill()->setFillType(Fill::FILL_SOLID)
-              ->getStartColor()->setRGB('F3F4F6');
-
-        // Filas
-        $fila = 2;
-        foreach ($lineas as $l) {
-            $col = 1;
-            foreach ($this->columnas as $key => $titulo) {
-                $sheet->setCellValue([$col, $fila], $l[$key] ?? '');
-                $col++;
-            }
-            $fila++;
+        $movimientos = $this->construirLineas($mes, $anio, $numeroDoc);
+        if (empty($movimientos)) {
+            return back()->with('error', 'No hay cuentas 14 con saldo contrario para exportar en este corte.');
         }
 
-        $nombre = 'plano_reversion_' . date('Ymd_His') . '.xlsx';
-        $tmp = storage_path('app/' . $nombre);
-        (new Xlsx($ss))->save($tmp);
+        $fecha = ($mes && $anio) ? $this->ultimoDiaDelMesSiesa($anio, $mes) : date('Ymd');
+        $obs   = 'REVERSION SALDOS CUENTA 14' . (($mes && $anio) ? ' - HASTA '.sprintf('%02d/%d', $mes, $anio) : '');
 
-        return response()->download($tmp, $nombre)->deleteFileAfterSend(true);
+        // MISMO formato de columnas que el Plano de Cierre Contable (4 hojas SIESA).
+        $archivo = $this->generarPlanoSiesa($movimientos, self::TIPO_DOC, self::NIT_SECAR, $numeroDoc, $fecha, $obs);
+
+        return response()->download($archivo, 'PLANO_REVERSION_SALDOS_14_'.date('Ymd_His').'.xlsx')
+            ->deleteFileAfterSend(true);
     }
 
     /**
@@ -153,15 +120,14 @@ class PlanoReversionController extends Controller
         return $filas;
     }
 
-    private function construirLineas(?int $mes = null, ?int $anio = null): array
+    /**
+     * Asiento de reversión en el formato SIESA (mismas 12 columnas del Plano de Cierre
+     * Contable): por cada cuenta 14 con saldo contrario, el par 14 ↔ 61 con su débito/crédito.
+     */
+    private function construirLineas(?int $mes, ?int $anio, int $numeroDoc): array
     {
         $homol = Homologacion::pluck('cuenta_61', 'cuenta_14');
-
-        $nombres = RegistroFinanciero::selectRaw('cuenta_contable, MAX(descripcion) as descripcion')
-            ->groupBy('cuenta_contable')
-            ->pluck('descripcion', 'cuenta_contable');
-
-        $rows = $this->baseSaldos14($mes, $anio);
+        $rows  = $this->baseSaldos14($mes, $anio);
 
         // Neto de la 14 por obra (para quedarnos solo con las que de verdad quedaron mal)
         $netoObra = [];
@@ -173,7 +139,7 @@ class PlanoReversionController extends Controller
         // Si SIESA lo pide al revés, cambia a true (único punto a tocar)
         $invertir = false;
 
-        $lineas = [];
+        $mov = [];
         foreach ($rows as $r) {
             $cod = $r->codigo_proyecto;
             if (!isset($obrasMal[$cod])) continue;          // obra ya cuadrada: se ignora completa
@@ -183,34 +149,21 @@ class PlanoReversionController extends Controller
 
             $c14 = $r->cuenta_contable;
             $c61 = $homol[$c14] ?? 'SIN HOMOLOGAR';
-            $nom14 = $nombres[$c14] ?? '';
-            $nom61 = $nombres[$c61] ?? '';
-            $m = abs($saldo);
+            $m   = abs($saldo);
 
             // saldo NEGATIVO (pendiente) -> CR 14 / DB 61 ; POSITIVO (reversado) -> DB 14 / CR 61
             $acreditar14 = ($saldo < 0);
             if ($invertir) $acreditar14 = !$acreditar14;
 
             if ($acreditar14) {
-                $lineas[] = $this->fila($c14, $nom14, $cod, 0, $m);
-                $lineas[] = $this->fila($c61, $nom61, $cod, $m, 0);
+                $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, 0, $m, self::TIPO_DOC);
+                $mov[] = $this->filaPlano($numeroDoc, $c61, self::NIT_SECAR, $cod, null, $m, 0, self::TIPO_DOC);
             } else {
-                $lineas[] = $this->fila($c14, $nom14, $cod, $m, 0);
-                $lineas[] = $this->fila($c61, $nom61, $cod, 0, $m);
+                $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, $m, 0, self::TIPO_DOC);
+                $mov[] = $this->filaPlano($numeroDoc, $c61, self::NIT_SECAR, $cod, null, 0, $m, self::TIPO_DOC);
             }
         }
 
-        return $lineas;
-    }
-
-    private function fila(string $cuenta, string $nombre, string $cod, float $deb, float $cred, array $extra = []): array
-    {
-        return array_merge([
-            'cuenta'          => $cuenta,
-            'nombre'          => $nombre,
-            'codigo_proyecto' => $cod,
-            'debito'          => $deb,
-            'credito'         => $cred,
-        ], $extra);
+        return $mov;
     }
 }

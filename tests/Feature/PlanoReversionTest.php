@@ -67,15 +67,30 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
-    public function descarga_el_plano_en_excel(): void
+    public function el_plano_tiene_las_mismas_columnas_que_el_cierre_contable(): void
     {
         $this->cerrar('C-900');
         $this->rf('C-900', '14350105', 500000);
 
-        $resp = $this->actingAs($this->contable())->get(route('contable.plano-reversion.excel'));
-
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.plano-reversion.excel', ['documento' => 77]));
         $resp->assertOk();
         $this->assertStringContainsString('spreadsheetml', $resp->headers->get('content-type'));
+
+        // El archivo trae las 4 hojas SIESA y las 12 columnas del detalle (igual que el cierre).
+        $ss = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
+        $this->assertSame(
+            ['Documentocontable', 'Movimientocontable', 'MovimientoCxC', 'MovimientoCxP'],
+            $ss->getSheetNames()
+        );
+        $mov = $ss->getSheetByName('Movimientocontable');
+        $this->assertSame('Tipo de documento', $mov->getCell('A1')->getValue());
+        $this->assertSame('Auxiliar de cuenta contable', $mov->getCell('C1')->getValue());
+        $this->assertSame('Unidad de negocio', $mov->getCell('E1')->getValue());
+        // Primera línea del asiento: la cuenta 14 en la unidad C-900 con el documento 77.
+        $this->assertSame('14350105', (string) $mov->getCell('C2')->getValue());
+        $this->assertSame('C-900', (string) $mov->getCell('E2')->getValue());
+        $this->assertSame('77', (string) $mov->getCell('B2')->getValue());
     }
 
     #[Test]
