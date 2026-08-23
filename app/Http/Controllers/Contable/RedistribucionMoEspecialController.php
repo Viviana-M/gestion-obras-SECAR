@@ -68,7 +68,7 @@ class RedistribucionMoEspecialController extends Controller
             'activo' => true, 'user_id' => $request->user()->id,
         ]);
 
-        return back()->with('success', 'Persona agregada al Grupo B.');
+        return back()->with('success', 'Persona agregada a MO Apoyo administrativo y operativo.');
     }
 
     public function eliminarPersona(Request $request, ManoObraEspecial $persona)
@@ -78,7 +78,7 @@ class RedistribucionMoEspecialController extends Controller
         RedistribucionMoEspecial::where('cedula', $persona->cedula)->delete();
         $persona->delete();
 
-        return back()->with('success', 'Persona eliminada del Grupo B.');
+        return back()->with('success', 'Persona eliminada de MO Apoyo administrativo y operativo.');
     }
 
     /** Guarda los % de redistribución del período. Valida que sumen 100% por persona. */
@@ -141,11 +141,11 @@ class RedistribucionMoEspecialController extends Controller
         }
 
         if (empty($mov)) {
-            return back()->with('error', 'No hay redistribución para exportar en este período (¿definiste los % y hay costo de Grupo B?).');
+            return back()->with('error', 'No hay redistribución para exportar en este período (¿definiste los % y hay costo de MO Apoyo administrativo y operativo?).');
         }
 
         $fecha = $this->ultimoDiaDelMesSiesa($anio, $mes);
-        $obs   = 'REDISTRIBUCION MO PERSONAL ESPECIAL '.sprintf('%02d/%d', $mes, $anio);
+        $obs   = 'REDISTRIBUCION MO APOYO ADMINISTRATIVO Y OPERATIVO '.sprintf('%02d/%d', $mes, $anio);
         $archivo = $this->generarPlanoSiesa($mov, self::TIPO_DOC, self::NIT_SECAR, $numeroDoc, $fecha, $obs);
 
         return response()->download($archivo, 'PLANO_REDISTRIBUCION_MO_'.sprintf('%d_%02d', $anio, $mes).'.xlsx')

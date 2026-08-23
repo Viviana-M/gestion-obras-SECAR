@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Redistribución MO especial (Grupo B)')
+@section('title', 'MO Apoyo administrativo y operativo')
 
 @section('content')
 @php
@@ -9,8 +9,8 @@
     $puedeEditar = auth()->user()->puedeEditarModulo('contabilidad');
 @endphp
 
-<x-page-banner title="Redistribución MO especial (Grupo B)" icon="🔀">
-    Mano de obra de <b>personal especial</b> que se retira de las bolsas y se <b>redistribuye por porcentaje</b>
+<x-page-banner title="MO Apoyo administrativo y operativo" icon="🔀">
+    Mano de obra de <b>apoyo administrativo y operativo</b> que se retira de las bolsas y se <b>redistribuye por porcentaje</b>
     entre ellas (no por proyecto). El costo por persona suma su <b>MO directa</b> más su <b>seguridad social</b>
     (cruzada de la autoliquidación por cédula). Los % son <b>por período</b>.
 </x-page-banner>
@@ -34,10 +34,10 @@
     </div>
 </form>
 
-{{-- Maestro Grupo B --}}
+{{-- Maestro MO Apoyo administrativo y operativo --}}
 @if($puedeEditar)
 <div class="card" style="padding:14px 16px;margin-bottom:1rem">
-    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:10px">Agregar persona al Grupo B</h2>
+    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:10px">Agregar persona de apoyo administrativo y operativo</h2>
     <form method="POST" action="{{ route('contable.redistribucion-mo.persona') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
         @csrf
         <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Cédula</label>
@@ -55,7 +55,7 @@
     <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
     <div class="card" style="padding:0;overflow-x:auto;margin-bottom:1rem">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #E5E7EB;flex-wrap:wrap;gap:8px">
-            <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin:0">Personas Grupo B · {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</h2>
+            <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin:0">Personas de apoyo administrativo y operativo · {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</h2>
             @if($puedeEditar)<button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">💾 Guardar porcentajes</button>@endif
         </div>
         @forelse($personas as $per)
@@ -70,7 +70,7 @@
                     Seg. social <b style="color:#374151">{{ $fmt($per['ss']) }}</b> =
                     Total <b style="color:#15803D">{{ $fmt($per['total']) }}</b>
                     @if($puedeEditar)
-                    <a href="#" onclick="if(confirm('¿Eliminar a {{ $per['nombre'] }} del Grupo B?')){document.getElementById('del-{{ $per['id'] }}').submit()}return false" style="color:#DC2626;text-decoration:none;margin-left:8px">✕</a>
+                    <a href="#" onclick="if(confirm('¿Eliminar a {{ $per['nombre'] }} de MO Apoyo administrativo y operativo?')){document.getElementById('del-{{ $per['id'] }}').submit()}return false" style="color:#DC2626;text-decoration:none;margin-left:8px">✕</a>
                     @endif
                 </div>
             </div>
@@ -97,7 +97,7 @@
             </div>
         </div>
         @empty
-        <div style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay personas en el Grupo B. Agrega una arriba.</div>
+        <div style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay personas de apoyo administrativo y operativo. Agrega una arriba.</div>
         @endforelse
     </div>
 </form>
@@ -124,7 +124,7 @@
             <tr style="background:#1B3F6E;color:white;text-align:right">
                 <th style="padding:9px 12px;text-align:left">Bolsa (UN)</th>
                 <th style="padding:9px 12px">MO cruda</th>
-                <th style="padding:9px 12px">Retirado (Grupo B)</th>
+                <th style="padding:9px 12px">Retirado (Apoyo adm. y oper.)</th>
                 <th style="padding:9px 12px">Neto</th>
                 <th style="padding:9px 12px">Redistribuido</th>
                 <th style="padding:9px 12px">Final</th>
