@@ -206,7 +206,7 @@ function cerrarDetalle(){ document.getElementById('ss-detalle').classList.remove
 <style>
 .ss-item:hover { background:#F9FAFB; }
 .ss-detalle { position:relative; }
-@media (max-width: 860px) {
+@media (max-width: 720px) {
     .ss-layout { grid-template-columns: 1fr !important; }
     /* El detalle se abre como modal para no romper el layout en angosto. */
     .ss-detalle { display:none; }

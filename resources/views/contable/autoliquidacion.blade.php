@@ -136,93 +136,11 @@
     </div>
 </div>
 
-{{-- Costo de seguridad social POR PERSONA (Aporte empresa) --}}
-<div class="card" style="padding:0;overflow-x:auto;margin-top:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px 8px">
-        <h2 style="font-size:14px;font-weight:700;color:#1B3F6E">Costo de seguridad social por persona <span style="font-weight:400;color:#9CA3AF">(Aporte empresa)</span></h2>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input id="buscar-persona" type="text" placeholder="🔎 Cédula o nombre…" oninput="filtrarPersonas()" autocomplete="off"
-                style="padding:6px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:180px">
-            <form method="GET" action="{{ route('contable.autoliquidacion.index') }}" style="margin:0">
-                <input type="hidden" name="mes" value="{{ $mes }}">
-                <input type="hidden" name="anio" value="{{ $anio }}">
-                <select name="un" onchange="this.form.submit()" style="padding:6px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
-                    <option value="">Todas las UN</option>
-                    @foreach($unidades as $u)
-                        <option value="{{ $u }}" {{ $un === $u ? 'selected' : '' }}>{{ $u }}</option>
-                    @endforeach
-                </select>
-            </form>
-        </div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
-        <thead>
-            <tr style="color:#9CA3AF;text-align:left;border-bottom:1px solid #E5E7EB">
-                <th style="padding:8px 12px">Cédula</th>
-                <th style="padding:8px 12px">Nombre</th>
-                <th style="padding:8px 12px;text-align:center">Conceptos</th>
-                <th style="padding:8px 12px;text-align:right">Aporte empresa</th>
-            </tr>
-        </thead>
-        <tbody id="tbody-personas">
-            @forelse($porPersona as $i => $per)
-            <tr class="fila-persona" data-buscar="{{ strtolower(($per['cedula'] ?? '').' '.($per['nombre'] ?? '')) }}"
-                onclick="togglePersona({{ $i }})" style="border-bottom:1px solid #F3F4F6;cursor:pointer">
-                <td style="padding:7px 12px;font-family:monospace;color:#1B3F6E;white-space:nowrap">
-                    <span id="caret-{{ $i }}" style="display:inline-block;width:10px;color:#6366F1">▸</span> {{ $per['cedula'] }}
-                </td>
-                <td style="padding:7px 12px;color:#374151">{{ $per['nombre'] ?: '—' }}</td>
-                <td style="padding:7px 12px;text-align:center;color:#9CA3AF">{{ count($per['conceptos']) }}</td>
-                <td style="padding:7px 12px;text-align:right;font-weight:700;color:#15803D">{{ $fmt($per['total']) }}</td>
-            </tr>
-            <tr class="detalle-persona" id="detalle-{{ $i }}" style="display:none;background:#F9FAFB">
-                <td colspan="4" style="padding:2px 12px 10px 34px">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;max-width:520px">
-                        <tr style="color:#9CA3AF;text-align:left">
-                            <td style="padding:4px 8px">Concepto PILA</td>
-                            <td style="padding:4px 8px;text-align:right">Aporte empresa</td>
-                        </tr>
-                        @foreach($per['conceptos'] as $c)
-                        <tr style="border-top:1px solid #EEF0F3">
-                            <td style="padding:4px 8px;color:#6B7280">{{ $c['concepto'] ?: '—' }}</td>
-                            <td style="padding:4px 8px;text-align:right;color:#15803D">{{ $fmt($c['aporte']) }}</td>
-                        </tr>
-                        @endforeach
-                    </table>
-                </td>
-            </tr>
-            @empty
-            <tr><td colspan="4" style="padding:16px;color:#9CA3AF;text-align:center">No hay personas para este filtro.</td></tr>
-            @endforelse
-        </tbody>
-        <tfoot>
-            <tr style="border-top:2px solid #E5E7EB;background:#F9FAFB;font-weight:700">
-                <td colspan="3" style="padding:9px 12px;color:#1B3F6E">Total general (Aporte empresa){{ $un ? ' · UN '.$un : '' }}</td>
-                <td style="padding:9px 12px;text-align:right;color:#15803D">{{ $fmt($totalPersonas) }}</td>
-            </tr>
-        </tfoot>
-    </table>
-</div>
-
-<script>
-function togglePersona(i){
-    const d = document.getElementById('detalle-'+i);
-    const c = document.getElementById('caret-'+i);
-    if(!d) return;
-    const abierto = d.style.display !== 'none';
-    d.style.display = abierto ? 'none' : 'table-row';
-    if(c) c.textContent = abierto ? '▸' : '▾';
-}
-function filtrarPersonas(){
-    const q = (document.getElementById('buscar-persona').value || '').toLowerCase().trim();
-    document.querySelectorAll('#tbody-personas .fila-persona').forEach(function(row){
-        const match = !q || (row.dataset.buscar || '').includes(q);
-        row.style.display = match ? '' : 'none';
-        const det = row.nextElementSibling;
-        if(det && det.classList.contains('detalle-persona') && !match) det.style.display = 'none';
-    });
-}
-</script>
+{{-- Acceso a la vista dedicada (buscador + lista + detalle con dona) --}}
+<a href="{{ route('contable.autoliquidacion.personas', ['mes'=>$mes,'anio'=>$anio]) }}"
+   style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:10px 16px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none">
+    🛡️ Ver seguridad social por persona (buscador + detalle)
+</a>
 
 <style>
 @media (max-width: 820px) { .grid-desgloses { grid-template-columns: 1fr !important; } }

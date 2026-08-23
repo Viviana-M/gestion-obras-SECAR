@@ -161,45 +161,12 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
-    public function el_costo_por_persona_agrupa_total_y_desglose_y_cuadra(): void
-    {
-        $archivo = $this->planilla([
-            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
-            $this->fila('222', 'OB4501', 'Aporte AFP', 25000),
-            $this->fila('111', 'ADM00099', 'Aporte ARL', 12000),
-            $this->fila('333', 'OB4501', 'Aporte Caja', 9000),
-        ], 'Autoliquidación Abril.xlsx');
-
-        $c = $this->contable();
-        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
-
-        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026]));
-        $resp->assertStatus(200);
-        $resp->assertSee('Costo de seguridad social por persona', false); // sección presente
-
-        $porPersona = $resp->viewData('porPersona');
-        // Ordenado de mayor a menor por total: 111 (42.000) > 222 (25.000) > 333 (9.000).
-        $this->assertSame(['111', '222', '333'], $porPersona->pluck('cedula')->all());
-
-        $p111 = $porPersona->firstWhere('cedula', '111');
-        $this->assertEqualsWithDelta(42000, $p111['total'], 0.5);
-        $conceptos = collect($p111['conceptos'])->pluck('aporte', 'concepto');
-        $this->assertEqualsWithDelta(30000, $conceptos['Aporte EPS'], 0.5);
-        $this->assertEqualsWithDelta(12000, $conceptos['Aporte ARL'], 0.5);
-
-        // El total general cuadra con la suma de la columna Aporte empresa.
-        $sumaColumna = (float) AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->sum('aporte_empresa');
-        $this->assertEqualsWithDelta(76000, $sumaColumna, 0.5);
-        $this->assertEqualsWithDelta($sumaColumna, $resp->viewData('totalPersonas'), 0.5);
-    }
-
-    #[Test]
-    public function no_muestra_valores_en_cero(): void
+    public function el_desglose_por_concepto_no_muestra_valores_en_cero(): void
     {
         $archivo = $this->planilla([
             $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
             $this->fila('111', 'ADM00099', 'Aporte FSP', 0),                 // concepto en 0 → no se muestra
-            $this->fila('444', 'ADM00099', 'Solo empleado', 0, '2026-04-30', 5000, 5000), // persona total 0
+            $this->fila('444', 'ADM00099', 'Solo empleado', 0, '2026-04-30', 5000, 5000),
         ], 'Autoliquidación Abril.xlsx');
 
         $c = $this->contable();
@@ -208,41 +175,11 @@ class AutoliquidacionTest extends TestCase
         $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026]));
         $resp->assertStatus(200);
 
-        $porPersona = $resp->viewData('porPersona');
-        // La persona con total 0 no aparece; la de 30.000 sí.
-        $this->assertSame(['111'], $porPersona->pluck('cedula')->all());
-        // El concepto en 0 no aparece en el desglose de la persona.
-        $conceptos = collect($porPersona->firstWhere('cedula', '111')['conceptos'])->pluck('concepto')->all();
-        $this->assertContains('Aporte EPS', $conceptos);
-        $this->assertNotContains('Aporte FSP', $conceptos);
-
-        // Tampoco en el desglose por concepto PILA.
+        // En el desglose por concepto PILA no aparecen los conceptos en 0.
         $porConcepto = $resp->viewData('porConcepto')->pluck('concepto_pila')->all();
         $this->assertContains('Aporte EPS', $porConcepto);
         $this->assertNotContains('Aporte FSP', $porConcepto);
         $this->assertNotContains('Solo empleado', $porConcepto);
-
-        $this->assertEqualsWithDelta(30000, $resp->viewData('totalPersonas'), 0.5);
-    }
-
-    #[Test]
-    public function el_costo_por_persona_se_filtra_por_un(): void
-    {
-        $archivo = $this->planilla([
-            $this->fila('111', 'ADM00099', 'Aporte EPS', 30000),
-            $this->fila('222', 'OB4501', 'Aporte AFP', 25000),
-            $this->fila('333', 'OB4501', 'Aporte Caja', 9000),
-        ]);
-
-        $c = $this->contable();
-        $this->actingAs($c)->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
-
-        $resp = $this->actingAs($c)->get(route('contable.autoliquidacion.index', ['mes' => 4, 'anio' => 2026, 'un' => 'OB4501']));
-        $resp->assertStatus(200);
-
-        $porPersona = $resp->viewData('porPersona');
-        $this->assertSame(['222', '333'], $porPersona->pluck('cedula')->all()); // solo la UN filtrada
-        $this->assertEqualsWithDelta(34000, $resp->viewData('totalPersonas'), 0.5); // 25.000 + 9.000
     }
 
     #[Test]

@@ -77,6 +77,26 @@ class SeguridadSocialPersonaTest extends TestCase
     }
 
     #[Test]
+    public function no_muestra_personas_ni_conceptos_en_cero(): void
+    {
+        $this->ap('111', 'GOMEZ ANA', 'ADM00099', 'EPS', 30000);
+        $this->ap('111', 'GOMEZ ANA', 'ADM00099', 'FSP', 0);        // concepto en 0
+        // Persona 444: solo aporte empleado → total empresa 0.
+        AutoliquidacionAporte::create(['cedula' => '444', 'razon_social' => 'X', 'un_codigo' => 'ADM00099',
+            'concepto_pila' => 'Solo empleado', 'aporte_empresa' => 0, 'aporte_empleado' => 5000,
+            'real_descontado' => 5000, 'mes' => 4, 'anio' => 2026]);
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.autoliquidacion.personas', ['mes' => 4, 'anio' => 2026]));
+
+        $personas = $resp->viewData('personas');
+        $this->assertSame(['111'], $personas->pluck('cedula')->all()); // 444 (total 0) no aparece
+        $conceptos = collect($personas->firstWhere('cedula', '111')['conceptos'])->pluck('concepto')->all();
+        $this->assertContains('EPS', $conceptos);
+        $this->assertNotContains('FSP', $conceptos);                 // concepto en 0 oculto
+    }
+
+    #[Test]
     public function se_filtra_por_unidad_de_negocio(): void
     {
         $this->sembrar();
