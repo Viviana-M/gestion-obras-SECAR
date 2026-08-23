@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AutoliquidacionAporte;
 use App\Models\Homologacion;
 use App\Models\ManoObraEspecial;
+use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
@@ -177,6 +178,26 @@ class RedistribucionMoEspecialService
         return $out;
     }
 
+    /** Monto a distribuir por persona del período (lo que Contabilidad decidió repartir): [cedula => monto]. */
+    public function montosDistribuir(int $mes, int $anio): array
+    {
+        $out = [];
+        foreach (MontoDistribuirMoEspecial::where('mes', $mes)->where('anio', $anio)->get() as $r) {
+            $out[$r->cedula] = (float) $r->monto_distribuir;
+        }
+        return $out;
+    }
+
+    /**
+     * Monto efectivo a distribuir de una persona: lo registrado para el período, topado a su
+     * total; si no hay registro, se distribuye el total completo (comportamiento por defecto).
+     */
+    private function montoEfectivo(float $total, string $cedula, array $montos): float
+    {
+        $m = array_key_exists($cedula, $montos) ? (float) $montos[$cedula] : $total;
+        return max(0.0, min($m, $total));
+    }
+
     /**
      * Resumen por bolsa (UN): MO cruda del período, lo retirado (Grupo B), el neto, lo
      * redistribuido por % y el final. Global: sum(final) == sum(crudo).
@@ -206,19 +227,23 @@ class RedistribucionMoEspecialService
 
         $costo   = $this->costoPorPersona($mes, $anio);
         $pcts    = $this->porcentajes($mes, $anio);
+        $montos  = $this->montosDistribuir($mes, $anio);
 
-        $retirado = [];       // por UN de origen (de los buckets de cada persona)
-        $redistribuido = [];  // por UN destino (según %)
+        $retirado = [];       // por UN de origen (todo el total del tercero sale de la bolsa)
+        $redistribuido = [];  // por UN destino (según %, sobre el monto a distribuir)
+        $pendiente = 0.0;     // total retirado que Contabilidad aún no distribuye
         foreach ($costo as $ced => $p) {
             if ($p['total'] <= 0.005) continue;
             foreach ($p['buckets'] as $b) {
                 $retirado[$b['un']] = ($retirado[$b['un']] ?? 0) + $b['monto'];
             }
-            // Redistribución: solo si los % del período suman 100.
+            $montoDist = $this->montoEfectivo((float) $p['total'], (string) $ced, $montos);
+            $pendiente += (float) $p['total'] - $montoDist;
+            // Redistribución: solo si los % del período suman 100. Reparte el monto a distribuir.
             $ptc = $pcts[$ced] ?? [];
-            if (abs(array_sum($ptc) - 100) < 0.05) {
+            if ($montoDist > 0.005 && abs(array_sum($ptc) - 100) < 0.05) {
                 foreach ($ptc as $un => $pct) {
-                    $redistribuido[$un] = ($redistribuido[$un] ?? 0) + $p['total'] * $pct / 100;
+                    $redistribuido[$un] = ($redistribuido[$un] ?? 0) + $montoDist * $pct / 100;
                 }
             }
         }
@@ -241,6 +266,7 @@ class RedistribucionMoEspecialService
             'total_crudo'         => array_sum(array_column($filas, 'crudo')),
             'total_retirado'      => array_sum($retirado),
             'total_redistribuido' => array_sum($redistribuido),
+            'total_pendiente'     => round($pendiente, 2),
         ];
     }
 
@@ -254,9 +280,10 @@ class RedistribucionMoEspecialService
      */
     public function movimientosRedistribucion(int $mes, int $anio): array
     {
-        $costo = $this->costoPorPersona($mes, $anio);
-        $pcts  = $this->porcentajes($mes, $anio);
-        $homol = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
+        $costo  = $this->costoPorPersona($mes, $anio);
+        $pcts   = $this->porcentajes($mes, $anio);
+        $montos = $this->montosDistribuir($mes, $anio);
+        $homol  = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
 
         $mov = [];
         foreach ($costo as $ced => $p) {
@@ -264,11 +291,17 @@ class RedistribucionMoEspecialService
             $ptc = $pcts[$ced] ?? [];
             if (abs(array_sum($ptc) - 100) >= 0.05) continue; // sin % válidos: no se redistribuye
 
+            // Se distribuye la totalidad o una porción: cada cuenta 14 se escala por la fracción
+            // del total que Contabilidad decidió distribuir; el resto queda pendiente en la 14.
+            $montoDist = $this->montoEfectivo((float) $p['total'], (string) $ced, $montos);
+            if ($montoDist <= 0.005) continue;
+            $fraccion = $montoDist / (float) $p['total'];
+
             foreach ($p['buckets'] as $b) {
                 $cuenta14 = $b['cuenta'] !== '' ? $b['cuenta'] : '14';
                 $cuenta61 = (string) ($homol[$cuenta14]->cuenta_61 ?? $cuenta14); // su 6 correspondiente
                 foreach ($ptc as $un => $pct) {
-                    $monto = round($b['monto'] * $pct / 100, 2);
+                    $monto = round($b['monto'] * $fraccion * $pct / 100, 2);
                     if ($monto <= 0.005) continue;
                     $mov[] = [
                         'un_origen'     => $b['un'],       'cuenta_origen'  => $cuenta14,

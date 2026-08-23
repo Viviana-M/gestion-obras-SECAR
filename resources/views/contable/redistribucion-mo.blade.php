@@ -90,7 +90,7 @@
     <div class="card" style="padding:0;overflow-x:auto;margin-bottom:1rem">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #E5E7EB;flex-wrap:wrap;gap:8px">
             <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin:0">Personas de apoyo administrativo y operativo · {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</h2>
-            @if($puedeEditar)<button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">💾 Guardar porcentajes</button>@endif
+            @if($puedeEditar)<button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">💾 Guardar distribución</button>@endif
         </div>
         @forelse($personas as $per)
         <div style="padding:12px 16px;border-bottom:1px solid #F3F4F6">
@@ -109,9 +109,24 @@
                 </div>
             </div>
 
+            @if($per['total'] > 0.005)
+            {{-- Monto a distribuir: la totalidad o una porción del total retirado; el resto queda pendiente --}}
+            <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <label style="font-size:11px;color:#6B7280">Monto a distribuir a costo real</label>
+                <input type="number" step="0.01" min="0" max="{{ $per['total'] }}" name="monto[{{ $per['cedula'] }}]"
+                    value="{{ rtrim(rtrim(number_format($per['monto_distribuir'],2,'.',''),'0'),'.') }}"
+                    class="monto-dist" data-ced="{{ $per['cedula'] }}" data-total="{{ $per['total'] }}"
+                    oninput="recalcPct('{{ $per['cedula'] }}')" @readonly(!$puedeEditar)
+                    style="width:150px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">
+                <span style="font-size:11px;color:#6B7280">de {{ $fmt($per['total']) }} · Pendiente:
+                    <b class="pendiente-dist" data-ced="{{ $per['cedula'] }}" style="color:#B45309">{{ $fmt($per['pendiente']) }}</b></span>
+                @if($puedeEditar)<button type="button" onclick="setMontoTotal('{{ $per['cedula'] }}')" style="font-size:10.5px;padding:3px 8px;border:1px solid #1B3F6E;border-radius:6px;background:white;color:#1B3F6E;cursor:pointer">Todo</button>@endif
+            </div>
+            @endif
+
             {{-- Editor de % por bolsa --}}
             <div style="margin-top:8px">
-                <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Redistribuir entre bolsas (deben sumar 100%):
+                <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Repartir el monto entre bolsas (los % deben sumar 100%):
                     <span class="suma-pct" data-ced="{{ $per['cedula'] }}" style="font-weight:700;color:{{ abs($per['suma_pct']-100)<0.05 || $per['suma_pct']==0 ? '#15803D' : '#DC2626' }}">{{ rtrim(rtrim(number_format($per['suma_pct'],1),'0'),'.') }}%</span>
                 </div>
                 <div id="filas-{{ $loop->index }}" data-ced="{{ $per['cedula'] }}" data-total="{{ $per['total'] }}">
@@ -122,7 +137,7 @@
                         </select>
                         <input type="number" step="0.01" min="0" max="100" name="pct[{{ $per['cedula'] }}][{{ $loop->index }}][pct]" value="{{ rtrim(rtrim(number_format($pct,2),'0'),'.') }}" oninput="recalcPct('{{ $per['cedula'] }}')" style="width:90px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">%
                         <span style="color:#9CA3AF;font-size:11px">→</span>
-                        <span class="val-dist" style="font-size:12px;color:#15803D;font-weight:700;min-width:96px">{{ $per['total'] > 0 ? $fmt($per['total'] * $pct / 100) : '' }}</span>
+                        <span class="val-dist" style="font-size:12px;color:#15803D;font-weight:700;min-width:96px">{{ $per['monto_distribuir'] > 0 ? $fmt($per['monto_distribuir'] * $pct / 100) : '' }}</span>
                         <a href="#" onclick="this.closest('.fila-pct').remove();recalcPct('{{ $per['cedula'] }}');return false" style="color:#DC2626;text-decoration:none">✕</a>
                     </div>
                     @endforeach
@@ -147,7 +162,12 @@
 {{-- Resumen de bolsas --}}
 <div class="card" style="padding:0;overflow-x:auto;margin-bottom:1rem">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #E5E7EB;flex-wrap:wrap;gap:8px">
-        <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin:0">Bolsas: crudo → retirado → redistribuido</h2>
+        <div>
+            <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin:0">Bolsas: crudo → retirado → redistribuido</h2>
+            @if(($resumen['total_pendiente'] ?? 0) > 0.5)
+            <div style="font-size:11.5px;color:#B45309;margin-top:2px">Pendiente por distribuir en Contabilidad: <b>{{ $fmt($resumen['total_pendiente']) }}</b> (queda en la cuenta 14, sin llevar a costo real todavía).</div>
+            @endif
+        </div>
         <form method="GET" action="{{ route('contable.redistribucion-mo.plano') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0">
             <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
             <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:2px">N° doc</label>
@@ -219,16 +239,33 @@ function agregarFila(cedula, idx){
     cont.appendChild(tpl);
     recalcPct(cedula);
 }
+function baseMonto(cedula){
+    const inp = document.querySelector(`.monto-dist[data-ced="${cedula}"]`);
+    if (inp){
+        const total = parseFloat(inp.dataset.total || 0);
+        let v = parseFloat(inp.value || 0); if (isNaN(v)) v = 0;
+        return { base: Math.max(0, Math.min(v, total)), total };
+    }
+    const cont = document.querySelector(`[id^="filas-"][data-ced="${cedula}"]`);
+    const total = cont ? parseFloat(cont.dataset.total || 0) : 0;
+    return { base: total, total };
+}
+function setMontoTotal(cedula){
+    const inp = document.querySelector(`.monto-dist[data-ced="${cedula}"]`);
+    if (inp){ inp.value = inp.dataset.total; recalcPct(cedula); }
+}
 function recalcPct(cedula){
+    const { base, total } = baseMonto(cedula);
+    const pend = document.querySelector(`.pendiente-dist[data-ced="${cedula}"]`);
+    if (pend) pend.textContent = '$' + Math.round(Math.max(0, total - base)).toLocaleString('es-CO');
     let suma = 0;
     document.querySelectorAll(`[id^="filas-"][data-ced="${cedula}"]`).forEach(cont => {
-        const total = parseFloat(cont.dataset.total || 0);
         cont.querySelectorAll('.fila-pct').forEach(row => {
             const inp = row.querySelector('input[name$="[pct]"]');
             const pct = parseFloat((inp && inp.value) || 0);
             suma += pct;
             const span = row.querySelector('.val-dist');
-            if (span) span.textContent = (total > 0 && pct > 0) ? '$' + Math.round(total * pct / 100).toLocaleString('es-CO') : '';
+            if (span) span.textContent = (base > 0 && pct > 0) ? '$' + Math.round(base * pct / 100).toLocaleString('es-CO') : '';
         });
     });
     const badge = document.querySelector(`.suma-pct[data-ced="${cedula}"]`);

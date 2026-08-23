@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
 use App\Models\ManoObraEspecial;
+use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
@@ -33,15 +34,20 @@ class RedistribucionMoEspecialController extends Controller
 
         $costo   = $this->svc->costoPorPersona($mes, $anio);
         $pcts    = $this->svc->porcentajes($mes, $anio);
+        $montos  = $this->svc->montosDistribuir($mes, $anio);
         $resumen = $this->svc->resumenBolsas($mes, $anio);
 
-        // Personas del maestro con su costo y % del período.
-        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $pcts) {
+        // Personas del maestro con su costo, monto a distribuir y % del período.
+        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $pcts, $montos) {
             $c = $costo[$p->cedula] ?? ['directo' => 0, 'ss' => 0, 'total' => 0, 'buckets' => []];
             $pp = $pcts[$p->cedula] ?? [];
+            $total = (float) $c['total'];
+            // Monto a distribuir: lo registrado (topado al total) o, por defecto, el total completo.
+            $monto = array_key_exists($p->cedula, $montos) ? max(0.0, min((float) $montos[$p->cedula], $total)) : $total;
             return [
                 'id' => $p->id, 'cedula' => $p->cedula, 'nombre' => $p->nombre, 'activo' => $p->activo,
-                'directo' => (float) $c['directo'], 'ss' => (float) $c['ss'], 'total' => (float) $c['total'],
+                'directo' => (float) $c['directo'], 'ss' => (float) $c['ss'], 'total' => $total,
+                'monto_distribuir' => $monto, 'pendiente' => round($total - $monto, 2),
                 'porcentajes' => $pp, 'suma_pct' => array_sum($pp),
             ];
         });
@@ -89,6 +95,7 @@ class RedistribucionMoEspecialController extends Controller
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
 
         RedistribucionMoEspecial::where('cedula', $persona->cedula)->delete();
+        MontoDistribuirMoEspecial::where('cedula', $persona->cedula)->delete();
         $persona->delete();
 
         return back()->with('success', 'Persona eliminada de MO Apoyo administrativo y operativo.');
@@ -100,9 +107,10 @@ class RedistribucionMoEspecialController extends Controller
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
 
         [$mes, $anio] = $this->periodo($request);
-        $entrada = (array) $request->input('pct', []); // [cedula => [ ['un'=>,'pct'=>], ... ]]
+        $entrada = (array) $request->input('pct', []);      // [cedula => [ ['un'=>,'pct'=>], ... ]]
+        $montosInput = (array) $request->input('monto', []); // [cedula => monto a distribuir]
 
-        // Consolidar y validar por persona.
+        // Consolidar y validar los % por persona.
         $porPersona = [];
         foreach ($entrada as $cedula => $filas) {
             foreach ((array) $filas as $f) {
@@ -121,7 +129,18 @@ class RedistribucionMoEspecialController extends Controller
             }
         }
 
-        DB::transaction(function () use ($porPersona, $mes, $anio, $request) {
+        // Monto a distribuir por persona: se topa al total retirado del período (no se puede
+        // distribuir más de lo que tiene). Si viene vacío, se distribuye el total (por defecto).
+        $costo  = $this->svc->costoPorPersona($mes, $anio);
+        $montos = [];
+        foreach ($montosInput as $cedula => $valor) {
+            if (! isset($costo[$cedula])) continue;
+            $total = (float) $costo[$cedula]['total'];
+            $m = $valor === '' || $valor === null ? $total : (float) $valor;
+            $montos[$cedula] = max(0.0, min($m, $total));
+        }
+
+        DB::transaction(function () use ($porPersona, $montos, $mes, $anio, $request) {
             // Reemplaza los % del período para las personas enviadas.
             RedistribucionMoEspecial::where('mes', $mes)->where('anio', $anio)
                 ->whereIn('cedula', array_keys($porPersona))->delete();
@@ -133,9 +152,20 @@ class RedistribucionMoEspecialController extends Controller
                     ]);
                 }
             }
+            // Reemplaza el monto a distribuir del período para las personas enviadas.
+            if (! empty($montos)) {
+                MontoDistribuirMoEspecial::where('mes', $mes)->where('anio', $anio)
+                    ->whereIn('cedula', array_keys($montos))->delete();
+                foreach ($montos as $cedula => $m) {
+                    MontoDistribuirMoEspecial::create([
+                        'cedula' => $cedula, 'mes' => $mes, 'anio' => $anio,
+                        'monto_distribuir' => round($m, 2), 'user_id' => $request->user()->id,
+                    ]);
+                }
+            }
         });
 
-        return back()->with('success', 'Porcentajes guardados para el período '.sprintf('%02d/%d', $mes, $anio).'.');
+        return back()->with('success', 'Distribución guardada para el período '.sprintf('%02d/%d', $mes, $anio).'.');
     }
 
     /** Plano SIESA (14→14 entre UN) de la redistribución del período. */

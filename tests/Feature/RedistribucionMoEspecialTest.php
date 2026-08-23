@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AutoliquidacionAporte;
 use App\Models\Homologacion;
 use App\Models\ManoObraEspecial;
+use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
@@ -182,6 +183,55 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->assertEqualsWithDelta($r['total_crudo'], array_sum(array_column($r['filas'], 'final')), 0.5);
         $this->assertEqualsWithDelta(1000000, $r['total_retirado'], 0.5);
         $this->assertEqualsWithDelta(1000000, $r['total_redistribuido'], 0.5);
+    }
+
+    #[Test]
+    public function distribuye_solo_una_porcion_y_deja_el_resto_pendiente(): void
+    {
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '111', 1000000); // total retirado 1.000.000
+        RedistribucionMoEspecial::insert([
+            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
+            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
+        ]);
+        // Contabilidad decide distribuir solo 600.000 de 1.000.000.
+        MontoDistribuirMoEspecial::create(['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'monto_distribuir' => 600000]);
+
+        $r = app(RedistribucionMoEspecialService::class)->resumenBolsas(4, 2026);
+        $porUn = collect($r['filas'])->keyBy('un');
+
+        // Se retira todo (1.000.000) pero solo se redistribuyen 600.000 (60% = 360k, 40% = 240k).
+        $this->assertEqualsWithDelta(1000000, $r['total_retirado'], 0.5);
+        $this->assertEqualsWithDelta(600000, $r['total_redistribuido'], 0.5);
+        $this->assertEqualsWithDelta(400000, $r['total_pendiente'], 0.5);
+        $this->assertEqualsWithDelta(360000, $porUn['MTO00099']['redistribuido'], 0.5);
+        $this->assertEqualsWithDelta(240000, $porUn['INS00099']['redistribuido'], 0.5);
+    }
+
+    #[Test]
+    public function el_plano_solo_mueve_la_porcion_a_distribuir(): void
+    {
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '111', 1000000);
+        RedistribucionMoEspecial::insert([
+            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
+            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
+        ]);
+        MontoDistribuirMoEspecial::create(['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'monto_distribuir' => 600000]);
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 55]));
+        $resp->assertOk();
+
+        $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
+        $mov = $ss->getSheetByName('Movimientocontable');
+        $deb = 0;
+        foreach (range(2, $mov->getHighestRow()) as $row) {
+            $deb += (float) $mov->getCell('H'.$row)->getValue();
+        }
+        $this->assertEqualsWithDelta(600000, $deb, 0.5); // solo se mueve la porción a distribuir
     }
 
     #[Test]
