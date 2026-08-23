@@ -74,6 +74,35 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function cruza_por_nombre_cuando_el_financiero_no_trae_la_cedula(): void
+    {
+        // Como en producción: la bolsa identifica al tercero por NOMBRE en la razón social
+        // (sin cédula), y el orden/acentos de las palabras difieren del maestro. Debe cruzar.
+        $this->homologarMO('14200506');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'Arley Valencia Villabona', 'activo' => true]);
+
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200506',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '', 'razon_social' => 'VALENCIA VILLABONA ARLEY',
+            'estado_er' => -36821878, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+        // Otra persona en la misma bolsa NO debe sumarle a Arley.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200527',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '', 'razon_social' => 'TRUJILLO MORALES JOHAN E',
+            'estado_er' => -2655290, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(6, 2026);
+        $this->assertEqualsWithDelta(36821878, $costo['111']['directo'], 0.5);
+
+        // Y el tercero no registrado (JOHAN) aparece en el diagnóstico de "sin cruzar".
+        $sin = app(RedistribucionMoEspecialService::class)->tercerosSinCruzar(6, 2026);
+        $this->assertContains('TRUJILLO MORALES JOHAN E', array_column($sin, 'nombre'));
+        $this->assertNotContains('VALENCIA VILLABONA ARLEY', array_column($sin, 'nombre'));
+    }
+
+    #[Test]
     public function solo_cuentan_las_cuentas_de_mano_de_obra_definidas(): void
     {
         // La MO son solo las cuentas de la lista fija; una cuenta 14 fuera de la lista no cuenta.
@@ -200,9 +229,9 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function el_plano_redistribuye_14_a_14_y_cuadra(): void
+    public function el_plano_saca_de_la_14_y_lleva_a_la_6_y_cuadra(): void
     {
-        $this->homologarMO('14200530');
+        $this->homologarMO('14200530'); // 14200530 → cuenta_61 = 73950505
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 1000000);
         RedistribucionMoEspecial::insert([
@@ -216,14 +245,19 @@ class RedistribucionMoEspecialTest extends TestCase
 
         $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
         $mov = $ss->getSheetByName('Movimientocontable');
-        // Suma débitos == créditos (asiento cuadrado).
-        $deb = 0; $cred = 0;
+        // Columnas: C=cuenta, H=débito, I=crédito.
+        $deb = 0; $cred = 0; $credEn14 = 0; $debEn6 = 0;
         foreach (range(2, $mov->getHighestRow()) as $row) {
-            $deb  += (float) $mov->getCell('H'.$row)->getValue();
-            $cred += (float) $mov->getCell('I'.$row)->getValue();
+            $cta = (string) $mov->getCell('C'.$row)->getValue();
+            $h   = (float) $mov->getCell('H'.$row)->getValue();
+            $i   = (float) $mov->getCell('I'.$row)->getValue();
+            $deb += $h; $cred += $i;
+            if ($cta === '14200530') $credEn14 += $i; // sale de la 14 (crédito)
+            if ($cta === '73950505') $debEn6  += $h;  // entra a su 6 (débito)
         }
-        $this->assertEqualsWithDelta($deb, $cred, 0.5);
-        $this->assertEqualsWithDelta(1000000, $deb, 0.5); // se movió 1.000.000
+        $this->assertEqualsWithDelta($deb, $cred, 0.5);        // asiento cuadrado
+        $this->assertEqualsWithDelta(1000000, $credEn14, 0.5); // toda la MO sale de la cuenta 14
+        $this->assertEqualsWithDelta(1000000, $debEn6, 0.5);   // y entra a su cuenta 6 correspondiente
     }
 
     #[Test]

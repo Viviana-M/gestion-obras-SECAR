@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AutoliquidacionAporte;
+use App\Models\Homologacion;
 use App\Models\ManoObraEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
@@ -46,55 +47,48 @@ class RedistribucionMoEspecialService
         }
         $nombreMae = $maestro->pluck('nombre', 'cedula');
 
-        // Índice CÉDULA normalizada → cédula del maestro. El cruce es SOLO por cédula (ni el
-        // financiero ni la autoliquidación cruzan por nombre, porque los nombres difieren en
-        // acentos/orden/abreviaturas). Normalizamos el documento quitando puntos/espacios/guiones
-        // para que "12.345.678" == "12345678", que es la causa típica de que no cruzara.
-        $idx = [];
-        foreach ($maestro as $p) {
-            $n = $this->normCedula($p->cedula);
-            if ($n !== '') {
-                $idx[$n] = $p->cedula;
-            }
-        }
-        if (empty($idx)) {
+        // Índices para cruzar el tercero. Se cruza por CÉDULA (tercero_dcto/empleado); si el
+        // financiero no trae la cédula (viene el NOMBRE en la razón social, como en producción),
+        // se cae al cruce por NOMBRE normalizado (sin acentos ni orden de palabras, para que
+        // "VALENCIA VILLABONA ARLEY" == "Arley Valencia Villabona").
+        [$porCed, $porNom] = $this->indicesMaestro($maestro);
+        if (empty($porCed) && empty($porNom)) {
             return [];
         }
 
         $unBolsa   = UnBolsa::codigos();
         $cuentasMO = $this->cuentasMO($mes, $anio);
 
-        // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período. Se traen agrupadas por
-        //    documento del tercero (tercero_dcto = cédula/NIT) y se atribuyen a la persona por
-        //    coincidencia de cédula normalizada (robusto ante diferencias de formato).
+        // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período, agrupadas por tercero
+        //    (documento + razón social) y atribuidas a la persona por cédula o nombre.
         $directo = collect();
         if (! empty($cuentasMO) && ! empty($unBolsa)) {
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
                 ->where('mes', $mes)->where('anio', $anio)
-                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, SUM(estado_er) as saldo')
-                ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto')
+                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
+                ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
                 ->get();
         }
 
-        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la CÉDULA del
-        //    empleado (en el financiero estos aportes vienen a nombre del fondo/EPS, por eso se
-        //    cruzan por la autoliquidación). También por cédula, con la misma normalización.
+        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la cédula del
+        //    empleado (o su nombre). En el financiero estos aportes vienen a nombre del fondo/EPS,
+        //    por eso se cruzan por la autoliquidación.
         $ss = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
-            ->selectRaw('empleado, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
-            ->groupBy('empleado', 'un_codigo', 'cuenta_contable')
+            ->selectRaw('empleado, empleado_nombre, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
+            ->groupBy('empleado', 'empleado_nombre', 'un_codigo', 'cuenta_contable')
             ->havingRaw('SUM(aporte_empresa) > 0.005')
             ->get();
 
         $out = [];
-        foreach ($idx as $ced) {
-            $out[$ced] = ['cedula' => $ced, 'nombre' => $nombreMae[$ced] ?? $ced,
+        foreach ($nombreMae as $ced => $nom) {
+            $out[$ced] = ['cedula' => (string) $ced, 'nombre' => $nom,
                 'directo' => 0.0, 'ss' => 0.0, 'total' => 0.0, 'buckets' => []];
         }
 
         foreach ($directo as $r) {
-            $ced = $idx[$this->normCedula($r->tercero_dcto)] ?? null;
+            $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
             if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
@@ -104,7 +98,7 @@ class RedistribucionMoEspecialService
         }
 
         foreach ($ss as $r) {
-            $ced = $idx[$this->normCedula($r->empleado)] ?? null;
+            $ced = $this->cruzar($r->empleado, $r->empleado_nombre, $porCed, $porNom);
             if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->monto;
             if ($m <= 0.005) continue;
@@ -116,10 +110,51 @@ class RedistribucionMoEspecialService
         return $out;
     }
 
-    /** Normaliza una cédula/NIT para cruzar terceros: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */
+    /** Índices del maestro: [normCedula => cedula] y [normNombre => cedula] para cruzar terceros. */
+    private function indicesMaestro($maestro): array
+    {
+        $porCed = [];
+        $porNom = [];
+        foreach ($maestro as $p) {
+            $c = $this->normCedula($p->cedula);
+            if ($c !== '') $porCed[$c] = (string) $p->cedula;
+            $n = $this->normNombre($p->nombre);
+            if ($n !== '') $porNom[$n] = (string) $p->cedula;
+        }
+        return [$porCed, $porNom];
+    }
+
+    /**
+     * Cruza un tercero (documento + nombre) contra el maestro. Si el registro TRAE documento,
+     * manda la cédula: si esa cédula no está en el maestro es otra persona (no se cae al nombre,
+     * para no confundir a alguien con documento distinto pero nombre parecido). Solo cuando el
+     * registro no trae documento (como en producción) se cruza por nombre normalizado.
+     */
+    private function cruzar(?string $doc, ?string $nombre, array $porCed, array $porNom): ?string
+    {
+        $c = $this->normCedula($doc);
+        if ($c !== '') {
+            return $porCed[$c] ?? null;
+        }
+        $n = $this->normNombre($nombre);
+        return $n !== '' ? ($porNom[$n] ?? null) : null;
+    }
+
+    /** Normaliza una cédula/NIT: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */
     private function normCedula(?string $s): string
     {
         return preg_replace('/[^a-z0-9]/', '', mb_strtolower(trim((string) $s)));
+    }
+
+    /** Normaliza un nombre: sin acentos, sin puntuación y con las palabras ordenadas (el orden no importa). */
+    private function normNombre(?string $s): string
+    {
+        $s = mb_strtolower(trim((string) $s));
+        $s = strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n', 'ü' => 'u']);
+        $s = preg_replace('/[^a-z0-9 ]+/', ' ', $s);
+        $toks = array_values(array_filter(explode(' ', $s), fn ($t) => $t !== ''));
+        sort($toks);
+        return implode(' ', $toks);
     }
 
     /** Porcentajes por persona/UN del período: [cedula => [un_codigo => porcentaje]]. */
@@ -200,15 +235,18 @@ class RedistribucionMoEspecialService
     }
 
     /**
-     * Tuplas de movimiento 14→14 para el plano: por cada bucket de cada persona con % válidos,
-     * CR en la UN de origen y DB en cada UN destino (misma cuenta) según el porcentaje.
+     * Tuplas de movimiento para el plano contable. Al distribuir, el costo SALE de la cuenta 14
+     * (por aplicar) de la bolsa de origen y ENTRA a su cuenta 6 correspondiente (homologada) en
+     * la bolsa destino, según el porcentaje, para que el costo quede en firme. Cada tupla es un
+     * asiento balanceado: CR cuenta 14 (origen) / DB cuenta 61 (destino).
      *
-     * @return array<int, array{un_origen:string,un_destino:string,cuenta:string,monto:float,cedula:string}>
+     * @return array<int, array{un_origen:string,cuenta_origen:string,un_destino:string,cuenta_destino:string,monto:float,cedula:string}>
      */
     public function movimientosRedistribucion(int $mes, int $anio): array
     {
         $costo = $this->costoPorPersona($mes, $anio);
         $pcts  = $this->porcentajes($mes, $anio);
+        $homol = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
 
         $mov = [];
         foreach ($costo as $ced => $p) {
@@ -217,17 +255,59 @@ class RedistribucionMoEspecialService
             if (abs(array_sum($ptc) - 100) >= 0.05) continue; // sin % válidos: no se redistribuye
 
             foreach ($p['buckets'] as $b) {
-                $cuenta = $b['cuenta'] !== '' ? $b['cuenta'] : '14';
+                $cuenta14 = $b['cuenta'] !== '' ? $b['cuenta'] : '14';
+                $cuenta61 = (string) ($homol[$cuenta14]->cuenta_61 ?? $cuenta14); // su 6 correspondiente
                 foreach ($ptc as $un => $pct) {
                     $monto = round($b['monto'] * $pct / 100, 2);
                     if ($monto <= 0.005) continue;
                     $mov[] = [
-                        'un_origen'  => $b['un'], 'un_destino' => (string) $un,
-                        'cuenta'     => (string) $cuenta, 'monto' => $monto, 'cedula' => (string) $ced,
+                        'un_origen'     => $b['un'],       'cuenta_origen'  => $cuenta14,
+                        'un_destino'    => (string) $un,   'cuenta_destino' => $cuenta61,
+                        'monto'         => $monto,         'cedula'         => (string) $ced,
                     ];
                 }
             }
         }
         return $mov;
+    }
+
+    /**
+     * Terceros con MO en bolsas del período que NO cruzaron con ninguna persona del maestro
+     * (para diagnóstico: qué falta agregar/corregir en el maestro). Devuelve [{doc,nombre,monto}].
+     *
+     * @return array<int, array{doc:string,nombre:string,monto:float}>
+     */
+    public function tercerosSinCruzar(int $mes, int $anio): array
+    {
+        $maestro = ManoObraEspecial::where('activo', true)->get();
+        [$porCed, $porNom] = $this->indicesMaestro($maestro);
+
+        $unBolsa   = UnBolsa::codigos();
+        $cuentasMO = $this->cuentasMO($mes, $anio);
+        if (empty($cuentasMO) || empty($unBolsa)) {
+            return [];
+        }
+
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $unBolsa)
+            ->whereIn('cuenta_contable', $cuentasMO)
+            ->where('mes', $mes)->where('anio', $anio)
+            ->selectRaw('tercero_dcto, razon_social, SUM(estado_er) as saldo')
+            ->groupBy('tercero_dcto', 'razon_social')
+            ->get();
+
+        $sin = [];
+        foreach ($filas as $r) {
+            $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0;
+            if ($m <= 0.005) continue;
+            if ($this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom) !== null) continue;
+            $doc = trim((string) $r->tercero_dcto);
+            $nom = trim((string) $r->razon_social);
+            $key = $doc.'|'.$nom;
+            if (! isset($sin[$key])) $sin[$key] = ['doc' => $doc, 'nombre' => $nom, 'monto' => 0.0];
+            $sin[$key]['monto'] += $m;
+        }
+        usort($sin, fn ($a, $b) => $b['monto'] <=> $a['monto']);
+        return array_values($sin);
     }
 }

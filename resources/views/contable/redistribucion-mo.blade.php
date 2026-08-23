@@ -49,6 +49,28 @@
 </div>
 @endif
 
+{{-- Diagnóstico: terceros de MO en bolsas que NO cruzaron con el maestro --}}
+@if(!empty($sinCruzar))
+<div class="card" style="padding:14px 16px;margin-bottom:1rem;border-left:4px solid #D97706">
+    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que no cruzaron con una persona registrada</h2>
+    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Su costo NO se está tomando. Agrégalos arriba con su cédula (o el mismo nombre) para que entren al cálculo.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="text-align:left;color:#6B7280;border-bottom:1px solid #E5E7EB">
+            <th style="padding:5px 8px">Documento</th><th style="padding:5px 8px">Nombre (razón social)</th><th style="padding:5px 8px;text-align:right">Monto MO</th>
+        </tr></thead>
+        <tbody>
+        @foreach(array_slice($sinCruzar, 0, 30) as $t)
+            <tr style="border-bottom:1px solid #F3F4F6">
+                <td style="padding:5px 8px;font-family:monospace">{{ $t['doc'] !== '' ? $t['doc'] : '—' }}</td>
+                <td style="padding:5px 8px">{{ $t['nombre'] !== '' ? $t['nombre'] : '—' }}</td>
+                <td style="padding:5px 8px;text-align:right">{{ $fmt($t['monto']) }}</td>
+            </tr>
+        @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+
 {{-- Personas + costo + % --}}
 <form method="POST" action="{{ route('contable.redistribucion-mo.porcentajes') }}">
     @csrf

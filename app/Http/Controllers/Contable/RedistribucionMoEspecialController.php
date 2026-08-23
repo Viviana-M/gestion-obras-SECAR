@@ -49,8 +49,9 @@ class RedistribucionMoEspecialController extends Controller
         $bolsas   = UnBolsa::where('activo', true)->orderBy('codigo')->get(['codigo', 'nombre']);
         $periodos = RegistroFinanciero::selectRaw('anio, mes')->distinct()
             ->orderByDesc('anio')->orderByDesc('mes')->get();
+        $sinCruzar = $this->svc->tercerosSinCruzar($mes, $anio);
 
-        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio'));
+        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar'));
     }
 
     /** Alta de una persona al maestro Grupo B. */
@@ -135,9 +136,10 @@ class RedistribucionMoEspecialController extends Controller
 
         $mov = [];
         foreach ($this->svc->movimientosRedistribucion($mes, $anio) as $m) {
-            // CR en la UN de origen (retiro) y DB en la UN destino (redistribución), misma cuenta 14.
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta'], self::NIT_SECAR, $m['un_origen'], null, 0, $m['monto'], self::TIPO_DOC);
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta'], self::NIT_SECAR, $m['un_destino'], null, $m['monto'], 0, self::TIPO_DOC);
+            // Saca de la cuenta 14 de la bolsa de origen (CR) y lleva a su cuenta 6 correspondiente
+            // en la bolsa destino (DB), según el %, para que el costo quede en firme.
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_origen'], self::NIT_SECAR, $m['un_origen'], null, 0, $m['monto'], self::TIPO_DOC);
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_destino'], self::NIT_SECAR, $m['un_destino'], null, $m['monto'], 0, self::TIPO_DOC);
         }
 
         if (empty($mov)) {
