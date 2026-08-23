@@ -195,7 +195,6 @@
                 <div class="submenu-group-label">Cargues del mes</div>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
                 <a href="{{ route('contable.autoliquidacion.index') }}" class="{{ request()->is('contable/autoliquidacion') ? 'active' : '' }}">Autoliquidación (PILA)</a>
-                <a href="{{ route('contable.autoliquidacion.personas') }}" class="{{ request()->is('contable/autoliquidacion/personas*') ? 'active' : '' }}">Seguridad social por persona</a>
                 <a href="{{ route('contable.movimiento-comercial.index') }}" class="{{ request()->is('contable/movimiento-comercial') ? 'active' : '' }}">Movimiento comercial (ítems)</a>
                 <div class="submenu-group-label">Control</div>
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>

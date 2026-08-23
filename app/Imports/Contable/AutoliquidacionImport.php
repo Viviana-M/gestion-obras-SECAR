@@ -24,8 +24,8 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  *  5 Fecha                   → (período mes/anio)
  *  6 Descripción UN          → un_descripcion
  *  7 Descripción Codigo PILA → concepto_pila
- *  8 Empleado                → (no se guarda)
- *  9 Nombre del empl         → (no se guarda)
+ *  8 Empleado                → empleado (cédula de la persona)
+ *  9 Nombre del empl         → empleado_nombre
  * 10 Aporte del empl         → aporte_empleado
  * 11 Aporte empresa          → aporte_empresa
  * 12 Real Descontado         → real_descontado
@@ -68,6 +68,8 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
             'fecha'            => self::parsearFecha($row[5] ?? null)?->format('Y-m-d'),
             'un_descripcion'   => $this->texto($row[6] ?? null),
             'concepto_pila'    => $this->texto($row[7] ?? null),
+            'empleado'         => $this->texto($row[8] ?? null),   // cédula del empleado
+            'empleado_nombre'  => $this->texto($row[9] ?? null),   // nombre del empleado
             'aporte_empleado'  => $this->num($row[10] ?? 0),
             'aporte_empresa'   => $this->num($row[11] ?? 0),
             'real_descontado'  => $this->num($row[12] ?? 0),

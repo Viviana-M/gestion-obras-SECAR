@@ -18,19 +18,24 @@ class AutoliquidacionController extends Controller
 
         $mes  = (int) $request->get('mes', $periodos->first()->mes ?? (int) date('n'));
         $anio = (int) $request->get('anio', $periodos->first()->anio ?? (int) date('Y'));
+        $un   = trim((string) $request->get('un', '')) ?: null;      // filtro (pestaña por persona)
+        $tab  = $request->get('tab') === 'personas' ? 'personas' : 'resumen';
 
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio);
 
+        // "Personas" = empleados distintos (no terceros/fondos).
+        $persona = "COALESCE(NULLIF(empleado, ''), cedula)";
+
         $resumen = [
-            'personas'       => (clone $base)->distinct()->count('cedula'),
+            'personas'       => (int) (clone $base)->selectRaw("COUNT(DISTINCT $persona) as n")->value('n'),
             'filas'          => (clone $base)->count(),
             'aporte_empresa' => (float) (clone $base)->sum('aporte_empresa'),
         ];
 
         $porUN = (clone $base)
-            ->selectRaw('un_codigo,
-                COUNT(DISTINCT cedula) as personas,
-                SUM(aporte_empresa) as aporte_empresa')
+            ->selectRaw("un_codigo,
+                COUNT(DISTINCT $persona) as personas,
+                SUM(aporte_empresa) as aporte_empresa")
             ->groupBy('un_codigo')
             ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005') // no mostrar valores en 0
             ->orderByDesc('aporte_empresa')
@@ -43,37 +48,16 @@ class AutoliquidacionController extends Controller
             ->orderByDesc('aporte_empresa')
             ->get();
 
-        return view('contable.autoliquidacion', compact(
-            'periodos', 'mes', 'anio', 'resumen', 'porUN', 'porConcepto'
-        ));
-    }
-
-    /**
-     * Vista "Seguridad social por persona" (maestro-detalle): buscador + lista a la
-     * izquierda y detalle con dona por concepto a la derecha. Vista para Contabilidad,
-     * Nómina o admin.
-     */
-    public function personas(Request $request)
-    {
-        abort_unless($this->puedeVerSeguridad($request->user()), 403,
-            'No tienes permiso para ver Seguridad social por persona.');
-
-        $periodos = AutoliquidacionAporte::selectRaw('anio, mes')
-            ->distinct()->orderByDesc('anio')->orderByDesc('mes')->get();
-
-        $mes  = (int) $request->get('mes', $periodos->first()->mes ?? (int) date('n'));
-        $anio = (int) $request->get('anio', $periodos->first()->anio ?? (int) date('Y'));
-        $un   = trim((string) $request->get('un', '')) ?: null;
-
-        $unidades = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
-            ->whereNotNull('un_codigo')->distinct()->orderBy('un_codigo')->pluck('un_codigo');
-
+        // Pestaña "Seguridad social por persona": lista por persona + KPIs.
+        $unidades = (clone $base)->whereNotNull('un_codigo')
+            ->distinct()->orderBy('un_codigo')->pluck('un_codigo');
         ['personas' => $personas, 'total' => $total] = $this->datosSeguridadPersona($mes, $anio, $un);
         $numPersonas = $personas->count();
         $promedio    = $numPersonas ? $total / $numPersonas : 0.0;
 
-        return view('contable.seguridad-social', compact(
-            'periodos', 'mes', 'anio', 'un', 'unidades', 'personas', 'total', 'numPersonas', 'promedio'
+        return view('contable.autoliquidacion', compact(
+            'periodos', 'mes', 'anio', 'un', 'tab', 'resumen', 'porUN', 'porConcepto',
+            'unidades', 'personas', 'total', 'numPersonas', 'promedio'
         ));
     }
 
@@ -83,8 +67,8 @@ class AutoliquidacionController extends Controller
      */
     public function personasExcel(Request $request)
     {
-        abort_unless($this->puedeVerSeguridad($request->user()), 403,
-            'No tienes permiso para ver Seguridad social por persona.');
+        abort_unless($request->user()->puedeVerModulo('contabilidad'), 403,
+            'No tienes permiso para ver Contabilidad.');
 
         $mes  = (int) $request->get('mes', (int) date('n'));
         $anio = (int) $request->get('anio', (int) date('Y'));
@@ -101,43 +85,40 @@ class AutoliquidacionController extends Controller
         );
     }
 
-    /** ¿Puede ver Seguridad social por persona? Contabilidad, Nómina o admin. */
-    private function puedeVerSeguridad($user): bool
-    {
-        return $user->esAdmin()
-            || $user->puedeVerModulo('contabilidad')
-            || $user->puedeVerModulo('nomina');
-    }
-
     /**
-     * Arma el costo de seguridad social por persona (solo Aporte empresa) para un período
-     * y UN opcional: total por persona, UN dominante y desglose por concepto PILA. Ordenado
-     * de mayor a menor por total y sin valores en 0.
+     * Arma el costo de seguridad social POR PERSONA (empleado) para un período y UN opcional:
+     * total por persona (solo Aporte empresa), UN dominante y desglose por concepto PILA.
+     * Se agrupa por el EMPLEADO (columnas "Empleado"/"Nombre del empl"), NO por el tercero
+     * (fondo/EPS). Para planillas antiguas sin empleado, cae a la cédula/razón social del
+     * tercero. Ordenado de mayor a menor por total y sin valores en 0.
      *
      * @return array{personas: \Illuminate\Support\Collection, total: float}
      */
     private function datosSeguridadPersona(int $mes, int $anio, ?string $un): array
     {
+        $persona = "COALESCE(NULLIF(empleado, ''), cedula)";
+        $nombre  = "COALESCE(NULLIF(MAX(empleado_nombre), ''), MAX(razon_social))";
+
         $base = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
             ->when($un, fn ($q) => $q->where('un_codigo', $un));
 
         $totales = (clone $base)
-            ->selectRaw('cedula, MAX(razon_social) as nombre, SUM(aporte_empresa) as total')
-            ->groupBy('cedula')
+            ->selectRaw("$persona as cedula, $nombre as nombre, SUM(aporte_empresa) as total")
+            ->groupByRaw($persona)
             ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005')
             ->orderByDesc('total')
             ->get();
 
         $conceptos = (clone $base)
-            ->selectRaw('cedula, concepto_pila, SUM(aporte_empresa) as aporte')
-            ->groupBy('cedula', 'concepto_pila')
+            ->selectRaw("$persona as cedula, concepto_pila, SUM(aporte_empresa) as aporte")
+            ->groupByRaw("$persona, concepto_pila")
             ->havingRaw('ABS(SUM(aporte_empresa)) > 0.005')
             ->orderByDesc('aporte')
             ->get()->groupBy('cedula');
 
         $unPorPersona = (clone $base)
-            ->selectRaw('cedula, un_codigo, SUM(aporte_empresa) as apo')
-            ->groupBy('cedula', 'un_codigo')
+            ->selectRaw("$persona as cedula, un_codigo, SUM(aporte_empresa) as apo")
+            ->groupByRaw("$persona, un_codigo")
             ->orderByDesc('apo')
             ->get()->groupBy('cedula');
 

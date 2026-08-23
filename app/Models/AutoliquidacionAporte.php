@@ -11,6 +11,8 @@ class AutoliquidacionAporte extends Model
     protected $fillable = [
         'cedula',
         'razon_social',
+        'empleado',
+        'empleado_nombre',
         'un_codigo',
         'un_descripcion',
         'concepto_pila',

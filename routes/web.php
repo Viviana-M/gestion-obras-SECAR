@@ -34,10 +34,6 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     // Preferencias de la interfaz (cualquier usuario autenticado)
     Route::post('/preferencias/menu', [PreferenciaController::class, 'guardarMenu'])->name('preferencias.menu');
 
-    // Seguridad social por persona (Contabilidad / Nómina / admin — permiso en el controlador).
-    Route::get('/contable/autoliquidacion/personas', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personas'])->name('contable.autoliquidacion.personas');
-    Route::get('/contable/autoliquidacion/personas/excel', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personasExcel'])->name('contable.autoliquidacion.personas.excel');
-
     // ══════════════════════ CONTABILIDAD ══════════════════════
     Route::middleware('modulo:contabilidad')->group(function () {
 
@@ -65,6 +61,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Autoliquidación de aportes (PILA) — carga y resumen (fase 1).
         Route::get('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'index'])->name('contable.autoliquidacion.index');
         Route::post('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'store'])->name('contable.autoliquidacion.store');
+        // Descarga a Excel del costo de seguridad social por persona (pestaña del módulo).
+        Route::get('/contable/autoliquidacion/personas/excel', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'personasExcel'])->name('contable.autoliquidacion.personas.excel');
         // Cargue del movimiento comercial (ítems → items_distribucion)
         Route::get('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'index'])->name('contable.movimiento-comercial.index');
         Route::post('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'store'])->name('contable.movimiento-comercial.store');
