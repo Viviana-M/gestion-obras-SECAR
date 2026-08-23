@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithBatchInserts;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Concerns\WithStartRow;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
@@ -30,12 +31,21 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  * 11 Aporte empresa          → aporte_empresa
  * 12 Real Descontado         → real_descontado
  */
-class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInserts, WithStartRow
+class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInserts, WithStartRow, WithMultipleSheets
 {
     public function __construct(
         private int $mes,
         private int $anio,
     ) {}
+
+    /**
+     * Importar SOLO la primera hoja. Sin esto, un .xlsx con varias hojas (p. ej. una copia
+     * o un resumen) se importaría en todas y duplicaría los aportes.
+     */
+    public function sheets(): array
+    {
+        return [0 => $this];
+    }
 
     public function startRow(): int
     {

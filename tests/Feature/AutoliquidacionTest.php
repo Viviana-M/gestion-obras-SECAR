@@ -140,6 +140,31 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function un_archivo_con_varias_hojas_no_duplica_los_aportes(): void
+    {
+        // xlsx con DOS hojas que contienen los mismos datos: solo debe importar la primera.
+        $ss = new Spreadsheet();
+        $hdr = ['ID Cuenta', 'Cuenta contable', 'Id. Tercero Mov', 'Razon Social', 'Id. U.N. Mov', 'Fecha',
+            'Descripción UN', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl',
+            'Aporte del empl', 'Aporte empresa', 'Real Descontado'];
+        $fila = $this->fila('111', 'ADM00099', 'EPS', 30000);
+        $s1 = $ss->getActiveSheet(); $s1->setTitle('Datos'); $s1->fromArray($hdr, null, 'A1'); $s1->fromArray($fila, null, 'A2');
+        $s2 = $ss->createSheet(); $s2->setTitle('Copia'); $s2->fromArray($hdr, null, 'A1'); $s2->fromArray($fila, null, 'A2');
+        $path = tempnam(sys_get_temp_dir(), 'pila').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $archivo = new UploadedFile($path, 'abril.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
+            ->assertRedirect();
+
+        // Solo 1 fila (la de la primera hoja), no 2.
+        $this->assertSame(1, AutoliquidacionAporte::where('mes', 4)->where('anio', 2026)->count());
+        $this->assertEqualsWithDelta(30000, (float) AutoliquidacionAporte::where('mes', 4)->sum('aporte_empresa'), 0.5);
+    }
+
+    #[Test]
     public function vaciar_borra_los_aportes_del_periodo(): void
     {
         AutoliquidacionAporte::create(['cedula' => '1', 'concepto_pila' => 'EPS', 'aporte_empresa' => 100, 'mes' => 4, 'anio' => 2026]);
