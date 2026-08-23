@@ -284,18 +284,18 @@ class RedistribucionMoEspecialTest extends TestCase
     public function retira_la_mo_de_los_terceros_registrados_de_las_bolsas_de_operaciones(): void
     {
         $this->homologarMO('14200506');
-        $this->moBolsa('MTO00099', '14200506', '111', 600000); // MO de ARLEY (se registrará)
-        $this->moBolsa('MTO00099', '14200506', '999', 400000); // MO de otro (no registrado)
+        $this->moBolsa('MTO00099', '14200506', '111', 600000, 3, 2026); // MO de ARLEY en MARZO (mes previo)
+        $this->moBolsa('MTO00099', '14200506', '999', 400000, 4, 2026); // MO de otro en abril
 
         $svc     = app(DistribucionService::class);
         $periodo = Homologacion::periodo(2026, 4);
 
-        // Sin registrar a ARLEY: la bolsa muestra la MO completa (600k + 400k).
+        // Viendo ABRIL, la bolsa arrastra (acumulado) los 600k de marzo + 400k de abril.
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
         $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
 
-        // Al registrar a ARLEY, su MO se retira de la bolsa: queda solo la del otro (400k).
+        // Al registrar a ARLEY, su MO se retira aunque sea de un mes anterior: queda solo el otro (400k).
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');

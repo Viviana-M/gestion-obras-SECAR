@@ -282,21 +282,45 @@ class RedistribucionMoEspecialService
     }
 
     /**
-     * Retiro de MO por (UN|cuenta 14) de los terceros registrados, para descontarlo de las
-     * bolsas de Operaciones (solo la MO directa, cuyo tercero ES la persona registrada; la
-     * seguridad social viene a nombre del fondo y no se retira por aquí).
+     * Retiro de MO por (UN|cuenta 14) de los terceros registrados, para descontarlo del saldo
+     * de las bolsas de Operaciones. Usa el MISMO corte ACUMULADO AL MES que el saldo de la
+     * bolsa (meses anteriores + mes filtrado), no solo el mes exacto, para que el retiro
+     * coincida con lo que la bolsa arrastra aunque la MO se haya cargado en un mes previo.
+     * Solo la MO directa (cuyo tercero ES la persona registrada); la seguridad social viene a
+     * nombre del fondo y no se retira por aquí.
      *
+     * @param array|null $codigos  bolsas a considerar (por defecto todas las UnBolsa)
      * @return array<string, float>  [ "un|cuenta" => monto ]
      */
-    public function retiroPorUnCuenta(int $mes, int $anio): array
+    public function retiroAcumuladoPorUnCuenta(int $anio, int $mes, ?array $codigos = null): array
     {
+        $maestro = ManoObraEspecial::where('activo', true)->get();
+        $codigos = $codigos ?? UnBolsa::codigos();
+        if ($maestro->isEmpty() || empty($codigos)) {
+            return [];
+        }
+        [$porCed, $porNom] = $this->indicesMaestro($maestro);
+
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->whereIn('cuenta_contable', self::CUENTAS_MO)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)->orWhere(function ($q2) use ($anio, $mes) {
+                    $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                });
+            })
+            ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
+            ->get();
+
         $out = [];
-        foreach ($this->costoPorPersona($mes, $anio) as $p) {
-            foreach ($p['buckets'] as $b) {
-                if (($b['tipo'] ?? '') !== 'directo') continue;
-                $k = $b['un'].'|'.$b['cuenta'];
-                $out[$k] = ($out[$k] ?? 0) + (float) $b['monto'];
-            }
+        foreach ($filas as $r) {
+            $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
+            if ($ced === null) continue;
+            $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0;
+            if ($m <= 0.005) continue;
+            $k = $r->un.'|'.$r->cuenta;
+            $out[$k] = ($out[$k] ?? 0) + $m;
         }
         return $out;
     }
