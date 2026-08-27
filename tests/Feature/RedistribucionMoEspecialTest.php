@@ -61,9 +61,11 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->homologarMO('14200530');
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
 
-        // MO directa de ARLEY en la bolsa MTO00099 (tercero = su cédula) = 600.000.
+        // MO directa (salario) de ARLEY en la bolsa MTO00099 (tercero = su cédula) = 600.000.
         $this->moBolsa('MTO00099', '14200530', '111', 600000);
-        // Seguridad social de ARLEY (empleado 111) cruzada de la autoliquidación = 400.000.
+        // Seguridad social: está en la cuenta 14 a nombre del fondo (tercero = 800100) = 400.000...
+        $this->moBolsa('MTO00099', '14200530', '800100', 400000);
+        // ...y la autoliquidación atribuye ese fondo a ARLEY (empleado 111).
         $this->ssBolsa('111', 'MTO00099', 400000);
         // Ruido: MO de otra persona (no Grupo B) no debe contar.
         $this->moBolsa('MTO00099', '14200530', '999', 250000);
@@ -73,6 +75,46 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->assertEqualsWithDelta(600000, $costo['111']['directo'], 0.5);
         $this->assertEqualsWithDelta(400000, $costo['111']['ss'], 0.5);
         $this->assertEqualsWithDelta(1000000, $costo['111']['total'], 0.5); // total a retirar
+    }
+
+    #[Test]
+    public function la_ss_sale_de_la_cuenta_14_repartida_por_la_autoliquidacion(): void
+    {
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraEspecial::create(['cedula' => '222', 'nombre' => 'YILMAR', 'activo' => true]);
+
+        // La SS está en la cuenta 14 a nombre del fondo (tercero = 800100) = 1.000.000.
+        $this->moBolsa('MTO00099', '14200530', '800100', 1000000);
+        // La autoliquidación del fondo: ARLEY 600.000, YILMAR 400.000 (total 1.000.000).
+        $this->ssBolsa('111', 'MTO00099', 600000);
+        $this->ssBolsa('222', 'MTO00099', 400000);
+
+        $svc   = app(RedistribucionMoEspecialService::class);
+        $costo = $svc->costoPorPersona(4, 2026);
+
+        // El valor sale de la cuenta 14 (1.000.000), repartido por la proporción de la autoliquidación.
+        $this->assertEqualsWithDelta(600000, $costo['111']['ss'], 0.5);
+        $this->assertEqualsWithDelta(400000, $costo['222']['ss'], 0.5);
+        $this->assertEqualsWithDelta(0, $costo['111']['directo'], 0.5); // aquí no hay salario, solo SS
+        // Cuadra la autoliquidación con la cuenta 14 del fondo: sin descuadres.
+        $this->assertSame([], $svc->descuadresFondos(4, 2026));
+    }
+
+    #[Test]
+    public function reporta_descuadre_entre_la_cuenta_14_del_fondo_y_la_autoliquidacion(): void
+    {
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '800100', 900000); // cuenta 14 del fondo = 900.000
+        $this->ssBolsa('111', 'MTO00099', 1000000);               // autoliquidación = 1.000.000
+
+        $desc = app(RedistribucionMoEspecialService::class)->descuadresFondos(4, 2026);
+
+        $this->assertCount(1, $desc);
+        $this->assertEqualsWithDelta(900000, $desc[0]['cuenta14'], 0.5);
+        $this->assertEqualsWithDelta(1000000, $desc[0]['autoliq'], 0.5);
+        $this->assertEqualsWithDelta(-100000, $desc[0]['diferencia'], 0.5);
     }
 
     #[Test]
@@ -136,6 +178,13 @@ class RedistribucionMoEspecialTest extends TestCase
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '99999', 'razon_social' => 'OTRO PROVEEDOR',
             'estado_er' => -250000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
+        // Seguridad social en la cuenta 14 a nombre del fondo (NIT 800100) = 300.000.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '800100', 'razon_social' => 'NUEVA EPS',
+            'estado_er' => -300000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+        // La autoliquidación (fondo + empleado + aporte) atribuye esos 300.000 a ARLEY.
         AutoliquidacionAporte::create([
             'cedula' => '800100', 'razon_social' => 'NUEVA EPS', 'empleado' => '12 345 678', 'empleado_nombre' => 'ARLEY G.',
             'un_codigo' => 'MTO00099', 'cuenta_contable' => '14200530', 'concepto_pila' => 'EPS',

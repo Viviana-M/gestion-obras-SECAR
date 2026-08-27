@@ -74,14 +74,12 @@ class RedistribucionMoEspecialService
                 ->get();
         }
 
-        // 2) SEGURIDAD SOCIAL: aporte_empresa de la autoliquidación, cruzado por la cédula del
-        //    empleado (o su nombre). En el financiero estos aportes vienen a nombre del fondo/EPS,
-        //    por eso se cruzan por la autoliquidación.
-        $ss = AutoliquidacionAporte::where($this->corteAcum($anio, $mes))
-            ->selectRaw('empleado, empleado_nombre, un_codigo as un, cuenta_contable as cuenta, SUM(aporte_empresa) as monto')
-            ->groupBy('empleado', 'empleado_nombre', 'un_codigo', 'cuenta_contable')
-            ->havingRaw('SUM(aporte_empresa) > 0.005')
-            ->get();
+        // 2) SEGURIDAD SOCIAL (desde la cuenta 14): la SS también está en la cuenta 14, pero a
+        //    nombre del FONDO/EPS (tercero = fondo, sin cédula). La autoliquidación (fondo +
+        //    empleado + aporte) se usa SOLO como llave para repartir el monto de la cuenta 14 de
+        //    cada fondo entre las personas, según su proporción de aporte_empresa en ese fondo.
+        //    El valor sale de la cuenta 14, no del número de la autoliquidación.
+        $fondos = $this->fondosAutoliquidacion($mes, $anio, $porCed, $porNom);
 
         $out = [];
         foreach ($nombreMae as $ced => $nom) {
@@ -90,25 +88,113 @@ class RedistribucionMoEspecialService
         }
 
         foreach ($directo as $r) {
-            $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
-            if ($ced === null || ! isset($out[$ced])) continue;
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
-            $out[$ced]['directo'] += $m;
-            $out[$ced]['total']   += $m;
-            $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo'];
+
+            // ¿MO directa (salario)? El tercero de la línea es la persona.
+            $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
+            if ($ced !== null && isset($out[$ced])) {
+                $out[$ced]['directo'] += $m;
+                $out[$ced]['total']   += $m;
+                $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo'];
+                continue;
+            }
+
+            // ¿Seguridad social? El tercero de la línea es un fondo/EPS de la autoliquidación:
+            // se reparte su cuenta 14 entre las personas según su proporción de aporte del fondo.
+            $fk = $fondos['byNit'][$this->normCedula($r->tercero_dcto)]
+                ?? $fondos['byNom'][$this->normNombre($r->razon_social)] ?? null;
+            if ($fk === null) continue;
+            $totalFondo = (float) ($fondos['total'][$fk] ?? 0);
+            if ($totalFondo <= 0.005) continue;
+            foreach (($fondos['persons'][$fk] ?? []) as $pced => $aporte) {
+                if (! isset($out[$pced])) continue;
+                $porcion = $m * ((float) $aporte / $totalFondo); // el valor sale de la cuenta 14
+                if ($porcion <= 0.005) continue;
+                $out[$pced]['ss']    += $porcion;
+                $out[$pced]['total'] += $porcion;
+                $out[$pced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $porcion, 'tipo' => 'ss'];
+            }
         }
 
-        foreach ($ss as $r) {
+        return $out;
+    }
+
+    /**
+     * Fondos de la autoliquidación del período (acumulado): total de aporte_empresa por fondo,
+     * aporte por persona registrada dentro del fondo, e índices para cruzar el fondo con las
+     * líneas de la cuenta 14 (por NIT o por nombre).
+     *
+     * @return array{total:array<string,float>,persons:array<string,array<string,float>>,byNit:array<string,string>,byNom:array<string,string>,nombre:array<string,string>}
+     */
+    private function fondosAutoliquidacion(int $mes, int $anio, array $porCed, array $porNom): array
+    {
+        $rows = AutoliquidacionAporte::where($this->corteAcum($anio, $mes))
+            ->selectRaw('cedula as fondo_nit, razon_social as fondo_nom, empleado, empleado_nombre, SUM(aporte_empresa) as monto')
+            ->groupBy('cedula', 'razon_social', 'empleado', 'empleado_nombre')
+            ->havingRaw('SUM(aporte_empresa) > 0.005')
+            ->get();
+
+        $total = []; $persons = []; $byNit = []; $byNom = []; $nombre = [];
+        foreach ($rows as $r) {
+            $nit = $this->normCedula($r->fondo_nit);
+            $nom = $this->normNombre($r->fondo_nom);
+            $fk = $nit !== '' ? $nit : $nom; // clave canónica del fondo
+            if ($fk === '') continue;
+            $ap = (float) $r->monto;
+            $total[$fk] = ($total[$fk] ?? 0) + $ap;
+            $nombre[$fk] = $nombre[$fk] ?? (trim((string) $r->fondo_nom) ?: (string) $r->fondo_nit);
+            if ($nit !== '') $byNit[$nit] = $fk;
+            if ($nom !== '') $byNom[$nom] = $fk;
             $ced = $this->cruzar($r->empleado, $r->empleado_nombre, $porCed, $porNom);
-            if ($ced === null || ! isset($out[$ced])) continue;
-            $m = (float) $r->monto;
-            if ($m <= 0.005) continue;
-            $out[$ced]['ss']    += $m;
-            $out[$ced]['total'] += $m;
-            $out[$ced]['buckets'][] = ['un' => (string) ($r->un ?: '—'), 'cuenta' => (string) ($r->cuenta ?: ''), 'monto' => $m, 'tipo' => 'ss'];
+            if ($ced !== null) {
+                $persons[$fk][$ced] = ($persons[$fk][$ced] ?? 0) + $ap;
+            }
+        }
+        return compact('total', 'persons', 'byNit', 'byNom', 'nombre');
+    }
+
+    /**
+     * Validación: por fondo, compara la suma de la autoliquidación (aporte_empresa) contra el
+     * monto de la cuenta 14 de ese fondo. Devuelve solo los que NO cuadran, para revisar.
+     *
+     * @return array<int, array{fondo:string,autoliq:float,cuenta14:float,diferencia:float}>
+     */
+    public function descuadresFondos(int $mes, int $anio): array
+    {
+        $maestro = ManoObraEspecial::where('activo', true)->get();
+        [$porCed, $porNom] = $this->indicesMaestro($maestro);
+        $fondos = $this->fondosAutoliquidacion($mes, $anio, $porCed, $porNom);
+        if (empty($fondos['total'])) {
+            return [];
         }
 
+        $unBolsa   = UnBolsa::codigos();
+        $cuentasMO = $this->cuentasMO($mes, $anio);
+        $cuenta14 = [];
+        if (! empty($cuentasMO) && ! empty($unBolsa)) {
+            $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+                ->whereIn('codigo_proyecto', $unBolsa)->whereIn('cuenta_contable', $cuentasMO)
+                ->where($this->corteAcum($anio, $mes))
+                ->selectRaw('tercero_dcto, razon_social, SUM(estado_er) as saldo')
+                ->groupBy('tercero_dcto', 'razon_social')->get();
+            foreach ($rows as $r) {
+                $fk = $fondos['byNit'][$this->normCedula($r->tercero_dcto)]
+                    ?? $fondos['byNom'][$this->normNombre($r->razon_social)] ?? null;
+                if ($fk === null) continue;
+                $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0;
+                $cuenta14[$fk] = ($cuenta14[$fk] ?? 0) + $m;
+            }
+        }
+
+        $out = [];
+        foreach ($fondos['total'] as $fk => $ap) {
+            $c14 = (float) ($cuenta14[$fk] ?? 0);
+            $dif = round($c14 - $ap, 2);
+            if (abs($dif) < 0.5) continue;
+            $out[] = ['fondo' => $fondos['nombre'][$fk] ?? $fk, 'autoliq' => round($ap, 2), 'cuenta14' => round($c14, 2), 'diferencia' => $dif];
+        }
+        usort($out, fn ($a, $b) => abs($b['diferencia']) <=> abs($a['diferencia']));
         return $out;
     }
 
@@ -376,44 +462,25 @@ class RedistribucionMoEspecialService
 
     /**
      * Retiro de MO por (UN|cuenta 14) de los terceros registrados, para descontarlo del saldo
-     * de las bolsas de Operaciones. Usa el MISMO corte ACUMULADO AL MES que el saldo de la
-     * bolsa (meses anteriores + mes filtrado), no solo el mes exacto, para que el retiro
-     * coincida con lo que la bolsa arrastra aunque la MO se haya cargado en un mes previo.
-     * Solo la MO directa (cuyo tercero ES la persona registrada); la seguridad social viene a
-     * nombre del fondo y no se retira por aquí.
+     * de las bolsas de Operaciones. Incluye la MO directa (salario) Y la seguridad social
+     * atribuida (la porción de la cuenta 14 del fondo que corresponde a las personas), pues
+     * ambas salen de la cuenta 14 y las gestiona Contabilidad. Se calcula desde costoPorPersona,
+     * que ya usa el corte ACUMULADO AL MES (igual que el saldo de la bolsa).
      *
      * @param array|null $codigos  bolsas a considerar (por defecto todas las UnBolsa)
      * @return array<string, float>  [ "un|cuenta" => monto ]
      */
     public function retiroAcumuladoPorUnCuenta(int $anio, int $mes, ?array $codigos = null): array
     {
-        $maestro = ManoObraEspecial::where('activo', true)->get();
-        $codigos = $codigos ?? UnBolsa::codigos();
-        if ($maestro->isEmpty() || empty($codigos)) {
-            return [];
-        }
-        [$porCed, $porNom] = $this->indicesMaestro($maestro);
-
-        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-            ->whereIn('codigo_proyecto', $codigos)
-            ->whereIn('cuenta_contable', self::CUENTAS_MO)
-            ->where(function ($q) use ($anio, $mes) {
-                $q->where('anio', '<', $anio)->orWhere(function ($q2) use ($anio, $mes) {
-                    $q2->where('anio', $anio)->where('mes', '<=', $mes);
-                });
-            })
-            ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
-            ->get();
-
         $out = [];
-        foreach ($filas as $r) {
-            $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
-            if ($ced === null) continue;
-            $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0;
-            if ($m <= 0.005) continue;
-            $k = $r->un.'|'.$r->cuenta;
-            $out[$k] = ($out[$k] ?? 0) + $m;
+        foreach ($this->costoPorPersona($mes, $anio) as $p) {
+            foreach ($p['buckets'] as $b) {
+                $un = (string) ($b['un'] ?? '');
+                if ($un === '' || $un === '—') continue;
+                if ($codigos !== null && ! in_array($un, $codigos, true)) continue;
+                $k = $un.'|'.$b['cuenta'];
+                $out[$k] = ($out[$k] ?? 0) + (float) $b['monto'];
+            }
         }
         return $out;
     }

@@ -85,6 +85,32 @@
 </div>
 @endif
 
+{{-- Validación: descuadres entre la cuenta 14 del fondo y la autoliquidación --}}
+@if(!empty($descuadres))
+<div class="card" style="padding:14px 16px;margin-bottom:1rem;border-left:4px solid #DC2626">
+    <h2 style="font-size:13px;font-weight:700;color:#B91C1C;margin:0 0 4px">⚠ Fondos que no cuadran (cuenta 14 vs autoliquidación)</h2>
+    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">La seguridad social sale de la <b>cuenta 14</b> del fondo y la autoliquidación solo dice cómo repartirla. Si no coinciden, revísalo: la atribución por persona puede quedar desajustada.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="text-align:left;color:#6B7280;border-bottom:1px solid #E5E7EB">
+            <th style="padding:5px 8px">Fondo / EPS</th>
+            <th style="padding:5px 8px;text-align:right">Cuenta 14</th>
+            <th style="padding:5px 8px;text-align:right">Autoliquidación</th>
+            <th style="padding:5px 8px;text-align:right">Diferencia</th>
+        </tr></thead>
+        <tbody>
+        @foreach($descuadres as $d)
+            <tr style="border-bottom:1px solid #F3F4F6">
+                <td style="padding:5px 8px">{{ $d['fondo'] }}</td>
+                <td style="padding:5px 8px;text-align:right">{{ $fmt($d['cuenta14']) }}</td>
+                <td style="padding:5px 8px;text-align:right">{{ $fmt($d['autoliq']) }}</td>
+                <td style="padding:5px 8px;text-align:right;font-weight:700;color:#B91C1C">{{ ($d['diferencia']>=0?'+':'−').$fmt(abs($d['diferencia'])) }}</td>
+            </tr>
+        @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+
 {{-- Resumen agregado en vivo: total a redistribuir + chips por bolsa destino --}}
 <div class="card" style="padding:14px 16px;margin-bottom:1rem">
     <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#9CA3AF;font-weight:700;margin-bottom:8px">Resumen — mano de obra que se retira de las bolsas y se redistribuye por %</div>

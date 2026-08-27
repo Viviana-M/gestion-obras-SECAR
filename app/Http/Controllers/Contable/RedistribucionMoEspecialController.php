@@ -66,9 +66,10 @@ class RedistribucionMoEspecialController extends Controller
         }
         $periodos = RegistroFinanciero::selectRaw('anio, mes')->distinct()
             ->orderByDesc('anio')->orderByDesc('mes')->get();
-        $sinCruzar = $this->svc->tercerosSinCruzar($mes, $anio);
+        $sinCruzar  = $this->svc->tercerosSinCruzar($mes, $anio);
+        $descuadres = $this->svc->descuadresFondos($mes, $anio);
 
-        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar', 'coloresBolsa', 'hayHeredados'));
+        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar', 'coloresBolsa', 'hayHeredados', 'descuadres'));
     }
 
     /** Alta de una persona al maestro. Se puede elegir un tercero de la bolsa o escribirlo a mano. */
