@@ -48,7 +48,7 @@ class ColumnasPlanoTest extends TestCase
     {
         $resp = $this->actingAs($this->contable())->get(route('contable.autoliquidacion.index'));
         $resp->assertStatus(200);
-        $resp->assertSee('debe traer estas 13 columnas', false);
+        $resp->assertSee('el módulo las reconoce por su nombre', false);
         $resp->assertSee('Nombre del empl', false);
     }
 }

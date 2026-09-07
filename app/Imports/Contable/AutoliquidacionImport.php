@@ -12,30 +12,42 @@ use Maatwebsite\Excel\Concerns\WithStartRow;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 /**
- * Importa la planilla PILA por posición de columna (orden fijo), en chunks y por lotes.
- * El período (mes/anio) se fija por fuera (se toma de la columna Fecha) y se aplica a
- * todas las filas.
+ * Importa la planilla de autoliquidación (PILA) reconociendo las columnas POR SU NOMBRE, no por
+ * su posición. Así funciona con dos exportes distintos del ERP que traen los mismos datos:
  *
- * Estructura ESTÁNDAR (13 columnas, 0-index):
- *  0 ID Cuenta               → id_cuenta
- *  1 Cuenta contable         → cuenta_contable
- *  2 Id. Tercero Mov         → cedula
- *  3 Razon Social            → razon_social
- *  4 Id. U.N. Mov            → un_codigo
- *  5 Fecha                   → (período mes/anio)
- *  6 Descripción UN          → un_descripcion
- *  7 Descripción Codigo PILA → concepto_pila
- *  8 Empleado                → empleado (cédula de la persona)
- *  9 Nombre del empl         → empleado_nombre
- * 10 Aporte del empl         → aporte_empleado
- * 11 Aporte empresa          → aporte_empresa
- * 12 Real Descontado         → real_descontado
+ *  - El PLANO estándar (13 columnas), y
+ *  - El movimiento contable de la PILA (SIESA, ~27 columnas), donde el detalle por empleado va
+ *    en columnas aparte (Empleado, Aporte empresa, Descripción Codigo PILA) junto al fondo/EPS
+ *    (Id. Tercero Mov / Razon Social) de cada línea de aporte.
+ *
+ * Columnas que se leen (por nombre, sin importar el orden):
+ *   ID Cuenta                → id_cuenta
+ *   Cuenta contable          → cuenta_contable
+ *   Id. Tercero Mov          → cedula          (NIT del fondo/EPS de la línea)
+ *   Razon Social             → razon_social    (nombre del fondo/EPS)
+ *   Id. U.N. Mov             → un_codigo
+ *   Fecha                    → (período mes/anio)
+ *   Descripción UN           → un_descripcion
+ *   Descripción Codigo PILA  → concepto_pila
+ *   Empleado                 → empleado        (cédula de la persona)
+ *   Nombre del empl          → empleado_nombre
+ *   Aporte del empl          → aporte_empleado
+ *   Aporte empresa           → aporte_empresa
+ *   Real Descontado          → real_descontado
+ *
+ * El período (mes/anio) se fija por fuera (se toma de la columna Fecha) y se aplica a todas las
+ * filas. Solo se importan las filas con "Empleado" (cada línea es de una persona); así se
+ * descartan renglones de totales al pie y contrapartidas sin empleado.
  */
 class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInserts, WithStartRow, WithMultipleSheets
 {
+    /**
+     * @param  array<string,int>  $mapa  campo canónico → índice de columna (0-based)
+     */
     public function __construct(
         private int $mes,
         private int $anio,
+        private array $mapa,
     ) {}
 
     /**
@@ -64,28 +76,112 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
 
     public function model(array $row)
     {
-        $cedula = trim((string) ($row[2] ?? ''));
-        if ($cedula === '') {
-            return null; // fila vacía / sin persona
+        // Este módulo trata del APORTE EMPRESA (lo que va a la cuenta 14 y se reclasifica a la 61).
+        // Solo se importan las líneas de aporte de una persona: deben traer Empleado y un aporte
+        // empresa distinto de cero. Así se descartan el renglón de totales al pie (sin empleado) y
+        // las contrapartidas/puente (mismo empleado y concepto, pero aporte empresa en 0), que si
+        // no inflarían el conteo de filas y personas.
+        $empleado = $this->celda($row, 'empleado');
+        $aporteEmpresa = $this->num($this->valor($row, 'aporte_empresa'));
+        if ($empleado === null || abs($aporteEmpresa) < 0.005) {
+            return null;
         }
 
         return new AutoliquidacionAporte([
-            'id_cuenta'        => $this->texto($row[0] ?? null),
-            'cuenta_contable'  => $this->texto($row[1] ?? null),
-            'cedula'           => $cedula,
-            'razon_social'     => $this->texto($row[3] ?? null),
-            'un_codigo'        => $this->texto($row[4] ?? null),
-            'fecha'            => self::parsearFecha($row[5] ?? null)?->format('Y-m-d'),
-            'un_descripcion'   => $this->texto($row[6] ?? null),
-            'concepto_pila'    => $this->texto($row[7] ?? null),
-            'empleado'         => $this->texto($row[8] ?? null),   // cédula del empleado
-            'empleado_nombre'  => $this->texto($row[9] ?? null),   // nombre del empleado
-            'aporte_empleado'  => $this->num($row[10] ?? 0),
-            'aporte_empresa'   => $this->num($row[11] ?? 0),
-            'real_descontado'  => $this->num($row[12] ?? 0),
+            'id_cuenta'        => $this->celda($row, 'id_cuenta'),
+            'cuenta_contable'  => $this->celda($row, 'cuenta_contable'),
+            'cedula'           => $this->celda($row, 'cedula'),          // NIT del fondo/EPS
+            'razon_social'     => $this->celda($row, 'razon_social'),    // nombre del fondo/EPS
+            'un_codigo'        => $this->celda($row, 'un_codigo'),
+            'fecha'            => self::parsearFecha($this->valor($row, 'fecha'))?->format('Y-m-d'),
+            'un_descripcion'   => $this->celda($row, 'un_descripcion'),
+            'concepto_pila'    => $this->celda($row, 'concepto_pila'),
+            'empleado'         => $empleado,                             // cédula del empleado
+            'empleado_nombre'  => $this->celda($row, 'empleado_nombre'), // nombre del empleado
+            'aporte_empleado'  => $this->num($this->valor($row, 'aporte_empleado')),
+            'aporte_empresa'   => $aporteEmpresa,
+            'real_descontado'  => $this->num($this->valor($row, 'real_descontado')),
             'mes'              => $this->mes,
             'anio'            => $this->anio,
         ]);
+    }
+
+    /**
+     * Construye el mapa de columnas (campo canónico → índice) a partir del encabezado, sin
+     * depender del orden ni del número de columnas. Devuelve solo los campos encontrados.
+     *
+     * @param  array<int, mixed>  $encabezado
+     * @return array<string, int>
+     */
+    public static function mapaColumnas(array $encabezado): array
+    {
+        $mapa = [];
+        foreach ($encabezado as $i => $titulo) {
+            $h = self::normalizar($titulo);
+            if ($h === '') {
+                continue;
+            }
+            $campo = self::clasificar($h);
+            // Primera columna que coincide gana (no sobrescribir).
+            if ($campo !== null && ! isset($mapa[$campo])) {
+                $mapa[$campo] = (int) $i;
+            }
+        }
+
+        return $mapa;
+    }
+
+    /**
+     * Asigna un encabezado normalizado a un campo canónico. El orden de las reglas evita
+     * colisiones (p. ej. "Descripción UN" vs "Id. U.N. Mov", o los tres "…empl").
+     */
+    private static function clasificar(string $h): ?string
+    {
+        $tiene = fn (string $x) => str_contains($h, $x);
+
+        return match (true) {
+            $h === 'id cuenta'                     => 'id_cuenta',
+            $tiene('cuenta') && $tiene('contable') => 'cuenta_contable',
+            $tiene('tercero')                      => 'cedula',
+            $tiene('razon') && $tiene('social')    => 'razon_social',
+            $tiene('fecha')                        => 'fecha',
+            $tiene('descripcion') && $tiene('pila') => 'concepto_pila',  // Descripción Codigo PILA (texto, no el código)
+            $tiene('descripcion') && $tiene('un')  => 'un_descripcion',  // Descripción UN
+            $tiene('un') && $tiene('mov')          => 'un_codigo',       // Id. U.N. Mov
+            $tiene('aporte') && $tiene('empresa')  => 'aporte_empresa',
+            $tiene('aporte') && $tiene('empl')     => 'aporte_empleado', // Aporte del empl
+            $tiene('nombre') && $tiene('empl')     => 'empleado_nombre', // Nombre del empl
+            $h === 'empleado'                      => 'empleado',
+            $tiene('real') && $tiene('descontado') => 'real_descontado',
+            default                                => null,
+        };
+    }
+
+    /**
+     * Normaliza un encabezado: minúsculas, sin acentos, sin puntos, y con los separadores
+     * colapsados a un solo espacio. "Id. U.N. Mov" → "id un mov"; "Descripción Codigo PILA" →
+     * "descripcion codigo pila".
+     */
+    private static function normalizar($s): string
+    {
+        $s = mb_strtolower(trim((string) $s));
+        $s = strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n', 'ü' => 'u']);
+        $s = str_replace('.', '', $s);              // "u.n." → "un"
+        $s = preg_replace('/[^a-z0-9]+/', ' ', $s); // resto de separadores → espacio
+        return trim($s);
+    }
+
+    /** Valor crudo de un campo (o null si la columna no existe en este archivo). */
+    private function valor(array $row, string $campo)
+    {
+        $i = $this->mapa[$campo] ?? null;
+        return $i === null ? null : ($row[$i] ?? null);
+    }
+
+    /** Valor de texto de un campo, o null si viene vacío. */
+    private function celda(array $row, string $campo): ?string
+    {
+        return $this->texto($this->valor($row, $campo));
     }
 
     /**

@@ -232,10 +232,68 @@ class AutoliquidacionTest extends TestCase
             ->get(route('contable.autoliquidacion.index'));
 
         $resp->assertStatus(200);
-        $resp->assertSee('debe traer estas 13 columnas', false);
+        $resp->assertSee('el módulo las reconoce por su nombre', false);
         $resp->assertSee('Id. Tercero Mov', false);
         $resp->assertSee('Descripción Codigo PILA', false);
         $resp->assertSee('Real Descontado', false);
+    }
+
+    #[Test]
+    public function importa_el_movimiento_contable_pila_del_erp_reconociendo_columnas_por_nombre(): void
+    {
+        // El exporte real del cliente es un movimiento contable de la PILA (SIESA, ~27 columnas)
+        // donde el detalle por empleado va en columnas aparte (Empleado, Aporte empresa, Descripción
+        // Codigo PILA) junto al fondo/EPS (Id. Tercero Mov / Razon Social) de cada línea. Además
+        // trae un renglón de TOTALES al pie (sin empleado) que NO debe importarse.
+        $hdr = [
+            'ID Cuenta', 'Cuenta contable', 'id. C.O. del Mov', 'Id. Tercero Mov', 'Razon Social',
+            'Id. Sucursal', 'Id. Ccosto Mov', 'Id. U.N. Mov', 'Tipo Documento', 'Consecutivo Doc',
+            'Nro Cuota Cruce', 'Fecha', 'Valor Debito', 'Valor Credito', 'Valor Debito 2',
+            'Valor Credito 2', 'Descripción Cco', 'Descripción C.O', 'Descripción UN', 'Codigo PILA',
+            'Descripción Codigo PILA', 'Empleado', 'Nombre del empl', 'NDC', 'Aporte del empl',
+            'Aporte empresa', 'Real Descontado',
+        ];
+        // Línea de aporte: fondo (Id. Tercero Mov) + empleado + aporte empresa por concepto.
+        $aporte = function (string $fondoNit, string $fondoNom, string $empl, string $emplNom,
+            string $concepto, float $empresa, string $un = 'ADM00099') {
+            return ['14200569', 'APORTE EPS-61309505', '001', $fondoNit, $fondoNom, '01', 'C1', $un,
+                'CC', '1', '0', '2026-08-31', '0', '0', '0', '0', 'cco', 'co', 'AREA '.$un, '23',
+                $concepto, $empl, $emplNom, '', '0', $empresa, '0'];
+        };
+        // Renglón de totales al pie: SIN empleado ni fondo, solo el gran total → se descarta.
+        $totales = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+            '', '', '', '', '', 165692, ''];
+
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->fromArray($hdr, null, 'A1');
+        $sheet->fromArray($aporte('800251440', 'E.P.S SANITAS', '1003152760', 'PALOMINO YEINER', 'Aporte Obligatorio EPS Empresa', 121394), null, 'A2');
+        $sheet->fromArray($aporte('800088702', 'EPS SURA', '1005785995', 'REVELO ARIANA', 'Aporte Obligatorio EPS Empresa', 44298), null, 'A3');
+        $sheet->fromArray($totales, null, 'A4');
+        $path = tempnam(sys_get_temp_dir(), 'siesa').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $archivo = new UploadedFile($path, 'Autoliquidacion_Agosto.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
+            ->assertRedirect()->assertSessionHas('success');
+
+        // Período tomado de la columna Fecha (2026-08-31) → agosto 2026.
+        // Solo 2 filas (las 2 de aporte); el renglón de totales NO se importa.
+        $this->assertSame(2, AutoliquidacionAporte::where('mes', 8)->where('anio', 2026)->count());
+
+        // Cada línea guarda el fondo (Id. Tercero Mov → cedula) y el empleado por separado,
+        // con su aporte empresa y el concepto (la DESCRIPCIÓN, no el código numérico).
+        $this->assertDatabaseHas('autoliquidacion_aportes', [
+            'cedula' => '800251440', 'razon_social' => 'E.P.S SANITAS',
+            'empleado' => '1003152760', 'empleado_nombre' => 'PALOMINO YEINER',
+            'concepto_pila' => 'Aporte Obligatorio EPS Empresa', 'aporte_empresa' => 121394,
+            'un_codigo' => 'ADM00099', 'mes' => 8, 'anio' => 2026,
+        ]);
+
+        // El total de aporte empresa es la suma de las 2 líneas de aporte (no incluye el total al pie).
+        $this->assertEqualsWithDelta(165692, (float) AutoliquidacionAporte::where('mes', 8)->sum('aporte_empresa'), 0.5);
     }
 
     #[Test]

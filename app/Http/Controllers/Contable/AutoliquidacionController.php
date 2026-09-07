@@ -184,24 +184,27 @@ class AutoliquidacionController extends Controller
 
         $archivo = $request->file('archivo');
 
-        // Se lee el archivo una vez para validar el formato y sacar el período.
+        // Se lee el archivo una vez para reconocer las columnas (por su nombre) y sacar el período.
         $filas = Excel::toArray(new class {}, $archivo)[0] ?? [];
+        $mapa  = AutoliquidacionImport::mapaColumnas($filas[0] ?? []);
 
-        // Validar que sea la planilla PILA esperada (13 columnas, con "Fecha" en la col 6 y
-        // una columna "Aporte empresa"). Si no, avisar claramente en vez de fallar en silencio.
-        if (! $this->formatoPilaOk($filas[0] ?? [])) {
+        // Validar que sea una planilla de autoliquidación (PILA): debe traer, reconocidas por su
+        // nombre, las columnas Empleado, Aporte empresa y Fecha. Así se aceptan tanto el plano
+        // estándar como el movimiento contable de la PILA, y se rechaza (con mensaje claro, en vez
+        // de fallar en silencio) cualquier otro reporte que no traiga el detalle por empleado.
+        if (! $this->formatoPilaOk($mapa)) {
             return back()->with('error',
-                'El archivo no tiene el formato de la planilla PILA que espera el módulo '.
-                '(13 columnas: … Fecha en la columna 6, Empleado y Aporte empresa). '.
-                'El archivo que subiste parece un movimiento contable de otro reporte. '.
-                'Descarga desde el ERP el reporte de AUTOLIQUIDACIÓN (PILA) con las columnas indicadas abajo.');
+                'El archivo no tiene el formato de la planilla de autoliquidación (PILA). '.
+                'Debe traer, al menos, las columnas "Empleado", "Aporte empresa" y "Fecha". '.
+                'El archivo que subiste parece otro reporte del ERP. '.
+                'Descarga la AUTOLIQUIDACIÓN (PILA) con las columnas indicadas abajo.');
         }
 
         // El período se toma de la columna FECHA (ej. 2026-04-30 → abril 2026).
-        $periodo = $this->periodoDesdeFilas($filas);
+        $periodo = $this->periodoDesdeFilas($filas, $mapa);
         if (! $periodo) {
             return back()->with('error',
-                'No pude leer el período de la columna "Fecha" (columna 6). Revisa que traiga fechas '.
+                'No pude leer el período de la columna "Fecha". Revisa que traiga fechas '.
                 'válidas (ej. 2026-04-30).');
         }
         [$mesArchivo, $anioArchivo] = $periodo;
@@ -210,16 +213,21 @@ class AutoliquidacionController extends Controller
         // candado por período: si el archivo es grande y tarda, un doble clic o un reenvío del
         // navegador NO procesa dos veces a la vez (el segundo espera y, al entrar, vuelve a
         // borrar antes de insertar). Además el borrado+insert es atómico (transacción).
-        Cache::lock("autoliquidacion:{$mesArchivo}:{$anioArchivo}", 300)->block(45, function () use ($mesArchivo, $anioArchivo, $archivo) {
-            DB::transaction(function () use ($mesArchivo, $anioArchivo, $archivo) {
+        Cache::lock("autoliquidacion:{$mesArchivo}:{$anioArchivo}", 300)->block(45, function () use ($mesArchivo, $anioArchivo, $archivo, $mapa) {
+            DB::transaction(function () use ($mesArchivo, $anioArchivo, $archivo, $mapa) {
                 AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
-                Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo), $archivo);
+                Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo, $mapa), $archivo);
             });
         });
 
         $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
         $filas    = (clone $base)->count();
-        $personas = (clone $base)->distinct()->count('cedula');
+        // "Personas" = empleados distintos (la cédula del empleado), no los fondos/EPS (cedula = NIT
+        // del tercero). Si la planilla no trae la columna empleado, cae a la cédula del tercero.
+        $colPersona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
+            ? DB::raw("COALESCE(NULLIF(empleado, ''), cedula)")
+            : 'cedula';
+        $personas = (clone $base)->distinct()->count($colPersona);
         $empresa  = (float) (clone $base)->sum('aporte_empresa');
         $totalFmt = '$'.number_format($empresa, 0, ',', '.');
 
@@ -246,16 +254,24 @@ class AutoliquidacionController extends Controller
     }
 
     /**
-     * Lee el período [mes, anio] de la columna Fecha (índice 5) tomando la primera fila de
-     * datos con una fecha válida. Null si ninguna es legible.
+     * Lee el período [mes, anio] de la columna Fecha (ubicada por su nombre, no por posición)
+     * tomando la primera fila de datos con una fecha válida. Null si ninguna es legible.
+     *
+     * @param  array<int, array<int, mixed>>  $filas
+     * @param  array<string, int>  $mapa
      */
-    private function periodoDesdeFilas(array $filas): ?array
+    private function periodoDesdeFilas(array $filas, array $mapa): ?array
     {
+        $col = $mapa['fecha'] ?? null;
+        if ($col === null) {
+            return null;
+        }
+
         foreach ($filas as $i => $fila) {
             if ($i === 0) {
                 continue; // encabezado
             }
-            $fecha = AutoliquidacionImport::parsearFecha($fila[5] ?? null);
+            $fecha = AutoliquidacionImport::parsearFecha($fila[$col] ?? null);
             if ($fecha) {
                 return [(int) $fecha->month, (int) $fecha->year];
             }
@@ -265,27 +281,15 @@ class AutoliquidacionController extends Controller
     }
 
     /**
-     * Valida que el encabezado corresponda a la planilla PILA esperada: la columna 6 (índice 5)
-     * debe ser "Fecha" y debe existir una columna "Aporte empresa". Así se distingue de otros
-     * reportes (p. ej. un movimiento contable con Valor Débito/Crédito y la Fecha en otra columna).
+     * Valida que el archivo sea una planilla de autoliquidación (PILA): que se hayan reconocido
+     * —por su nombre de columna— el Empleado, el Aporte empresa y la Fecha. Así se aceptan tanto
+     * el plano estándar como el movimiento contable de la PILA, y se distingue de otros reportes
+     * (p. ej. un movimiento contable sin detalle por empleado, con Valor Débito/Crédito).
+     *
+     * @param  array<string, int>  $mapa
      */
-    private function formatoPilaOk(array $encabezado): bool
+    private function formatoPilaOk(array $mapa): bool
     {
-        $norm = static function ($s): string {
-            $s = mb_strtolower(trim((string) $s));
-            return strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']);
-        };
-        $cols = array_map($norm, $encabezado);
-
-        $fechaEnCol6 = str_contains($cols[5] ?? '', 'fecha');
-        $hayAporteEmpresa = false;
-        foreach ($cols as $c) {
-            if (str_contains($c, 'aporte') && str_contains($c, 'empresa')) {
-                $hayAporteEmpresa = true;
-                break;
-            }
-        }
-
-        return $fechaEnCol6 && $hayAporteEmpresa;
+        return isset($mapa['empleado'], $mapa['aporte_empresa'], $mapa['fecha']);
     }
 }
