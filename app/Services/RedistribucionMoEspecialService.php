@@ -83,7 +83,7 @@ class RedistribucionMoEspecialService
 
         $out = [];
         foreach ($nombreMae as $ced => $nom) {
-            $out[$ced] = ['cedula' => (string) $ced, 'nombre' => $nom,
+            $out[$ced] = ['cedula' => (string) $ced, 'nombre' => $nom, 'doc' => '',
                 'directo' => 0.0, 'ss' => 0.0, 'total' => 0.0, 'buckets' => []];
         }
 
@@ -91,12 +91,18 @@ class RedistribucionMoEspecialService
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
 
+            $terceroErp = trim((string) $r->tercero_dcto) ?: trim((string) $r->razon_social);
+
             // ¿MO directa (salario)? El tercero de la línea es la persona.
             $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
             if ($ced !== null && isset($out[$ced])) {
                 $out[$ced]['directo'] += $m;
                 $out[$ced]['total']   += $m;
-                $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo'];
+                // Documento real de la persona (el que trae el ERP en su línea de salario).
+                if ($out[$ced]['doc'] === '' && trim((string) $r->tercero_dcto) !== '') {
+                    $out[$ced]['doc'] = trim((string) $r->tercero_dcto);
+                }
+                $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo', 'tercero' => $terceroErp];
                 continue;
             }
 
@@ -113,7 +119,8 @@ class RedistribucionMoEspecialService
                 if ($porcion <= 0.005) continue;
                 $out[$pced]['ss']    += $porcion;
                 $out[$pced]['total'] += $porcion;
-                $out[$pced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $porcion, 'tipo' => 'ss'];
+                // El crédito conserva el tercero del ERP (el fondo/EPS de esta línea).
+                $out[$pced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $porcion, 'tipo' => 'ss', 'tercero' => $terceroErp];
             }
         }
 
@@ -345,10 +352,11 @@ class RedistribucionMoEspecialService
     }
 
     /**
-     * Resumen por bolsa (UN): MO cruda del período, lo retirado (Grupo B), el neto, lo
-     * redistribuido por % y el final. Global: sum(final) == sum(crudo).
+     * Resumen por bolsa (UN): MO cruda del período y cuánto de esa MO corresponde a las personas
+     * registradas (que se reclasifica de la 14 a la 61 en esa MISMA UN). No hay redistribución
+     * por %: la distribución por UN la trae el archivo del cierre.
      *
-     * @return array{filas: array, total_crudo: float, total_retirado: float, total_redistribuido: float}
+     * @return array{filas: array, total_crudo: float, total_reclasificado: float}
      */
     public function resumenBolsas(int $mes, int $anio): array
     {
@@ -356,7 +364,7 @@ class RedistribucionMoEspecialService
         $cuentasMO = $this->cuentasMO($mes, $anio);
         $nombresUn = UnBolsa::pluck('nombre', 'codigo');
 
-        // MO cruda por UN (todas las líneas MO de las bolsas del período).
+        // MO cruda por UN (todas las líneas MO de las bolsas del período, acumulado al mes).
         $crudo = [];
         if (! empty($cuentasMO)) {
             $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
@@ -371,38 +379,22 @@ class RedistribucionMoEspecialService
             }
         }
 
-        $costo   = $this->costoPorPersona($mes, $anio);
-        $pcts    = $this->porcentajes($mes, $anio);
-        $montos  = $this->montosDistribuir($mes, $anio);
-
-        $retirado = [];       // por UN de origen (todo el total del tercero sale de la bolsa)
-        $redistribuido = [];  // por UN destino (según %, sobre el monto a distribuir)
-        $pendiente = 0.0;     // total retirado que Contabilidad aún no distribuye
-        foreach ($costo as $ced => $p) {
-            if ($p['total'] <= 0.005) continue;
+        // MO de las personas registradas por UN (lo que se reclasifica 14→61 en esa misma UN).
+        $reclas = [];
+        foreach ($this->costoPorPersona($mes, $anio) as $p) {
             foreach ($p['buckets'] as $b) {
-                $retirado[$b['un']] = ($retirado[$b['un']] ?? 0) + $b['monto'];
-            }
-            $montoDist = $this->montoEfectivo((float) $p['total'], (string) $ced, $montos);
-            $pendiente += (float) $p['total'] - $montoDist;
-            // Redistribución: solo si los % del período suman 100. Reparte el monto a distribuir.
-            $ptc = $pcts[$ced] ?? [];
-            if ($montoDist > 0.005 && abs(array_sum($ptc) - 100) < 0.05) {
-                foreach ($ptc as $un => $pct) {
-                    $redistribuido[$un] = ($redistribuido[$un] ?? 0) + $montoDist * $pct / 100;
-                }
+                $reclas[$b['un']] = ($reclas[$b['un']] ?? 0) + (float) $b['monto'];
             }
         }
 
-        $unes = array_unique(array_merge(array_keys($crudo), array_keys($retirado), array_keys($redistribuido)));
+        $unes = array_unique(array_merge(array_keys($crudo), array_keys($reclas)));
         $filas = [];
         foreach ($unes as $un) {
             $c = (float) ($crudo[$un] ?? 0);
-            $r = (float) ($retirado[$un] ?? 0);
-            $d = (float) ($redistribuido[$un] ?? 0);
+            $r = (float) ($reclas[$un] ?? 0);
             $filas[] = [
                 'un' => (string) $un, 'nombre' => $nombresUn[$un] ?? '',
-                'crudo' => $c, 'retirado' => $r, 'neto' => $c - $r, 'redistribuido' => $d, 'final' => $c - $r + $d,
+                'crudo' => $c, 'reclasificado' => $r, 'queda' => $c - $r,
             ];
         }
         usort($filas, fn ($a, $b) => $b['crudo'] <=> $a['crudo']);
@@ -410,51 +402,44 @@ class RedistribucionMoEspecialService
         return [
             'filas'               => $filas,
             'total_crudo'         => array_sum(array_column($filas, 'crudo')),
-            'total_retirado'      => array_sum($retirado),
-            'total_redistribuido' => array_sum($redistribuido),
-            'total_pendiente'     => round($pendiente, 2),
+            'total_reclasificado' => array_sum(array_column($filas, 'reclasificado')),
         ];
     }
 
     /**
-     * Tuplas de movimiento para el plano contable. Al distribuir, el costo SALE de la cuenta 14
-     * (por aplicar) de la bolsa de origen y ENTRA a su cuenta 6 correspondiente (homologada) en
-     * la bolsa destino, según el porcentaje, para que el costo quede en firme. Cada tupla es un
-     * asiento balanceado: CR cuenta 14 (origen) / DB cuenta 61 (destino).
+     * Tuplas de movimiento para el plano contable de reclasificación 14→61, usando la distribución
+     * por UN que YA trae el archivo del cierre (sin %). Por cada línea de MO de la persona:
+     *   - CR la cuenta 14, conservando el tercero del ERP (la persona en el salario; el fondo/EPS
+     *     en la seguridad social) y la UN de la línea.
+     *   - DB la cuenta 61 correspondiente (homologada), a nombre de la PERSONA, en la misma UN.
+     * Cada tupla es un asiento balanceado en su propia UN. Se reclasifica la MO completa.
      *
-     * @return array<int, array{un_origen:string,cuenta_origen:string,un_destino:string,cuenta_destino:string,monto:float,cedula:string}>
+     * @return array<int, array{un:string,cuenta_credito:string,tercero_credito:string,cuenta_debito:string,tercero_debito:string,monto:float,cedula:string}>
      */
     public function movimientosRedistribucion(int $mes, int $anio): array
     {
-        $costo  = $this->costoPorPersona($mes, $anio);
-        $pcts   = $this->porcentajes($mes, $anio);
-        $montos = $this->montosDistribuir($mes, $anio);
-        $homol  = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
+        $costo = $this->costoPorPersona($mes, $anio);
+        $homol = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
 
         $mov = [];
         foreach ($costo as $ced => $p) {
             if ($p['total'] <= 0.005) continue;
-            $ptc = $pcts[$ced] ?? [];
-            if (abs(array_sum($ptc) - 100) >= 0.05) continue; // sin % válidos: no se redistribuye
-
-            // Se distribuye la totalidad o una porción: cada cuenta 14 se escala por la fracción
-            // del total que Contabilidad decidió distribuir; el resto queda pendiente en la 14.
-            $montoDist = $this->montoEfectivo((float) $p['total'], (string) $ced, $montos);
-            if ($montoDist <= 0.005) continue;
-            $fraccion = $montoDist / (float) $p['total'];
-
+            // Documento de la persona para el débito a la 61: el del ERP (de su salario); si no hay,
+            // la cédula del maestro cuando es real (no una clave interna 'SD-...'); si no, el nombre.
+            $terceroPersona = $p['doc'] !== ''
+                ? $p['doc']
+                : (str_starts_with((string) $ced, 'SD-') ? ((string) $p['nombre'] ?: (string) $ced) : (string) $ced);
             foreach ($p['buckets'] as $b) {
                 $cuenta14 = $b['cuenta'] !== '' ? $b['cuenta'] : '14';
                 $cuenta61 = (string) ($homol[$cuenta14]->cuenta_61 ?? $cuenta14); // su 6 correspondiente
-                foreach ($ptc as $un => $pct) {
-                    $monto = round($b['monto'] * $fraccion * $pct / 100, 2);
-                    if ($monto <= 0.005) continue;
-                    $mov[] = [
-                        'un_origen'     => $b['un'],       'cuenta_origen'  => $cuenta14,
-                        'un_destino'    => (string) $un,   'cuenta_destino' => $cuenta61,
-                        'monto'         => $monto,         'cedula'         => (string) $ced,
-                    ];
-                }
+                $monto = round((float) $b['monto'], 2);
+                if ($monto <= 0.005) continue;
+                $mov[] = [
+                    'un'              => (string) $b['un'],
+                    'cuenta_credito'  => $cuenta14, 'tercero_credito' => (string) ($b['tercero'] ?? $terceroPersona),
+                    'cuenta_debito'   => $cuenta61, 'tercero_debito'  => $terceroPersona,
+                    'monto'           => $monto,    'cedula' => (string) $ced,
+                ];
             }
         }
         return $mov;
@@ -495,6 +480,9 @@ class RedistribucionMoEspecialService
     {
         $maestro = ManoObraEspecial::where('activo', true)->get();
         [$porCed, $porNom] = $this->indicesMaestro($maestro);
+        // Fondos de la autoliquidación: sus líneas de cuenta 14 son seguridad social (no personas
+        // por registrar), así que no deben aparecer como "terceros sin cruzar".
+        $fondos = $this->fondosAutoliquidacion($mes, $anio, $porCed, $porNom);
 
         $unBolsa   = UnBolsa::codigos();
         $cuentasMO = $this->cuentasMO($mes, $anio);
@@ -515,6 +503,10 @@ class RedistribucionMoEspecialService
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0;
             if ($m <= 0.005) continue;
             if ($this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom) !== null) continue;
+            // Excluir fondos/EPS (seguridad social): no son personas a registrar.
+            $esFondo = isset($fondos['byNit'][$this->normCedula($r->tercero_dcto)])
+                || isset($fondos['byNom'][$this->normNombre($r->razon_social)]);
+            if ($esFondo) continue;
             $doc = trim((string) $r->tercero_dcto);
             $nom = trim((string) $r->razon_social);
             $key = $doc.'|'.$nom;

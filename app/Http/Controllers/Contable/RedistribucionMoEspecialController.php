@@ -34,42 +34,35 @@ class RedistribucionMoEspecialController extends Controller
         [$mes, $anio] = $this->periodo($request);
 
         $costo   = $this->svc->costoPorPersona($mes, $anio);
-        $efect   = $this->svc->porcentajesEfectivos($mes, $anio);
-        $pcts    = $efect['pct'];
-        $heredados = $efect['heredados'];
-        $montos  = $this->svc->montosDistribuir($mes, $anio);
         $resumen = $this->svc->resumenBolsas($mes, $anio);
+        $nombresUn = UnBolsa::pluck('nombre', 'codigo');
 
-        // Personas del maestro con su costo, monto a distribuir y % del período (guardados o heredados).
-        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $pcts, $montos, $heredados) {
+        // Personas del maestro con su costo y la distribución por UN que ya trae el archivo (solo lectura).
+        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $nombresUn) {
             $c = $costo[$p->cedula] ?? ['directo' => 0, 'ss' => 0, 'total' => 0, 'buckets' => []];
-            $pp = $pcts[$p->cedula] ?? [];
-            $total = (float) $c['total'];
-            // Monto a distribuir: lo registrado (topado al total) o, por defecto, el total completo.
-            $monto = array_key_exists($p->cedula, $montos) ? max(0.0, min((float) $montos[$p->cedula], $total)) : $total;
+            // Distribución por UN (suma de sus líneas de MO en cada UN, tal como viene del cierre).
+            $porUn = [];
+            foreach ($c['buckets'] as $b) {
+                $porUn[$b['un']] = ($porUn[$b['un']] ?? 0) + (float) $b['monto'];
+            }
+            arsort($porUn);
+            $distUn = [];
+            foreach ($porUn as $un => $monto) {
+                $distUn[] = ['un' => (string) $un, 'nombre' => (string) ($nombresUn[$un] ?? ''), 'monto' => $monto];
+            }
             return [
                 'id' => $p->id, 'cedula' => $p->cedula, 'nombre' => $p->nombre, 'activo' => $p->activo,
-                'directo' => (float) $c['directo'], 'ss' => (float) $c['ss'], 'total' => $total,
-                'monto_distribuir' => $monto, 'pendiente' => round($total - $monto, 2),
-                'porcentajes' => $pp, 'suma_pct' => array_sum($pp),
-                'heredado' => (bool) ($heredados[$p->cedula] ?? false),
+                'directo' => (float) $c['directo'], 'ss' => (float) $c['ss'], 'total' => (float) $c['total'],
+                'dist_un' => $distUn,
             ];
         });
-        $hayHeredados = ! empty($heredados);
 
-        $bolsas   = UnBolsa::where('activo', true)->orderBy('codigo')->get(['codigo', 'nombre']);
-        // Paleta de colores por bolsa (para chips, barra y swatches), asignada por orden.
-        $paleta = ['#2563a8', '#12855a', '#a9761a', '#7c5cbf', '#c0392b', '#0e7490', '#b45309', '#9d174d'];
-        $coloresBolsa = [];
-        foreach ($bolsas->values() as $i => $b) {
-            $coloresBolsa[$b->codigo] = $paleta[$i % count($paleta)];
-        }
         $periodos = RegistroFinanciero::selectRaw('anio, mes')->distinct()
             ->orderByDesc('anio')->orderByDesc('mes')->get();
         $sinCruzar  = $this->svc->tercerosSinCruzar($mes, $anio);
         $descuadres = $this->svc->descuadresFondos($mes, $anio);
 
-        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'bolsas', 'periodos', 'mes', 'anio', 'sinCruzar', 'coloresBolsa', 'hayHeredados', 'descuadres'));
+        return view('contable.redistribucion-mo', compact('personas', 'resumen', 'periodos', 'mes', 'anio', 'sinCruzar', 'descuadres'));
     }
 
     /** Alta de una persona al maestro. Se puede elegir un tercero de la bolsa o escribirlo a mano. */
@@ -182,7 +175,7 @@ class RedistribucionMoEspecialController extends Controller
         return back()->with('success', 'Distribución guardada para el período '.sprintf('%02d/%d', $mes, $anio).'.');
     }
 
-    /** Plano SIESA (14→14 entre UN) de la redistribución del período. */
+    /** Plano SIESA de reclasificación 14→61 (por la UN que trae cada línea del cierre). */
     public function plano(Request $request)
     {
         abort_unless($request->user()->puedeVerModulo('contabilidad'), 403, 'No tienes permiso para ver Contabilidad.');
@@ -192,18 +185,18 @@ class RedistribucionMoEspecialController extends Controller
 
         $mov = [];
         foreach ($this->svc->movimientosRedistribucion($mes, $anio) as $m) {
-            // Saca de la cuenta 14 de la bolsa de origen (CR) y lleva a su cuenta 6 correspondiente
-            // en la bolsa destino (DB), según el %, para que el costo quede en firme.
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_origen'], self::NIT_SECAR, $m['un_origen'], null, 0, $m['monto'], self::TIPO_DOC);
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_destino'], self::NIT_SECAR, $m['un_destino'], null, $m['monto'], 0, self::TIPO_DOC);
+            // CR la cuenta 14 conservando el tercero del ERP (persona en salario; fondo/EPS en SS)
+            // y DB la cuenta 61 a nombre de la persona, en la MISMA UN que trae la línea.
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_credito'], $m['tercero_credito'], $m['un'], null, 0, $m['monto'], self::TIPO_DOC);
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_debito'], $m['tercero_debito'], $m['un'], null, $m['monto'], 0, self::TIPO_DOC);
         }
 
         if (empty($mov)) {
-            return back()->with('error', 'No hay redistribución para exportar en este período (¿definiste los % y hay costo de MO Apoyo administrativo y operativo?).');
+            return back()->with('error', 'No hay mano de obra de estas personas para reclasificar en este período.');
         }
 
         $fecha = $this->ultimoDiaDelMesSiesa($anio, $mes);
-        $obs   = 'REDISTRIBUCION MO APOYO ADMINISTRATIVO Y OPERATIVO '.sprintf('%02d/%d', $mes, $anio);
+        $obs   = 'RECLASIFICACION MO APOYO ADMINISTRATIVO Y OPERATIVO '.sprintf('%02d/%d', $mes, $anio);
         $archivo = $this->generarPlanoSiesa($mov, self::TIPO_DOC, self::NIT_SECAR, $numeroDoc, $fecha, $obs);
 
         return response()->download($archivo, 'PLANO_REDISTRIBUCION_MO_'.sprintf('%d_%02d', $anio, $mes).'.xlsx')

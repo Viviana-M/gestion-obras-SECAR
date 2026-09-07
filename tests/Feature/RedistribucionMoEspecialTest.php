@@ -199,114 +199,21 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function retira_de_las_bolsas_y_redistribuye_por_porcentaje(): void
+    public function el_resumen_muestra_la_mo_reclasificada_por_un(): void
     {
         $this->homologarMO('14200530');
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 600000);    // ARLEY directo (tercero = su cédula)
-        $this->moBolsa('MTO00099', '14200530', '800100', 400000); // SS de ARLEY en la bolsa (tercero = fondo)
-        $this->ssBolsa('111', 'MTO00099', 400000);                // atribución de esa SS a ARLEY (autoliquidación) → total 1.000.000
-        $this->moBolsa('MTO00099', '14200530', '999', 500000);    // MO de otro (se queda)
-
-        // % del período: 60% MTO00099 / 40% INS00099.
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-        ]);
+        $this->moBolsa('MTO00099', '14200530', '999', 500000);    // MO de otro (se queda en la 14)
 
         $r = app(RedistribucionMoEspecialService::class)->resumenBolsas(4, 2026);
         $porUn = collect($r['filas'])->keyBy('un');
 
-        // MTO00099: crudo = 600k(ARLEY)+400k(SS)+500k(otro) = 1.500.000; retirado 1.000.000; neto 500.000.
-        $this->assertEqualsWithDelta(1500000, $porUn['MTO00099']['crudo'], 0.5);
-        $this->assertEqualsWithDelta(1000000, $porUn['MTO00099']['retirado'], 0.5);
-        $this->assertEqualsWithDelta(500000, $porUn['MTO00099']['neto'], 0.5);
-        // Redistribución: 60% a MTO00099 = 600.000 ; 40% a INS00099 = 400.000.
-        $this->assertEqualsWithDelta(600000, $porUn['MTO00099']['redistribuido'], 0.5);
-        $this->assertEqualsWithDelta(400000, $porUn['INS00099']['redistribuido'], 0.5);
-        // Final MTO00099 = 500.000 + 600.000 = 1.100.000 ; INS00099 = 0 + 400.000 = 400.000.
-        $this->assertEqualsWithDelta(1100000, $porUn['MTO00099']['final'], 0.5);
-        $this->assertEqualsWithDelta(400000, $porUn['INS00099']['final'], 0.5);
-
-        // Global: el total final = total crudo (el dinero queda en bolsas, solo se movió).
-        $this->assertEqualsWithDelta($r['total_crudo'], array_sum(array_column($r['filas'], 'final')), 0.5);
-        $this->assertEqualsWithDelta(1000000, $r['total_retirado'], 0.5);
-        $this->assertEqualsWithDelta(1000000, $r['total_redistribuido'], 0.5);
-    }
-
-    #[Test]
-    public function distribuye_solo_una_porcion_y_deja_el_resto_pendiente(): void
-    {
-        $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        $this->moBolsa('MTO00099', '14200530', '111', 1000000); // total retirado 1.000.000
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-        ]);
-        // Contabilidad decide distribuir solo 600.000 de 1.000.000.
-        MontoDistribuirMoEspecial::create(['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'monto_distribuir' => 600000]);
-
-        $r = app(RedistribucionMoEspecialService::class)->resumenBolsas(4, 2026);
-        $porUn = collect($r['filas'])->keyBy('un');
-
-        // Se retira todo (1.000.000) pero solo se redistribuyen 600.000 (60% = 360k, 40% = 240k).
-        $this->assertEqualsWithDelta(1000000, $r['total_retirado'], 0.5);
-        $this->assertEqualsWithDelta(600000, $r['total_redistribuido'], 0.5);
-        $this->assertEqualsWithDelta(400000, $r['total_pendiente'], 0.5);
-        $this->assertEqualsWithDelta(360000, $porUn['MTO00099']['redistribuido'], 0.5);
-        $this->assertEqualsWithDelta(240000, $porUn['INS00099']['redistribuido'], 0.5);
-    }
-
-    #[Test]
-    public function el_plano_solo_mueve_la_porcion_a_distribuir(): void
-    {
-        $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        $this->moBolsa('MTO00099', '14200530', '111', 1000000);
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-        ]);
-        MontoDistribuirMoEspecial::create(['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'monto_distribuir' => 600000]);
-
-        $resp = $this->actingAs($this->contable())
-            ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 55]));
-        $resp->assertOk();
-
-        $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
-        $mov = $ss->getSheetByName('Movimientocontable');
-        $deb = 0;
-        foreach (range(2, $mov->getHighestRow()) as $row) {
-            $deb += (float) $mov->getCell('H'.$row)->getValue();
-        }
-        $this->assertEqualsWithDelta(600000, $deb, 0.5); // solo se mueve la porción a distribuir
-    }
-
-    #[Test]
-    public function los_porcentajes_son_por_periodo(): void
-    {
-        $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        // Costo en abril y en mayo (mismo monto para comparar).
-        $this->moBolsa('MTO00099', '14200530', '111', 1000000, 4, 2026);
-        $this->moBolsa('MTO00099', '14200530', '111', 1000000, 5, 2026);
-        // Abril 60/40 ; Mayo 30/70.
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-            ['cedula' => '111', 'mes' => 5, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 30],
-            ['cedula' => '111', 'mes' => 5, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 70],
-        ]);
-
-        $svc = app(RedistribucionMoEspecialService::class);
-        $abr = collect($svc->resumenBolsas(4, 2026)['filas'])->keyBy('un');
-        $may = collect($svc->resumenBolsas(5, 2026)['filas'])->keyBy('un');
-
-        // Los % son por período: abril reparte con 60/40, mayo con 30/70. El disponible es
-        // acumulado (mayo arrastra lo de abril no distribuido): abril=1.000.000, mayo=2.000.000.
-        $this->assertEqualsWithDelta(400000, $abr['INS00099']['redistribuido'], 0.5);  // 40% de 1.000.000
-        $this->assertEqualsWithDelta(1400000, $may['INS00099']['redistribuido'], 0.5); // 70% de 2.000.000 (acumulado)
+        // MTO00099: crudo = 600k(ARLEY)+500k(otro) = 1.100.000; reclasificado 600k; queda 500k.
+        $this->assertEqualsWithDelta(1100000, $porUn['MTO00099']['crudo'], 0.5);
+        $this->assertEqualsWithDelta(600000, $porUn['MTO00099']['reclasificado'], 0.5);
+        $this->assertEqualsWithDelta(500000, $porUn['MTO00099']['queda'], 0.5);
+        $this->assertEqualsWithDelta(600000, $r['total_reclasificado'], 0.5);
     }
 
     #[Test]
@@ -325,83 +232,14 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function precarga_los_porcentajes_del_mes_anterior_sin_fijarlos(): void
+    public function el_plano_reclasifica_14_a_61_por_la_un_del_cierre(): void
     {
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        // Junio guardado 60/40.
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-        ]);
-
-        $svc = app(RedistribucionMoEspecialService::class);
-
-        // Julio (sin guardar) hereda 60/40 y queda marcado como heredado, sin persistirse.
-        $jul = $svc->porcentajesEfectivos(7, 2026);
-        $this->assertEqualsWithDelta(60, $jul['pct']['111']['MTO00099'], 0.01);
-        $this->assertEqualsWithDelta(40, $jul['pct']['111']['INS00099'], 0.01);
-        $this->assertTrue($jul['heredados']['111'] ?? false);
-        $this->assertSame(0, RedistribucionMoEspecial::where('mes', 7)->count());
-
-        // Al guardar 70/30 en julio, se fija para julio y junio queda intacto.
-        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.porcentajes'), [
-            'mes' => 7, 'anio' => 2026,
-            'pct' => ['111' => [['un' => 'MTO00099', 'pct' => 70], ['un' => 'INS00099', 'pct' => 30]]],
-        ])->assertRedirect()->assertSessionHas('success');
-
-        $julG = $svc->porcentajesGuardados(7, 2026);
-        $junG = $svc->porcentajesGuardados(6, 2026);
-        $this->assertEqualsWithDelta(70, $julG['111']['MTO00099'], 0.01);
-        $this->assertEqualsWithDelta(30, $julG['111']['INS00099'], 0.01);
-        $this->assertEqualsWithDelta(60, $junG['111']['MTO00099'], 0.01); // junio sin cambios
-        $this->assertFalse($svc->porcentajesEfectivos(7, 2026)['heredados']['111'] ?? false); // ya no es heredado
-    }
-
-    #[Test]
-    public function una_persona_nueva_no_hereda_porcentajes(): void
-    {
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        ManoObraEspecial::create(['cedula' => '222', 'nombre' => 'NUEVA', 'activo' => true]);
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 6, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 100],
-        ]);
-
-        $jul = app(RedistribucionMoEspecialService::class)->porcentajesEfectivos(7, 2026);
-        $this->assertArrayHasKey('111', $jul['pct']);       // ARLEY hereda
-        $this->assertArrayNotHasKey('222', $jul['pct']);    // NUEVA sin historial: sin %
-    }
-
-    #[Test]
-    public function guardar_porcentajes_exige_que_sumen_100(): void
-    {
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-
-        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.porcentajes'), [
-            'mes' => 4, 'anio' => 2026,
-            'pct' => ['111' => [['un' => 'MTO00099', 'pct' => 60], ['un' => 'INS00099', 'pct' => 30]]], // suma 90
-        ])->assertRedirect()->assertSessionHas('error');
-
-        $this->assertSame(0, RedistribucionMoEspecial::count());
-
-        // Con 100% sí guarda.
-        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.porcentajes'), [
-            'mes' => 4, 'anio' => 2026,
-            'pct' => ['111' => [['un' => 'MTO00099', 'pct' => 60], ['un' => 'INS00099', 'pct' => 40]]],
-        ])->assertRedirect()->assertSessionHas('success');
-
-        $this->assertSame(2, RedistribucionMoEspecial::where('cedula', '111')->count());
-    }
-
-    #[Test]
-    public function el_plano_saca_de_la_14_y_lleva_a_la_6_y_cuadra(): void
-    {
+        // ARLEY con MO ya distribuida por el cierre en DOS UN. El plano reclasifica su MO completa
+        // 14→61 en la MISMA UN de cada línea: CR 14 (conserva tercero) / DB 61 (a nombre de ARLEY).
         $this->homologarMO('14200530'); // 14200530 → cuenta_61 = 73950505
         ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        $this->moBolsa('MTO00099', '14200530', '111', 1000000);
-        RedistribucionMoEspecial::insert([
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'porcentaje' => 60],
-            ['cedula' => '111', 'mes' => 4, 'anio' => 2026, 'un_codigo' => 'INS00099', 'porcentaje' => 40],
-        ]);
+        $this->moBolsa('MTO00099', '14200530', '111', 700000); // salario ARLEY en MTO00099
+        $this->moBolsa('INS00099', '14200530', '111', 300000); // salario ARLEY en INS00099
 
         $resp = $this->actingAs($this->contable())
             ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 55]));
@@ -409,19 +247,53 @@ class RedistribucionMoEspecialTest extends TestCase
 
         $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
         $mov = $ss->getSheetByName('Movimientocontable');
-        // Columnas: C=cuenta, H=débito, I=crédito.
-        $deb = 0; $cred = 0; $credEn14 = 0; $debEn6 = 0;
+        // Columnas: C=cuenta, E=UN, H=débito, I=crédito.
+        $deb = 0; $cred = 0; $credEn14 = 0; $debEn61 = 0; $porUn = [];
         foreach (range(2, $mov->getHighestRow()) as $row) {
             $cta = (string) $mov->getCell('C'.$row)->getValue();
+            $un  = (string) $mov->getCell('E'.$row)->getValue();
             $h   = (float) $mov->getCell('H'.$row)->getValue();
             $i   = (float) $mov->getCell('I'.$row)->getValue();
             $deb += $h; $cred += $i;
             if ($cta === '14200530') $credEn14 += $i; // sale de la 14 (crédito)
-            if ($cta === '73950505') $debEn6  += $h;  // entra a su 6 (débito)
+            if ($cta === '73950505') $debEn61 += $h;  // entra a su 61 (débito)
+            $porUn[$un] = ($porUn[$un] ?? 0) + $h;     // débito por UN
         }
-        $this->assertEqualsWithDelta($deb, $cred, 0.5);        // asiento cuadrado
+        $this->assertEqualsWithDelta($deb, $cred, 0.5);       // asiento cuadrado
         $this->assertEqualsWithDelta(1000000, $credEn14, 0.5); // toda la MO sale de la cuenta 14
-        $this->assertEqualsWithDelta(1000000, $debEn6, 0.5);   // y entra a su cuenta 6 correspondiente
+        $this->assertEqualsWithDelta(1000000, $debEn61, 0.5);  // y entra a su 61
+        // Se respeta la UN de cada línea (no se mezcla): 700k en MTO00099 y 300k en INS00099.
+        $this->assertEqualsWithDelta(700000, $porUn['MTO00099'] ?? 0, 0.5);
+        $this->assertEqualsWithDelta(300000, $porUn['INS00099'] ?? 0, 0.5);
+    }
+
+    #[Test]
+    public function el_plano_acredita_el_fondo_de_ss_y_debita_a_la_persona(): void
+    {
+        // La SS viene en la cuenta 14 a nombre del fondo; el crédito conserva el tercero del fondo
+        // y el débito a la 61 va a nombre de la persona, en la misma UN.
+        $this->homologarMO('14200530');
+        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '800100', 400000); // SS en cuenta 14 a nombre del fondo
+        $this->ssBolsa('111', 'MTO00099', 400000);                // autoliquidación atribuye a ARLEY
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 7]));
+        $resp->assertOk();
+
+        $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
+        $mov = $ss->getSheetByName('Movimientocontable');
+        // Columnas: C=cuenta, D=tercero, H=débito, I=crédito.
+        $credFondo = 0; $debPersona = 0;
+        foreach (range(2, $mov->getHighestRow()) as $row) {
+            $terc = (string) $mov->getCell('D'.$row)->getValue();
+            $h    = (float) $mov->getCell('H'.$row)->getValue();
+            $i    = (float) $mov->getCell('I'.$row)->getValue();
+            if ($terc === '800100') $credFondo += $i;  // crédito a la 14 conserva el fondo
+            if ($terc === '111')    $debPersona += $h; // débito a la 61 a nombre de la persona
+        }
+        $this->assertEqualsWithDelta(400000, $credFondo, 0.5);
+        $this->assertEqualsWithDelta(400000, $debPersona, 0.5);
     }
 
     #[Test]
