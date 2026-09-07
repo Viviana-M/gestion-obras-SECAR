@@ -119,6 +119,32 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function rechaza_un_archivo_que_no_es_la_planilla_pila(): void
+    {
+        // Un export de movimiento contable (Fecha en otra columna, sin "Aporte empresa") debe
+        // rechazarse con un mensaje claro y no cargar nada.
+        $ss = new Spreadsheet();
+        $ss->getActiveSheet()->fromArray([
+            'ID Cuenta', 'Cuenta contable', 'id. C.O. del Mov', 'Id. Tercero Mov', 'Razon Social',
+            'Id. Sucursal', 'Id. Ccosto Mov', 'Id. U.N. Mov', 'Tipo Documento', 'Consecutivo Doc',
+            'Nro Cuota Cruce', 'Fecha', 'Valor Debito', 'Valor Credito', 'Valor Debito 2',
+        ], null, 'A1');
+        $ss->getActiveSheet()->fromArray(
+            ['26109505', 'CUENTA PUENTE EPS', '001', '1003152760', 'PALOMINO YEINER', '', '', 'ADM00099', '', '0', '0', '46265', '78916', '0', '78916'],
+            null, 'A3'
+        );
+        $path = tempnam(sys_get_temp_dir(), 'mov').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $archivo = new UploadedFile($path, 'movimiento.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contable())->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
+            ->assertRedirect()->assertSessionHas('error');
+
+        $this->assertSame(0, AutoliquidacionAporte::count());
+    }
+
+    #[Test]
     public function recargar_el_mismo_periodo_reemplaza_lo_anterior(): void
     {
         $c = $this->contable();

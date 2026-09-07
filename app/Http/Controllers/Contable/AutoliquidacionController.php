@@ -184,13 +184,25 @@ class AutoliquidacionController extends Controller
 
         $archivo = $request->file('archivo');
 
-        // El período se toma de la columna FECHA (ej. 2026-04-30 → abril 2026). Se lee una
-        // muestra del archivo y se usa la primera fecha válida encontrada.
-        $periodo = $this->periodoDesdeFecha($archivo);
+        // Se lee el archivo una vez para validar el formato y sacar el período.
+        $filas = Excel::toArray(new class {}, $archivo)[0] ?? [];
+
+        // Validar que sea la planilla PILA esperada (13 columnas, con "Fecha" en la col 6 y
+        // una columna "Aporte empresa"). Si no, avisar claramente en vez de fallar en silencio.
+        if (! $this->formatoPilaOk($filas[0] ?? [])) {
+            return back()->with('error',
+                'El archivo no tiene el formato de la planilla PILA que espera el módulo '.
+                '(13 columnas: … Fecha en la columna 6, Empleado y Aporte empresa). '.
+                'El archivo que subiste parece un movimiento contable de otro reporte. '.
+                'Descarga desde el ERP el reporte de AUTOLIQUIDACIÓN (PILA) con las columnas indicadas abajo.');
+        }
+
+        // El período se toma de la columna FECHA (ej. 2026-04-30 → abril 2026).
+        $periodo = $this->periodoDesdeFilas($filas);
         if (! $periodo) {
             return back()->with('error',
-                'No pude leer el período de la columna "Fecha". Revisa que el archivo tenga '.
-                'las 13 columnas estándar y que la columna Fecha traiga fechas válidas (ej. 2026-04-30).');
+                'No pude leer el período de la columna "Fecha" (columna 6). Revisa que traiga fechas '.
+                'válidas (ej. 2026-04-30).');
         }
         [$mesArchivo, $anioArchivo] = $periodo;
 
@@ -234,14 +246,11 @@ class AutoliquidacionController extends Controller
     }
 
     /**
-     * Lee el período [mes, anio] de la columna Fecha (índice 5) de la planilla, tomando
-     * la primera fila de datos con una fecha válida. Null si ninguna es legible.
+     * Lee el período [mes, anio] de la columna Fecha (índice 5) tomando la primera fila de
+     * datos con una fecha válida. Null si ninguna es legible.
      */
-    private function periodoDesdeFecha(\Illuminate\Http\UploadedFile $archivo): ?array
+    private function periodoDesdeFilas(array $filas): ?array
     {
-        $hojas = Excel::toArray(new class {}, $archivo);
-        $filas = $hojas[0] ?? [];
-
         foreach ($filas as $i => $fila) {
             if ($i === 0) {
                 continue; // encabezado
@@ -253,5 +262,30 @@ class AutoliquidacionController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Valida que el encabezado corresponda a la planilla PILA esperada: la columna 6 (índice 5)
+     * debe ser "Fecha" y debe existir una columna "Aporte empresa". Así se distingue de otros
+     * reportes (p. ej. un movimiento contable con Valor Débito/Crédito y la Fecha en otra columna).
+     */
+    private function formatoPilaOk(array $encabezado): bool
+    {
+        $norm = static function ($s): string {
+            $s = mb_strtolower(trim((string) $s));
+            return strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']);
+        };
+        $cols = array_map($norm, $encabezado);
+
+        $fechaEnCol6 = str_contains($cols[5] ?? '', 'fecha');
+        $hayAporteEmpresa = false;
+        foreach ($cols as $c) {
+            if (str_contains($c, 'aporte') && str_contains($c, 'empresa')) {
+                $hayAporteEmpresa = true;
+                break;
+            }
+        }
+
+        return $fechaEnCol6 && $hayAporteEmpresa;
     }
 }
