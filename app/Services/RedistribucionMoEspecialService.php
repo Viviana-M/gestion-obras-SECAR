@@ -69,7 +69,7 @@ class RedistribucionMoEspecialService
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
-                ->where($this->corteAcum($anio, $mes))
+                ->where('mes', $mes)->where('anio', $anio)
                 ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
                 ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
                 ->get();
@@ -129,7 +129,7 @@ class RedistribucionMoEspecialService
     }
 
     /**
-     * Fondos de la autoliquidación del período (acumulado): total de aporte_empresa por fondo,
+     * Fondos de la autoliquidación del período (mes exacto): total de aporte_empresa por fondo,
      * aporte por persona registrada dentro del fondo, e índices para cruzar el fondo con las
      * líneas de la cuenta 14 (por NIT o por nombre).
      *
@@ -137,7 +137,7 @@ class RedistribucionMoEspecialService
      */
     private function fondosAutoliquidacion(int $mes, int $anio, array $porCed, array $porNom): array
     {
-        $rows = AutoliquidacionAporte::where($this->corteAcum($anio, $mes))
+        $rows = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
             ->selectRaw('cedula as fondo_nit, razon_social as fondo_nom, empleado, empleado_nombre, SUM(aporte_empresa) as monto')
             ->groupBy('cedula', 'razon_social', 'empleado', 'empleado_nombre')
             ->havingRaw('SUM(aporte_empresa) > 0.005')
@@ -183,7 +183,7 @@ class RedistribucionMoEspecialService
         if (! empty($cuentasMO) && ! empty($unBolsa)) {
             $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)->whereIn('cuenta_contable', $cuentasMO)
-                ->where($this->corteAcum($anio, $mes))
+                ->where('mes', $mes)->where('anio', $anio)
                 ->selectRaw('tercero_dcto, razon_social, SUM(estado_er) as saldo')
                 ->groupBy('tercero_dcto', 'razon_social')->get();
             foreach ($rows as $r) {
@@ -244,20 +244,6 @@ class RedistribucionMoEspecialService
     public function tercerosDisponibles(int $mes, int $anio): array
     {
         return $this->tercerosSinCruzar($mes, $anio);
-    }
-
-    /**
-     * Corte ACUMULADO AL MES: todos los períodos anteriores + el mes filtrado. Mismo criterio
-     * que el saldo de las bolsas. Así el saldo no distribuido de un mes queda disponible el mes
-     * siguiente (y cuando se importa el plano a SIESA, la cuenta 14 baja y el pendiente se reduce).
-     */
-    private function corteAcum(int $anio, int $mes): \Closure
-    {
-        return function ($q) use ($anio, $mes) {
-            $q->where('anio', '<', $anio)->orWhere(function ($q2) use ($anio, $mes) {
-                $q2->where('anio', $anio)->where('mes', '<=', $mes);
-            });
-        };
     }
 
     /** Normaliza una cédula/NIT: solo alfanuméricos, en minúsculas (quita puntos, espacios y guiones). */
@@ -371,7 +357,7 @@ class RedistribucionMoEspecialService
             $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
                 ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
-                ->where($this->corteAcum($anio, $mes))
+                ->where('mes', $mes)->where('anio', $anio)
                 ->selectRaw('codigo_proyecto as un, SUM(estado_er) as saldo')
                 ->groupBy('codigo_proyecto')->get();
             foreach ($rows as $r) {
@@ -448,8 +434,8 @@ class RedistribucionMoEspecialService
      * Retiro de MO por (UN|cuenta 14) de los terceros registrados, para descontarlo del saldo
      * de las bolsas de Operaciones. Incluye la MO directa (salario) Y la seguridad social
      * atribuida (la porción de la cuenta 14 del fondo que corresponde a las personas), pues
-     * ambas salen de la cuenta 14 y las gestiona Contabilidad. Se calcula desde costoPorPersona,
-     * que ya usa el corte ACUMULADO AL MES (igual que el saldo de la bolsa).
+     * ambas salen de la cuenta 14 y las gestiona Contabilidad. Se calcula desde costoPorPersona
+     * (movimiento del MES, no acumulado).
      *
      * @param array|null $codigos  bolsas a considerar (por defecto todas las UnBolsa)
      * @return array<string, float>  [ "un|cuenta" => monto ]
@@ -492,7 +478,7 @@ class RedistribucionMoEspecialService
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $unBolsa)
             ->whereIn('cuenta_contable', $cuentasMO)
-            ->where($this->corteAcum($anio, $mes))
+            ->where('mes', $mes)->where('anio', $anio)
             ->selectRaw('tercero_dcto, razon_social, SUM(estado_er) as saldo')
             ->groupBy('tercero_dcto', 'razon_social')
             ->get();

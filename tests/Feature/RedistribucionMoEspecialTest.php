@@ -217,18 +217,20 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function el_saldo_no_distribuido_se_arrastra_al_mes_siguiente(): void
+    public function toma_solo_la_mo_del_mes_no_el_acumulado(): void
     {
+        // Debe ser la cuenta 14 DEL MES (movimiento del período), no el acumulado: así una
+        // reclasificación de un mes anterior (posiblemente con terceros distintos) no genera
+        // saldos irreales en el mes actual.
         $this->homologarMO('14200530');
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 600000, 4, 2026); // MO de abril
         $this->moBolsa('MTO00099', '14200530', '111', 500000, 5, 2026); // MO de mayo
 
         $svc = app(RedistribucionMoEspecialService::class);
-        // En abril hay 600.000 disponibles.
+        // Cada mes toma solo su propio movimiento (no se acumula).
         $this->assertEqualsWithDelta(600000, $svc->costoPorPersona(4, 2026)['111']['total'], 0.5);
-        // En mayo, el saldo de abril se arrastra: 600.000 + 500.000 = 1.100.000 disponibles.
-        $this->assertEqualsWithDelta(1100000, $svc->costoPorPersona(5, 2026)['111']['total'], 0.5);
+        $this->assertEqualsWithDelta(500000, $svc->costoPorPersona(5, 2026)['111']['total'], 0.5);
     }
 
     #[Test]
@@ -320,18 +322,18 @@ class RedistribucionMoEspecialTest extends TestCase
     public function retira_la_mo_de_los_terceros_registrados_de_las_bolsas_de_operaciones(): void
     {
         $this->homologarMO('14200506');
-        $this->moBolsa('MTO00099', '14200506', '111', 600000, 3, 2026); // MO de ARLEY en MARZO (mes previo)
-        $this->moBolsa('MTO00099', '14200506', '999', 400000, 4, 2026); // MO de otro en abril
+        $this->moBolsa('MTO00099', '14200506', '111', 600000, 4, 2026); // MO de ARLEY (abril)
+        $this->moBolsa('MTO00099', '14200506', '999', 400000, 4, 2026); // MO de otro (abril)
 
         $svc     = app(DistribucionService::class);
         $periodo = Homologacion::periodo(2026, 4);
 
-        // Viendo ABRIL, la bolsa arrastra (acumulado) los 600k de marzo + 400k de abril.
+        // Sin registrar a ARLEY: la bolsa muestra la MO completa (600k + 400k).
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
         $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
 
-        // Al registrar a ARLEY, su MO se retira aunque sea de un mes anterior: queda solo el otro (400k).
+        // Al registrar a ARLEY, su MO del mes se retira de la bolsa: queda solo la del otro (400k).
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
