@@ -47,6 +47,21 @@
 </div>
 @endif
 
+{{-- Plano de reclasificación 14→61 de MO Apoyo (usa esta autoliquidación para atribuir la SS) --}}
+<div class="card" style="padding:16px;margin-bottom:1.25rem">
+    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:4px">Plano MO apoyo administrativo y operativo (14 → 61)</h2>
+    <p style="font-size:12px;color:#6B7280;margin:0 0 12px">Reclasifica a costo real la mano de obra de las personas de apoyo, de la cuenta 14 a la 61, respetando la unidad de negocio con que viene del cierre. La seguridad social se atribuye con esta autoliquidación de aportes.</p>
+    <form method="GET" action="{{ route('contable.redistribucion-mo.plano') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
+        <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
+            <input type="number" name="documento" min="1" value="1" style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Descargar plano (Excel)</button>
+        <span style="font-size:11.5px;color:#9CA3AF">Período: <b>{{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</b> · <a href="{{ route('contable.redistribucion-mo.index', ['mes'=>$mes,'anio'=>$anio]) }}" style="color:#2563a8;text-decoration:none">ver detalle en MO Apoyo</a></span>
+    </form>
+</div>
+
 @if($periodos->isEmpty())
 <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">Aún no hay planillas cargadas.</div>
 @else
