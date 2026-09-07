@@ -412,8 +412,10 @@ class RedistribucionMoEspecialService
      * por UN que YA trae el archivo del cierre (sin %). Por cada línea de MO de la persona:
      *   - CR la cuenta 14, conservando el tercero del ERP (la persona en el salario; el fondo/EPS
      *     en la seguridad social) y la UN de la línea.
-     *   - DB la cuenta 61 correspondiente (homologada), a nombre de la PERSONA, en la misma UN.
-     * Cada tupla es un asiento balanceado en su propia UN. Se reclasifica la MO completa.
+     *   - DB la cuenta 61 correspondiente (homologada), con el MISMO tercero del cierre (persona
+     *     en el salario, fondo/EPS en la seguridad social), en la misma UN.
+     * Ambas patas van con el mismo tercero: así la 14 de ese tercero queda en cero y la 61 queda
+     * "espejo". Cada tupla es un asiento balanceado en su propia UN. Se reclasifica la MO completa.
      *
      * @return array<int, array{un:string,cuenta_credito:string,tercero_credito:string,cuenta_debito:string,tercero_debito:string,monto:float,cedula:string}>
      */
@@ -425,20 +427,16 @@ class RedistribucionMoEspecialService
         $mov = [];
         foreach ($costo as $ced => $p) {
             if ($p['total'] <= 0.005) continue;
-            // Documento de la persona para el débito a la 61: el del ERP (de su salario); si no hay,
-            // la cédula del maestro cuando es real (no una clave interna 'SD-...'); si no, el nombre.
-            $terceroPersona = $p['doc'] !== ''
-                ? $p['doc']
-                : (str_starts_with((string) $ced, 'SD-') ? ((string) $p['nombre'] ?: (string) $ced) : (string) $ced);
             foreach ($p['buckets'] as $b) {
                 $cuenta14 = $b['cuenta'] !== '' ? $b['cuenta'] : '14';
                 $cuenta61 = (string) ($homol[$cuenta14]->cuenta_61 ?? $cuenta14); // su 6 correspondiente
+                $tercero  = (string) ($b['tercero'] ?? (string) $ced); // el tercero del cierre (persona o fondo)
                 $monto = round((float) $b['monto'], 2);
                 if ($monto <= 0.005) continue;
                 $mov[] = [
                     'un'              => (string) $b['un'],
-                    'cuenta_credito'  => $cuenta14, 'tercero_credito' => (string) ($b['tercero'] ?? $terceroPersona),
-                    'cuenta_debito'   => $cuenta61, 'tercero_debito'  => $terceroPersona,
+                    'cuenta_credito'  => $cuenta14, 'tercero_credito' => $tercero,
+                    'cuenta_debito'   => $cuenta61, 'tercero_debito'  => $tercero,
                     'monto'           => $monto,    'cedula' => (string) $ced,
                 ];
             }

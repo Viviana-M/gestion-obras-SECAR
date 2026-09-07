@@ -268,10 +268,11 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function el_plano_acredita_el_fondo_de_ss_y_debita_a_la_persona(): void
+    public function el_plano_conserva_el_fondo_de_ss_en_ambas_patas(): void
     {
-        // La SS viene en la cuenta 14 a nombre del fondo; el crédito conserva el tercero del fondo
-        // y el débito a la 61 va a nombre de la persona, en la misma UN.
+        // La SS viene en la cuenta 14 a nombre del fondo; tanto el crédito (14) como el débito (61)
+        // conservan el MISMO tercero del cierre (el fondo/EPS), en la misma UN. Así la 14 del fondo
+        // queda en cero y la 61 queda a su nombre.
         $this->homologarMO('14200530');
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '800100', 400000); // SS en cuenta 14 a nombre del fondo
@@ -284,16 +285,19 @@ class RedistribucionMoEspecialTest extends TestCase
         $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
         $mov = $ss->getSheetByName('Movimientocontable');
         // Columnas: C=cuenta, D=tercero, H=débito, I=crédito.
-        $credFondo = 0; $debPersona = 0;
+        $credFondo14 = 0; $debFondo61 = 0; $otroTercero = 0;
         foreach (range(2, $mov->getHighestRow()) as $row) {
+            $cta  = (string) $mov->getCell('C'.$row)->getValue();
             $terc = (string) $mov->getCell('D'.$row)->getValue();
             $h    = (float) $mov->getCell('H'.$row)->getValue();
             $i    = (float) $mov->getCell('I'.$row)->getValue();
-            if ($terc === '800100') $credFondo += $i;  // crédito a la 14 conserva el fondo
-            if ($terc === '111')    $debPersona += $h; // débito a la 61 a nombre de la persona
+            if ($terc === '800100' && $cta === '14200530') $credFondo14 += $i; // crédito a la 14 del fondo
+            if ($terc === '800100' && $cta === '73950505') $debFondo61 += $h;  // débito a la 61 del fondo
+            if ($terc !== '800100') $otroTercero += $h + $i;                    // nadie más
         }
-        $this->assertEqualsWithDelta(400000, $credFondo, 0.5);
-        $this->assertEqualsWithDelta(400000, $debPersona, 0.5);
+        $this->assertEqualsWithDelta(400000, $credFondo14, 0.5);
+        $this->assertEqualsWithDelta(400000, $debFondo61, 0.5);
+        $this->assertEqualsWithDelta(0, $otroTercero, 0.5); // no aparece la persona en el plano de SS
     }
 
     #[Test]
