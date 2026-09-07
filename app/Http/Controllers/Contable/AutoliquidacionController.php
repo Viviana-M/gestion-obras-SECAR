@@ -180,12 +180,22 @@ class AutoliquidacionController extends Controller
             'archivo' => 'required|file|mimes:xlsx,xls|max:51200',
         ]);
 
+        // Planillas grandes (miles de filas): dar tiempo y memoria a esta petición. Si el servidor
+        // tiene el memory_limit ajustado (p. ej. 128M), leer/importar el archivo completo lo agota y
+        // la carga "no hace nada" (muere sin alcanzar a mostrar mensaje). Ambas llamadas son @ por
+        // si el hosting no permite cambiarlas (no rompen: la lectura ya se hace por partes y por
+        // chunks para no depender de esto).
         @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
 
         $archivo = $request->file('archivo');
 
-        // Se lee el archivo una vez para reconocer las columnas (por su nombre) y sacar el período.
-        $filas = Excel::toArray(new class {}, $archivo)[0] ?? [];
+        // Para reconocer las columnas (por su nombre) y sacar el período solo hace falta el
+        // encabezado y las primeras filas: se leen SOLO esas, no el archivo completo. Leerlo entero
+        // aquí con Excel::toArray dispara la memoria (una planilla de miles de filas puede pasar de
+        // 100 MB y morir sin mensaje en servidores con memory_limit ajustado). La importación de
+        // todas las filas la hace Excel::import por lotes (liviano en memoria).
+        $filas = $this->leerPrimerasFilas($archivo, 2000);
         $mapa  = AutoliquidacionImport::mapaColumnas($filas[0] ?? []);
 
         // Validar que sea una planilla de autoliquidación (PILA): debe traer, reconocidas por su
@@ -251,6 +261,48 @@ class AutoliquidacionController extends Controller
 
         return redirect()->route('contable.autoliquidacion.index', ['mes' => $mes, 'anio' => $anio, 'tab' => 'resumen'])
             ->with('success', "Período {$mes}/{$anio} vaciado: {$n} filas borradas. Ahora vuelve a cargar la planilla.");
+    }
+
+    /**
+     * Lee SOLO las primeras filas del archivo (encabezado + hasta $maxFilas de datos) de la primera
+     * hoja, sin cargar el resto en memoria. Sirve para reconocer las columnas y detectar el período
+     * de planillas grandes sin dispararse la memoria. Devuelve la matriz de filas (0-based).
+     *
+     * @return array<int, array<int, mixed>>
+     */
+    private function leerPrimerasFilas(\Illuminate\Http\UploadedFile $archivo, int $maxFilas): array
+    {
+        $ruta = $archivo->getRealPath();
+
+        try {
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($ruta);
+            $reader->setReadDataOnly(true);
+
+            // Leer únicamente las primeras (maxFilas + encabezado) filas.
+            if (method_exists($reader, 'setReadFilter')) {
+                $reader->setReadFilter(new class($maxFilas + 1) implements \PhpOffice\PhpSpreadsheet\Reader\IReadFilter {
+                    public function __construct(private int $max) {}
+
+                    public function readCell($column, $row, $worksheetName = ''): bool
+                    {
+                        return $row <= $this->max;
+                    }
+                });
+            }
+
+            // Solo la primera hoja (evita cargar copias/resúmenes).
+            if (method_exists($reader, 'listWorksheetNames') && method_exists($reader, 'setLoadSheetsOnly')) {
+                $hojas = $reader->listWorksheetNames($ruta);
+                if (! empty($hojas[0])) {
+                    $reader->setLoadSheetsOnly($hojas[0]);
+                }
+            }
+
+            return $reader->load($ruta)->getSheet(0)->toArray(null, true, false, false);
+        } catch (\Throwable $e) {
+            // Ante cualquier problema con el lector acotado, caer a la lectura estándar.
+            return Excel::toArray(new class {}, $archivo)[0] ?? [];
+        }
     }
 
     /**
