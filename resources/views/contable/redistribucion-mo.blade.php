@@ -35,31 +35,19 @@
     </div>
 </form>
 
-{{-- Agregar persona --}}
-@if($puedeEditar)
-<div class="card" style="padding:14px 16px;margin-bottom:1rem">
-    <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:4px">Agregar persona de apoyo administrativo y operativo</h2>
-    <p style="font-size:11.5px;color:#6B7280;margin:0 0 10px">Lo más seguro es agregarlas desde la lista de abajo (usan el identificador exacto de la bolsa). También puedes escribir el nombre a mano; la cédula es opcional.</p>
-    <form method="POST" action="{{ route('contable.redistribucion-mo.persona') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
-        @csrf
-        <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Cédula (opcional)</label>
-            <input type="text" name="cedula" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px"></div>
-        <div style="flex:1;min-width:200px"><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Nombre (igual al de la bolsa)</label>
-            <input type="text" name="nombre" required style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px"></div>
-        <button type="submit" style="padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">Agregar</button>
-    </form>
+{{-- La lista de personas se administra en Administración → Mano de obra directa --}}
+<div class="card" style="padding:12px 16px;margin-bottom:1rem;background:#F8FAFC">
+    <p style="font-size:12px;color:#6B7280;margin:0">Las personas de mano de obra directa se administran en <b>Administración → Mano de obra directa</b>. Aquí solo se ven sus costos y se descarga el plano de reclasificación.</p>
 </div>
-@endif
 
-{{-- Diagnóstico: terceros de MO en bolsas que NO cruzaron con el maestro (con alta directa) --}}
+{{-- Diagnóstico: terceros de MO en bolsas que NO cruzan con el maestro --}}
 @if(!empty($sinCruzar))
 <div class="card" style="padding:14px 16px;margin-bottom:1rem;border-left:4px solid #D97706">
-    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que aún no gestiona este módulo</h2>
-    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Su costo sigue en la bolsa de Operaciones. Pulsa <b>Agregar</b> para registrarlos con su identificador exacto: así cruzan seguro y entran a la reclasificación.</p>
+    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que no están en la lista</h2>
+    <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Si alguno de estos es mano de obra directa, agrégalo en <b>Administración → Mano de obra directa</b> (con su cédula o el mismo nombre) para que entre a la reclasificación.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="text-align:left;color:#6B7280;border-bottom:1px solid #E5E7EB">
             <th style="padding:5px 8px">Documento</th><th style="padding:5px 8px">Nombre (razón social)</th><th style="padding:5px 8px;text-align:right">Monto MO</th>
-            @if($puedeEditar)<th style="padding:5px 8px;text-align:right">Acción</th>@endif
         </tr></thead>
         <tbody>
         @foreach(array_slice($sinCruzar, 0, 50) as $t)
@@ -67,16 +55,6 @@
                 <td style="padding:5px 8px;font-family:monospace">{{ $t['doc'] !== '' ? $t['doc'] : '—' }}</td>
                 <td style="padding:5px 8px">{{ $t['nombre'] !== '' ? $t['nombre'] : '—' }}</td>
                 <td style="padding:5px 8px;text-align:right">{{ $fmt($t['monto']) }}</td>
-                @if($puedeEditar)
-                <td style="padding:5px 8px;text-align:right">
-                    <form method="POST" action="{{ route('contable.redistribucion-mo.persona') }}" style="margin:0;display:inline">
-                        @csrf
-                        <input type="hidden" name="cedula" value="{{ $t['doc'] }}">
-                        <input type="hidden" name="nombre" value="{{ $t['nombre'] }}">
-                        <button type="submit" @disabled($t['nombre']==='') style="padding:4px 12px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">+ Agregar</button>
-                    </form>
-                </td>
-                @endif
             </tr>
         @endforeach
         </tbody>
@@ -172,9 +150,6 @@
                 <span style="font-size:12px;padding:5px 11px;border-radius:10px;background:#F3F4F6;font-weight:600;color:#6B7280">MO directa <b style="color:#374151">{{ $fmt($per['directo']) }}</b></span>
                 <span style="font-size:12px;padding:5px 11px;border-radius:10px;background:#F3F4F6;font-weight:600;color:#6B7280">Seg. social <b style="color:#374151">{{ $fmt($per['ss']) }}</b></span>
                 <span title="Total de MO de la persona en la cuenta 14 (se reclasifica a la 61)" style="font-size:12px;padding:5px 11px;border-radius:10px;background:#E5EEF8;font-weight:700;color:#1B3F6E">Total <b>{{ $fmt($per['total']) }}</b></span>
-                @if($puedeEditar)
-                <a href="#" onclick="if(confirm('¿Eliminar a {{ $per['nombre'] }} de MO Apoyo administrativo y operativo?')){document.getElementById('del-{{ $per['id'] }}').submit()}return false" style="color:#DC2626;text-decoration:none">✕</a>
-                @endif
             </div>
         </div>
         @if(!empty($per['dist_un']))
@@ -189,13 +164,7 @@
         @endif
     </div>
     @empty
-    <div style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay personas de apoyo administrativo y operativo. Agrega una arriba.</div>
+    <div style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay personas de mano de obra directa. Agrégalas en Administración → Mano de obra directa.</div>
     @endforelse
 </div>
-
-@if($puedeEditar)
-@foreach($personas as $per)
-<form id="del-{{ $per['id'] }}" method="POST" action="{{ route('contable.redistribucion-mo.persona.eliminar', $per['id']) }}" style="display:none">@csrf @method('DELETE')</form>
-@endforeach
-@endif
 @endsection

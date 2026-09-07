@@ -20,35 +20,23 @@ class ManoObraDirectaTest extends TestCase
     #[Test]
     public function el_admin_crea_una_persona(): void
     {
+        // Ya no se piden porcentajes: la distribución por UN la trae Nómina en el cierre.
         $this->actingAs($this->admin())->post(route('admin.mano-obra-directa.store'), [
             'cedula' => '111', 'nombre' => 'perez juan',
-            'pct_mantenimiento' => 60, 'pct_instalaciones' => 40,
         ])->assertRedirect();
 
         $this->assertDatabaseHas('mano_obra_directa', [
-            'cedula' => '111', 'nombre' => 'perez juan',
-            'pct_mantenimiento' => 60, 'pct_instalaciones' => 40, 'activo' => 1,
+            'cedula' => '111', 'nombre' => 'perez juan', 'activo' => 1,
         ]);
-    }
-
-    #[Test]
-    public function rechaza_si_los_porcentajes_suman_mas_de_100(): void
-    {
-        $this->actingAs($this->admin())->post(route('admin.mano-obra-directa.store'), [
-            'cedula' => '222', 'nombre' => 'gomez ana',
-            'pct_mantenimiento' => 70, 'pct_instalaciones' => 40, // 110 > 100
-        ])->assertSessionHasErrors('pct_mantenimiento');
-
-        $this->assertSame(0, ManoObraDirecta::count());
     }
 
     #[Test]
     public function la_cedula_es_unica(): void
     {
-        ManoObraDirecta::create(['cedula' => '333', 'nombre' => 'X', 'pct_mantenimiento' => 0, 'pct_instalaciones' => 0]);
+        ManoObraDirecta::create(['cedula' => '333', 'nombre' => 'X']);
 
         $this->actingAs($this->admin())->post(route('admin.mano-obra-directa.store'), [
-            'cedula' => '333', 'nombre' => 'Otro', 'pct_mantenimiento' => 10, 'pct_instalaciones' => 10,
+            'cedula' => '333', 'nombre' => 'Otro',
         ])->assertSessionHasErrors('cedula');
 
         $this->assertSame(1, ManoObraDirecta::count());
@@ -57,15 +45,13 @@ class ManoObraDirectaTest extends TestCase
     #[Test]
     public function actualiza_y_alterna_el_estado(): void
     {
-        $p = ManoObraDirecta::create(['cedula' => '444', 'nombre' => 'Vieja', 'pct_mantenimiento' => 50, 'pct_instalaciones' => 50, 'activo' => true]);
+        $p = ManoObraDirecta::create(['cedula' => '444', 'nombre' => 'Vieja', 'activo' => true]);
         $admin = $this->admin();
 
         $this->actingAs($admin)->put(route('admin.mano-obra-directa.update', $p->id), [
-            'nombre' => 'Nueva', 'pct_mantenimiento' => 30, 'pct_instalaciones' => 20,
+            'nombre' => 'Nueva',
         ])->assertRedirect();
-        $p->refresh();
-        $this->assertSame('Nueva', $p->nombre);
-        $this->assertEquals(30.0, $p->pct_mantenimiento);
+        $this->assertSame('Nueva', $p->refresh()->nombre);
 
         $this->actingAs($admin)->put(route('admin.mano-obra-directa.toggle', $p->id))->assertRedirect();
         $this->assertFalse($p->refresh()->activo);

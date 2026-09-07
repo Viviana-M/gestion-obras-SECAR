@@ -4,7 +4,7 @@
 
 @section('content')
 <x-page-banner title="Mano de obra directa" icon="🧰">
-    Personal directo; la <b>cédula</b> cruza con la planilla PILA y los dos porcentajes reparten a la persona entre las bolsas de cada departamento (su suma no puede pasar de 100%).
+    Personal directo cuya mano de obra se reclasifica de la cuenta 14 a costo real. La <b>cédula</b> (o el nombre) cruza con el cierre y con la planilla PILA. La distribución por unidad de negocio la trae <b>Nómina</b> en el archivo; aquí no se asignan porcentajes.
     <x-slot:actions>
         <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
             style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
@@ -34,16 +34,6 @@
             <input type="text" name="nombre" value="{{ old('nombre') }}" placeholder="APELLIDOS NOMBRES" required
                 style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;text-transform:uppercase">
         </div>
-        <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">% Mantenimiento</label>
-            <input type="number" name="pct_mantenimiento" value="{{ old('pct_mantenimiento', 0) }}" min="0" max="100" step="0.01"
-                style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-        </div>
-        <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">% Instalaciones</label>
-            <input type="number" name="pct_instalaciones" value="{{ old('pct_instalaciones', 0) }}" min="0" max="100" step="0.01"
-                style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-        </div>
         <button type="submit" style="padding:7px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Guardar</button>
         <button type="button" onclick="document.getElementById('form-nueva').style.display='none'"
             style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;cursor:pointer;height:36px">Cancelar</button>
@@ -55,7 +45,7 @@
         <thead>
             <tr style="background:#1B3F6E;color:white">
                 <th style="padding:10px 14px;text-align:left">Cédula</th>
-                <th style="padding:10px 14px;text-align:left">Nombre y reparto</th>
+                <th style="padding:10px 14px;text-align:left">Nombre</th>
                 <th style="padding:10px 14px;text-align:center">Estado</th>
                 <th style="padding:10px 14px;text-align:center">Acciones</th>
             </tr>
@@ -67,13 +57,7 @@
                 <td style="padding:10px 14px">
                     <form method="POST" action="{{ route('admin.mano-obra-directa.update', $p->id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                         @csrf @method('PUT')
-                        <input type="text" name="nombre" value="{{ $p->nombre }}" style="flex:1;min-width:200px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-transform:uppercase">
-                        <label style="font-size:11px;color:#6B7280">Mtto</label>
-                        <input type="number" name="pct_mantenimiento" value="{{ rtrim(rtrim(number_format($p->pct_mantenimiento,2,'.',''),'0'),'.') }}" min="0" max="100" step="0.01"
-                            style="width:78px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">
-                        <label style="font-size:11px;color:#6B7280">Inst</label>
-                        <input type="number" name="pct_instalaciones" value="{{ rtrim(rtrim(number_format($p->pct_instalaciones,2,'.',''),'0'),'.') }}" min="0" max="100" step="0.01"
-                            style="width:78px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-align:right">
+                        <input type="text" name="nombre" value="{{ $p->nombre }}" style="flex:1;min-width:240px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-transform:uppercase">
                         <button type="submit" style="font-size:11px;padding:5px 10px;border:1px solid #1B3F6E;border-radius:6px;color:#1B3F6E;background:white;cursor:pointer">Guardar</button>
                     </form>
                 </td>

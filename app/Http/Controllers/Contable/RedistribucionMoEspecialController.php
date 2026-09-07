@@ -3,16 +3,12 @@
 namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
-use App\Models\ManoObraEspecial;
-use App\Models\MontoDistribuirMoEspecial;
-use App\Models\RedistribucionMoEspecial;
+use App\Models\ManoObraDirecta;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
 use App\Services\RedistribucionMoEspecialService;
 use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Módulo de Contabilidad: redistribución por % de la mano de obra del personal especial
@@ -38,7 +34,7 @@ class RedistribucionMoEspecialController extends Controller
         $nombresUn = UnBolsa::pluck('nombre', 'codigo');
 
         // Personas del maestro con su costo y la distribución por UN que ya trae el archivo (solo lectura).
-        $personas = ManoObraEspecial::orderBy('nombre')->get()->map(function ($p) use ($costo, $nombresUn) {
+        $personas = ManoObraDirecta::where('activo', true)->orderBy('nombre')->get()->map(function ($p) use ($costo, $nombresUn) {
             $c = $costo[$p->cedula] ?? ['directo' => 0, 'ss' => 0, 'total' => 0, 'buckets' => []];
             // Distribución por UN (suma de sus líneas de MO en cada UN, tal como viene del cierre).
             $porUn = [];
@@ -63,116 +59,6 @@ class RedistribucionMoEspecialController extends Controller
         $descuadres = $this->svc->descuadresFondos($mes, $anio);
 
         return view('contable.redistribucion-mo', compact('personas', 'resumen', 'periodos', 'mes', 'anio', 'sinCruzar', 'descuadres'));
-    }
-
-    /** Alta de una persona al maestro. Se puede elegir un tercero de la bolsa o escribirlo a mano. */
-    public function guardarPersona(Request $request)
-    {
-        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
-
-        $datos = $request->validate([
-            'cedula' => 'nullable|string|max:255',
-            'nombre' => 'required|string|max:255',
-        ], [], ['cedula' => 'cédula']);
-
-        $nombre = trim($datos['nombre']);
-        $cedula = trim((string) ($datos['cedula'] ?? ''));
-        // Si el tercero de la bolsa no trae documento, se genera una clave estable a partir del
-        // nombre (el cruce se hará por nombre); así no exigimos una cédula que el financiero no tiene.
-        if ($cedula === '') {
-            $cedula = 'SD-'.substr(md5(mb_strtolower($nombre)), 0, 12);
-        }
-
-        if (ManoObraEspecial::where('cedula', $cedula)->exists()) {
-            return back()->with('error', 'Esa persona ya está registrada.');
-        }
-
-        ManoObraEspecial::create([
-            'cedula' => $cedula, 'nombre' => $nombre,
-            'activo' => true, 'user_id' => $request->user()->id,
-        ]);
-
-        return back()->with('success', 'Persona agregada a MO Apoyo administrativo y operativo.');
-    }
-
-    public function eliminarPersona(Request $request, ManoObraEspecial $persona)
-    {
-        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
-
-        RedistribucionMoEspecial::where('cedula', $persona->cedula)->delete();
-        if (Schema::hasTable('monto_distribuir_mo_especial')) {
-            MontoDistribuirMoEspecial::where('cedula', $persona->cedula)->delete();
-        }
-        $persona->delete();
-
-        return back()->with('success', 'Persona eliminada de MO Apoyo administrativo y operativo.');
-    }
-
-    /** Guarda los % de redistribución del período. Valida que sumen 100% por persona. */
-    public function guardarPorcentajes(Request $request)
-    {
-        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
-
-        [$mes, $anio] = $this->periodo($request);
-        $entrada = (array) $request->input('pct', []);      // [cedula => [ ['un'=>,'pct'=>], ... ]]
-        $montosInput = (array) $request->input('monto', []); // [cedula => monto a distribuir]
-
-        // Consolidar y validar los % por persona.
-        $porPersona = [];
-        foreach ($entrada as $cedula => $filas) {
-            foreach ((array) $filas as $f) {
-                $un  = trim((string) ($f['un'] ?? ''));
-                $pct = (float) ($f['pct'] ?? 0);
-                if ($un === '' || $pct <= 0) continue;
-                $porPersona[$cedula][$un] = ($porPersona[$cedula][$un] ?? 0) + $pct;
-            }
-        }
-
-        foreach ($porPersona as $cedula => $unes) {
-            $suma = array_sum($unes);
-            if (abs($suma - 100) > 0.05) {
-                $nombre = ManoObraEspecial::where('cedula', $cedula)->value('nombre') ?? $cedula;
-                return back()->with('error', "Los porcentajes de {$nombre} suman ".rtrim(rtrim(number_format($suma, 1), '0'), '.')."%, deben sumar 100%.");
-            }
-        }
-
-        // Monto a distribuir por persona: se topa al total retirado del período (no se puede
-        // distribuir más de lo que tiene). Si viene vacío, se distribuye el total (por defecto).
-        $costo  = $this->svc->costoPorPersona($mes, $anio);
-        $montos = [];
-        foreach ($montosInput as $cedula => $valor) {
-            if (! isset($costo[$cedula])) continue;
-            $total = (float) $costo[$cedula]['total'];
-            $m = $valor === '' || $valor === null ? $total : (float) $valor;
-            $montos[$cedula] = max(0.0, min($m, $total));
-        }
-
-        DB::transaction(function () use ($porPersona, $montos, $mes, $anio, $request) {
-            // Reemplaza los % del período para las personas enviadas.
-            RedistribucionMoEspecial::where('mes', $mes)->where('anio', $anio)
-                ->whereIn('cedula', array_keys($porPersona))->delete();
-            foreach ($porPersona as $cedula => $unes) {
-                foreach ($unes as $un => $pct) {
-                    RedistribucionMoEspecial::create([
-                        'cedula' => $cedula, 'mes' => $mes, 'anio' => $anio,
-                        'un_codigo' => $un, 'porcentaje' => round($pct, 2), 'user_id' => $request->user()->id,
-                    ]);
-                }
-            }
-            // Reemplaza el monto a distribuir del período para las personas enviadas.
-            if (! empty($montos) && Schema::hasTable('monto_distribuir_mo_especial')) {
-                MontoDistribuirMoEspecial::where('mes', $mes)->where('anio', $anio)
-                    ->whereIn('cedula', array_keys($montos))->delete();
-                foreach ($montos as $cedula => $m) {
-                    MontoDistribuirMoEspecial::create([
-                        'cedula' => $cedula, 'mes' => $mes, 'anio' => $anio,
-                        'monto_distribuir' => round($m, 2), 'user_id' => $request->user()->id,
-                    ]);
-                }
-            }
-        });
-
-        return back()->with('success', 'Distribución guardada para el período '.sprintf('%02d/%d', $mes, $anio).'.');
     }
 
     /** Plano SIESA de reclasificación 14→61 (por la UN que trae cada línea del cierre). */

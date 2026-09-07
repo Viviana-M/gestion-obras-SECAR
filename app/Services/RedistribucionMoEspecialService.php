@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AutoliquidacionAporte;
 use App\Models\Homologacion;
+use App\Models\ManoObraDirecta;
 use App\Models\ManoObraEspecial;
 use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
@@ -43,7 +44,7 @@ class RedistribucionMoEspecialService
      */
     public function costoPorPersona(int $mes, int $anio): array
     {
-        $maestro = ManoObraEspecial::where('activo', true)->get();
+        $maestro = ManoObraDirecta::where('activo', true)->get();
         if ($maestro->isEmpty()) {
             return [];
         }
@@ -169,7 +170,7 @@ class RedistribucionMoEspecialService
      */
     public function descuadresFondos(int $mes, int $anio): array
     {
-        $maestro = ManoObraEspecial::where('activo', true)->get();
+        $maestro = ManoObraDirecta::where('activo', true)->get();
         [$porCed, $porNom] = $this->indicesMaestro($maestro);
         $fondos = $this->fondosAutoliquidacion($mes, $anio, $porCed, $porNom);
         if (empty($fondos['total'])) {
@@ -478,7 +479,7 @@ class RedistribucionMoEspecialService
      */
     public function tercerosSinCruzar(int $mes, int $anio): array
     {
-        $maestro = ManoObraEspecial::where('activo', true)->get();
+        $maestro = ManoObraDirecta::where('activo', true)->get();
         [$porCed, $porNom] = $this->indicesMaestro($maestro);
         // Fondos de la autoliquidación: sus líneas de cuenta 14 son seguridad social (no personas
         // por registrar), así que no deben aparecer como "terceros sin cruzar".

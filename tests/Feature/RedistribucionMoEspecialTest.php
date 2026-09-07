@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AutoliquidacionAporte;
 use App\Models\Homologacion;
-use App\Models\ManoObraEspecial;
+use App\Models\ManoObraDirecta;
 use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
@@ -59,7 +59,7 @@ class RedistribucionMoEspecialTest extends TestCase
     public function el_costo_por_persona_suma_mo_directa_y_seguridad_social(): void
     {
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
 
         // MO directa (salario) de ARLEY en la bolsa MTO00099 (tercero = su cédula) = 600.000.
         $this->moBolsa('MTO00099', '14200530', '111', 600000);
@@ -81,8 +81,8 @@ class RedistribucionMoEspecialTest extends TestCase
     public function la_ss_sale_de_la_cuenta_14_repartida_por_la_autoliquidacion(): void
     {
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        ManoObraEspecial::create(['cedula' => '222', 'nombre' => 'YILMAR', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'YILMAR', 'activo' => true]);
 
         // La SS está en la cuenta 14 a nombre del fondo (tercero = 800100) = 1.000.000.
         $this->moBolsa('MTO00099', '14200530', '800100', 1000000);
@@ -105,7 +105,7 @@ class RedistribucionMoEspecialTest extends TestCase
     public function reporta_descuadre_entre_la_cuenta_14_del_fondo_y_la_autoliquidacion(): void
     {
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '800100', 900000); // cuenta 14 del fondo = 900.000
         $this->ssBolsa('111', 'MTO00099', 1000000);               // autoliquidación = 1.000.000
 
@@ -123,7 +123,7 @@ class RedistribucionMoEspecialTest extends TestCase
         // Como en producción: la bolsa identifica al tercero por NOMBRE en la razón social
         // (sin cédula), y el orden/acentos de las palabras difieren del maestro. Debe cruzar.
         $this->homologarMO('14200506');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'Arley Valencia Villabona', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'Arley Valencia Villabona', 'activo' => true]);
 
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200506',
@@ -150,7 +150,7 @@ class RedistribucionMoEspecialTest extends TestCase
     public function solo_cuentan_las_cuentas_de_mano_de_obra_definidas(): void
     {
         // La MO son solo las cuentas de la lista fija; una cuenta 14 fuera de la lista no cuenta.
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200506', '111', 600000);  // cuenta MO válida
         $this->moBolsa('MTO00099', '14209999', '111', 900000);  // cuenta 14 NO es MO → se ignora
 
@@ -165,7 +165,7 @@ class RedistribucionMoEspecialTest extends TestCase
         // El cruce es SOLO por cédula. El documento del financiero/autoliquidación puede venir
         // con puntos/espacios ("12.345.678") y la del maestro sin ellos ("12345678"): debe cruzar.
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '12345678', 'nombre' => 'ARLEY GONZALEZ', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '12345678', 'nombre' => 'ARLEY GONZALEZ', 'activo' => true]);
 
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
@@ -202,7 +202,7 @@ class RedistribucionMoEspecialTest extends TestCase
     public function el_resumen_muestra_la_mo_reclasificada_por_un(): void
     {
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 600000);    // ARLEY directo (tercero = su cédula)
         $this->moBolsa('MTO00099', '14200530', '999', 500000);    // MO de otro (se queda en la 14)
 
@@ -220,7 +220,7 @@ class RedistribucionMoEspecialTest extends TestCase
     public function el_saldo_no_distribuido_se_arrastra_al_mes_siguiente(): void
     {
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 600000, 4, 2026); // MO de abril
         $this->moBolsa('MTO00099', '14200530', '111', 500000, 5, 2026); // MO de mayo
 
@@ -237,7 +237,7 @@ class RedistribucionMoEspecialTest extends TestCase
         // ARLEY con MO ya distribuida por el cierre en DOS UN. El plano reclasifica su MO completa
         // 14→61 en la MISMA UN de cada línea: CR 14 (conserva tercero) / DB 61 (a nombre de ARLEY).
         $this->homologarMO('14200530'); // 14200530 → cuenta_61 = 73950505
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '111', 700000); // salario ARLEY en MTO00099
         $this->moBolsa('INS00099', '14200530', '111', 300000); // salario ARLEY en INS00099
 
@@ -273,7 +273,7 @@ class RedistribucionMoEspecialTest extends TestCase
         // La SS viene en la cuenta 14 a nombre del fondo; el crédito conserva el tercero del fondo
         // y el débito a la 61 va a nombre de la persona, en la misma UN.
         $this->homologarMO('14200530');
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $this->moBolsa('MTO00099', '14200530', '800100', 400000); // SS en cuenta 14 a nombre del fondo
         $this->ssBolsa('111', 'MTO00099', 400000);                // autoliquidación atribuye a ARLEY
 
@@ -297,22 +297,19 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function se_puede_agregar_una_persona_solo_por_nombre_y_cruza(): void
+    public function la_lista_de_personas_viene_del_maestro_de_administracion(): void
     {
-        // Alta desde la lista de la bolsa: sin cédula, solo el nombre exacto de la razón social.
+        // La lista la administra Administración → Mano de obra directa (mano_obra_directa).
         $this->homologarMO('14200506');
-        $this->moBolsa('MTO00099', '14200506', '', 3874907); // tercero sin documento
-        RegistroFinanciero::where('codigo_proyecto', 'MTO00099')->update(['razon_social' => 'VALENCIA VILLABONA ARLEY']);
-
-        $this->actingAs($this->contable())->post(route('contable.redistribucion-mo.persona'), [
-            'cedula' => '', 'nombre' => 'VALENCIA VILLABONA ARLEY',
-        ])->assertRedirect()->assertSessionHas('success');
-
-        $this->assertSame(1, ManoObraEspecial::count());
-        $persona = ManoObraEspecial::first();
+        ManoObraDirecta::create(['cedula' => '12345678', 'nombre' => 'VALENCIA VILLABONA ARLEY', 'activo' => true]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200506',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '', 'razon_social' => 'VALENCIA VILLABONA ARLEY',
+            'estado_er' => -3874907, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 4, 'anio' => 2026,
+        ]);
 
         $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(4, 2026);
-        $this->assertEqualsWithDelta(3874907, $costo[$persona->cedula]['directo'], 0.5);
+        $this->assertEqualsWithDelta(3874907, $costo['12345678']['directo'], 0.5);
     }
 
     #[Test]
@@ -331,7 +328,7 @@ class RedistribucionMoEspecialTest extends TestCase
         $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
 
         // Al registrar a ARLEY, su MO se retira aunque sea de un mes anterior: queda solo el otro (400k).
-        ManoObraEspecial::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
         $this->assertEqualsWithDelta(400000, $linea['pendiente'], 0.5);
