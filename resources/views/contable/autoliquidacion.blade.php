@@ -21,10 +21,23 @@
 @endif
 
 @php
-    // Columnas que DEBE traer el archivo plano, en este orden.
-    $columnasPila = ['ID Cuenta', 'Cuenta contable', 'Id. Tercero Mov', 'Razon Social', 'Id. U.N. Mov',
-        'Fecha', 'Descripción UN', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl',
-        'Aporte del empl', 'Aporte empresa', 'Real Descontado'];
+    // Columnas que reconoce el módulo POR SU NOMBRE (el orden no importa y el archivo puede traer
+    // más columnas). Solo tres son imprescindibles para cargar; las demás se leen si vienen.
+    $columnasPila = [
+        ['nombre' => 'Empleado',       'nota' => 'Cédula de la persona. Imprescindible.'],
+        ['nombre' => 'Aporte empresa', 'nota' => 'El aporte del empleador (lo que se reclasifica). Imprescindible.'],
+        ['nombre' => 'Fecha',          'nota' => 'De aquí se toma el período (mes/año). Imprescindible.'],
+        ['nombre' => 'Id. Tercero Mov', 'opcional' => true, 'nota' => 'NIT del fondo/EPS de la línea. Se usa para cruzar con el cierre.'],
+        ['nombre' => 'Razon Social',    'opcional' => true, 'nota' => 'Nombre del fondo/EPS.'],
+        ['nombre' => 'Id. U.N. Mov',    'opcional' => true, 'nota' => 'Unidad de negocio.'],
+        ['nombre' => 'Descripción Codigo PILA', 'opcional' => true, 'nota' => 'Concepto del aporte (EPS, pensión, ARL…).'],
+        ['nombre' => 'Nombre del empl', 'opcional' => true],
+        ['nombre' => 'Aporte del empl', 'opcional' => true],
+        ['nombre' => 'Descripción UN',  'opcional' => true],
+        ['nombre' => 'ID Cuenta',       'opcional' => true],
+        ['nombre' => 'Cuenta contable', 'opcional' => true],
+        ['nombre' => 'Real Descontado', 'opcional' => true],
+    ];
 @endphp
 
 @if($puedeEditar)
@@ -43,7 +56,12 @@
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma de la columna <b>Fecha</b> del archivo (ej. <code>2026-04-30</code> → abril 2026). Al recargar el mismo mes se reemplaza.</p>
 
     {{-- Columnas que reconoce el módulo (por su NOMBRE, sin importar el orden ni columnas extra) --}}
-    <x-columnas-plano titulo="El archivo debe traer estas columnas (el módulo las reconoce por su nombre; puede tener más columnas y en otro orden):" :columnas="$columnasPila" />
+    <x-columnas-plano
+        titulo="Columnas que reconoce el módulo (por su nombre; el orden no importa y el archivo puede traer más columnas):"
+        :columnas="$columnasPila" :numerar="false">
+        Solo son imprescindibles <b>Empleado</b>, <b>Aporte empresa</b> y <b>Fecha</b>. Las marcadas como
+        (opcional) se leen si vienen; sirve tanto el plano de la PILA como el movimiento contable del ERP.
+    </x-columnas-plano>
 </div>
 @endif
 

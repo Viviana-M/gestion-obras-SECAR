@@ -232,7 +232,7 @@ class AutoliquidacionTest extends TestCase
             ->get(route('contable.autoliquidacion.index'));
 
         $resp->assertStatus(200);
-        $resp->assertSee('el módulo las reconoce por su nombre', false);
+        $resp->assertSee('Columnas que reconoce el módulo', false);
         $resp->assertSee('Id. Tercero Mov', false);
         $resp->assertSee('Descripción Codigo PILA', false);
         $resp->assertSee('Real Descontado', false);
