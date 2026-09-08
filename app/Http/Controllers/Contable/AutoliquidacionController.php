@@ -116,6 +116,21 @@ class AutoliquidacionController extends Controller
             ->when($un, fn ($q) => $q->where('un_codigo', $un))
             ->get($cols);
 
+        // Solo se muestran las personas del maestro de Mano de Obra Directa (las demás se trabajan
+        // aparte). Se cruza por cédula normalizada y, como respaldo, por nombre normalizado.
+        $normCed = fn ($s) => preg_replace('/[^A-Za-z0-9]/', '', mb_strtolower(trim((string) $s)));
+        $normNom = function ($s) {
+            $s = strtr(mb_strtolower(trim((string) $s)), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ñ' => 'n']);
+            $t = array_filter(explode(' ', preg_replace('/[^a-z0-9 ]/', ' ', $s)));
+            sort($t);
+            return implode(' ', $t);
+        };
+        $cedsMO = []; $nomsMO = [];
+        foreach (\App\Models\ManoObraDirecta::where('activo', true)->get(['cedula', 'nombre']) as $p) {
+            if (($c = $normCed($p->cedula)) !== '') $cedsMO[$c] = true;
+            if (($n = $normNom($p->nombre)) !== '') $nomsMO[$n] = true;
+        }
+
         $acc = [];
         foreach ($filas as $r) {
             // Persona = EMPLEADO. Se agrupa por la cédula del empleado ("Empleado"); si esa
@@ -124,6 +139,13 @@ class AutoliquidacionController extends Controller
             // "Nombre del empl".
             $empCed = $tieneEmpleado ? trim((string) $r->empleado) : '';
             $empNom = $tieneEmpleado ? trim((string) $r->empleado_nombre) : '';
+
+            // Saltar quien NO esté en Mano de Obra Directa.
+            $enMaestro = ($empCed !== '' && isset($cedsMO[$normCed($empCed)]))
+                || ($empNom !== '' && isset($nomsMO[$normNom($empNom)]));
+            if (! $enMaestro) {
+                continue;
+            }
 
             if ($empCed !== '') {
                 $key = 'C:'.$empCed;  $cedDisp = $empCed;         $nombre = $empNom ?: '—';

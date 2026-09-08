@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AutoliquidacionAporte;
+use App\Models\ManoObraDirecta;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Maatwebsite\Excel\Facades\Excel;
@@ -39,6 +40,11 @@ class SeguridadSocialPersonaTest extends TestCase
 
     private function sembrar(): void
     {
+        // La vista por persona solo muestra a las de Mano de Obra Directa.
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'JUAN PEREZ', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'ANA GOMEZ', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '333', 'nombre' => 'LUIS RUIZ', 'activo' => true]);
+
         // JUAN PEREZ (111): EPS (Nueva EPS) 30.000 + ARL (Colmena) 12.000 = 42.000, UN ADM00099
         $this->ap('800100', 'NUEVA EPS', '111', 'JUAN PEREZ', 'ADM00099', 'EPS', 30000);
         $this->ap('800226175', 'COLMENA ARP', '111', 'JUAN PEREZ', 'ADM00099', 'ARL', 12000);
@@ -82,7 +88,8 @@ class SeguridadSocialPersonaTest extends TestCase
     public function agrupa_por_nombre_cuando_falta_la_cedula_del_empleado(): void
     {
         // "Empleado" (cédula) vacío pero "Nombre del empl" presente → agrupa por el nombre,
-        // NO por el tercero/fondo.
+        // NO por el tercero/fondo. Debe estar en el maestro (cruce por nombre).
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'JUAN PEREZ', 'activo' => true]);
         AutoliquidacionAporte::create(['cedula' => '800100', 'razon_social' => 'NUEVA EPS',
             'empleado' => '', 'empleado_nombre' => 'JUAN PEREZ', 'un_codigo' => 'ADM00099',
             'concepto_pila' => 'EPS', 'aporte_empresa' => 30000, 'mes' => 4, 'anio' => 2026]);
@@ -126,6 +133,7 @@ class SeguridadSocialPersonaTest extends TestCase
     #[Test]
     public function no_muestra_personas_ni_conceptos_en_cero(): void
     {
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'JUAN PEREZ', 'activo' => true]);
         $this->ap('800100', 'NUEVA EPS', '111', 'JUAN PEREZ', 'ADM00099', 'EPS', 30000);
         $this->ap('800100', 'FSP', '111', 'JUAN PEREZ', 'ADM00099', 'FSP', 0);       // concepto en 0
         $this->ap('800100', 'NUEVA EPS', '444', 'SIN COSTO', 'ADM00099', 'EPS', 0);  // persona total 0

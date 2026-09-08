@@ -349,6 +349,30 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
+    public function la_vista_por_persona_solo_muestra_las_de_mano_obra_directa(): void
+    {
+        \App\Models\ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        // Persona del maestro:
+        AutoliquidacionAporte::create(['id_cuenta' => '14200569', 'cedula' => '800251440', 'razon_social' => 'SANITAS',
+            'empleado' => '111', 'empleado_nombre' => 'ARLEY', 'un_codigo' => 'MTO00099', 'concepto_pila' => 'EPS',
+            'aporte_empresa' => 50000, 'mes' => 7, 'anio' => 2026]);
+        // Persona que NO está en el maestro → no debe aparecer:
+        AutoliquidacionAporte::create(['id_cuenta' => '14200569', 'cedula' => '800251440', 'razon_social' => 'SANITAS',
+            'empleado' => '999', 'empleado_nombre' => 'OTRO', 'un_codigo' => 'OB0001', 'concepto_pila' => 'EPS',
+            'aporte_empresa' => 70000, 'mes' => 7, 'anio' => 2026]);
+
+        $resp = $this->actingAs($this->contable('ver'))
+            ->get(route('contable.autoliquidacion.index', ['mes' => 7, 'anio' => 2026]));
+        $resp->assertOk();
+
+        $ceds = collect($resp->viewData('personas'))->pluck('cedula')->all();
+        $this->assertContains('111', $ceds);
+        $this->assertNotContains('999', $ceds);
+        // El total por persona refleja solo a la del maestro.
+        $this->assertEqualsWithDelta(50000, (float) $resp->viewData('total'), 0.5);
+    }
+
+    #[Test]
     public function el_resumen_muestra_total_aporte_empresa_y_desgloses(): void
     {
         AutoliquidacionAporte::create(['cedula' => '111', 'un_codigo' => 'ADM00099', 'concepto_pila' => 'Aporte EPS', 'aporte_empresa' => 30000, 'mes' => 6, 'anio' => 2026]);
