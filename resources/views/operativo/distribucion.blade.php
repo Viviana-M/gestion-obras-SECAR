@@ -8,68 +8,78 @@
     $depPrefijo = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'];
 @endphp
 @php
-    $puedeEditar = auth()->user()->puedeEditarModulo('operacion');
+    // La edición requiere permiso de Operación Y que Contabilidad haya abierto el cierre
+    // de este mes. Sin cierre abierto, todo es solo lectura.
+    $edicionAbierta = $edicionAbierta ?? false;
+    $puedeOperacion = auth()->user()->puedeEditarModulo('operacion');
+    $puedeEditar = $puedeOperacion && $edicionAbierta;
+    // El "monto a distribuir" de las bolsas se edita en la pantalla de Distribución
+    // (Operaciones) cuando el cierre del mes está abierto.
+    $puedeEditarBolsa = $puedeEditar;
 @endphp
-<h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    Distribución de costos
-    @if($depEfectivo)
-        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
-            {{ $depLabel[$depEfectivo] ?? $depEfectivo }}
-        </span>
-    @elseif(is_null($depUsuario))
-        <span style="font-size:12px;color:#9CA3AF;font-weight:400">— elige un departamento arriba para empezar —</span>
+<x-page-banner title="Distribución de costos" icon="📦" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
+    Reparte el <b>inventario en tránsito</b> de cada obra hacia sus costos: elige la obra, aplica el valor y revisa cómo queda el margen.
+    @if(is_null($depUsuario) && !$depEfectivo)
+        <span style="color:#FDE68A">— elige un departamento en los filtros para empezar.</span>
     @endif
-</h1>
+</x-page-banner>
 
-@if(!$puedeEditar)
+@if(!$edicionAbierta)
+<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
+    🔒 <b>Mes en curso — solo lectura.</b> La edición se habilita cuando Contabilidad abra el cierre de este mes.
+</div>
+@elseif($puedeOperacion)
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#15803D;margin-bottom:1rem">
+    🔓 <b>Cierre abierto — puedes editar</b> la distribución de este mes.
+</div>
+@else
 <div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
     👁 Modo solo lectura. Puedes consultar la distribución pero no guardar cambios.
 </div>
 @endif
 
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<x-filtros-panel>
+    <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros"
+          style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
         @if(is_null($depUsuario))
         {{-- Director/admin: elige el departamento. El supervisor no ve esto (ya está fijo). --}}
         {{-- Al cambiar el departamento el formulario se envía solo: así el servidor recalcula
              las opciones de "Tipo de obra" que corresponden a ese departamento. --}}
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Departamento</label>
-            <select name="departamento" id="sel-departamento"
-                onchange="cambiarDepartamento(this)"
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Departamento</label>
+            <select name="departamento" id="sel-departamento" class="filtro-select" onchange="cambiarDepartamento(this)">
                 <option value="">— Elegir —</option>
                 <option value="mantenimiento" {{ $depEfectivo == 'mantenimiento' ? 'selected' : '' }}>Mantenimiento</option>
                 <option value="instalaciones" {{ $depEfectivo == 'instalaciones' ? 'selected' : '' }}>Instalaciones</option>
             </select>
         </div>
         @endif
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Vista</label>
-            <select name="vista" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
-                @foreach(['todo'=>'Todo lo pendiente (cuenta 14)','mes'=>'Solo el mes seleccionado'] as $k => $v)
+        <div class="filtro-field" style="flex:2 1 250px">
+            <label class="filtro-label">Qué mostrar</label>
+            <select name="vista" class="filtro-select">
+                @foreach(['todo'=>'Todo el inventario en tránsito pendiente','mes'=>'Solo el movimiento del mes elegido'] as $k => $v)
                     <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 90px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Tipo de obra</label>
+        <div class="filtro-field" style="flex:1 1 130px">
+            <label class="filtro-label">Tipo de obra</label>
             @php
                 if ($depEfectivo === 'instalaciones') {
                     $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
@@ -81,29 +91,36 @@
                 // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
                 $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
             @endphp
-            <select name="tipo" id="sel-tipo"
-                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+            <select name="tipo" id="sel-tipo" class="filtro-select"
+                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}>
                 @foreach($opcionesTipo as $k => $v)
                     <option value="{{ $k }}" {{ $tipoSel == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Estado</label>
-            <select name="estado" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Estado</label>
+            <select name="estado" class="filtro-select">
                 @foreach(['todos'=>'Todos','abierta'=>'Abiertas','parcial'=>'Parciales','cerrada'=>'Cerradas'] as $k => $v)
                     <option value="{{ $k }}" {{ $estadoFiltro == $k ? 'selected' : '' }}>{{ $v }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtrar
+        </button>
     </form>
-    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
-        En vista <b>“Todo lo pendiente”</b> se muestran todas las obras con saldo abierto en la cuenta 14 (el mes/año solo afecta los números al corte).
-        En vista <b>“Solo el mes seleccionado”</b> se muestran únicamente las obras con movimiento de cuenta 14 en ese mes y año.
-    </p>
-</div>
+
+    {{-- Nota de ayuda de "Qué mostrar" --}}
+    <div style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;padding:10px 12px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:9px;font-size:11px;color:#64748B;line-height:1.55">
+        <span style="flex:0 0 auto">ℹ️</span>
+        <div>
+            <b style="color:#475569">Todo el inventario en tránsito pendiente</b>: todas las obras que aún tienen inventario en tránsito sin repartir; el mes/año solo mueve la fecha de corte de los números.
+            <b style="color:#475569">Solo el movimiento del mes elegido</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
+        </div>
+    </div>
+</x-filtros-panel>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -119,33 +136,182 @@
 </div>
 @endif
 
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:1rem">
-    <div style="background:#FEF9C3;border-radius:8px;padding:12px 16px">
-        <div style="font-size:11px;color:#854D0E;margin-bottom:4px">Pendiente por distribuir</div>
-        <div style="font-size:18px;font-weight:600;color:#854D0E">${{ number_format($kpiPendiente, 0, ',', '.') }}</div>
-    </div>
-    <div style="background:#F3F4F6;border-radius:8px;padding:12px 16px">
-        <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Obras con pendiente</div>
-        <div style="font-size:18px;font-weight:600;color:#1B3F6E">{{ $kpiObras }}</div>
-    </div>
-    <div style="background:#FEF2F2;border-radius:8px;padding:12px 16px">
-        <div style="font-size:11px;color:#DC2626;margin-bottom:4px">Bajo margen ofertado</div>
-        <div style="font-size:18px;font-weight:600;color:#DC2626">{{ $kpiAlertas }}</div>
-    </div>
-</div>
-
 @if($bloqueado)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 14px;font-size:13px;color:#1B3F6E;margin-bottom:1rem">
     🔒 Período enviado a contabilidad{{ $envio && $envio->enviado_at ? ' el '.$envio->enviado_at->format('d/m/Y H:i') : '' }}. Solo lectura — contabilidad debe habilitar la edición para modificarlo.
 </div>
 @endif
 
-@if($kpiObras > 0 && !$bloqueado && $puedeEditar)
-<div style="display:flex;gap:10px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
-    <span style="font-size:12px;color:#6B7280">Acciones rápidas:</span>
-    <button type="button" onclick="aplicarTodo()" style="font-size:12px;padding:6px 14px;border:1px solid #16A34A;border-radius:8px;background:white;color:#15803D;cursor:pointer">Aplicar todo el pendiente</button>
-    <button type="button" onclick="ponerEnCero()" style="font-size:12px;padding:6px 14px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;cursor:pointer">Poner todo en 0</button>
-    <button type="button" onclick="abrirCalculo()" style="font-size:12px;padding:6px 14px;border:1px solid #4338CA;border-radius:8px;background:#EEF2FF;color:#4338CA;font-weight:500;cursor:pointer">✨ Calcular costo sugerido</button>
+@if($kpiObras > 0 || !empty($bolsas))
+{{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones.
+     Se muestra aunque no haya obras, para que el panel de bolsas siempre esté visible. --}}
+<div style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
+    @if(!empty($bolsas))
+    {{-- Panel de bolsas de área: origen del costo por repartir --}}
+    <div style="margin-bottom:10px;border-bottom:1px solid #F3F4F6;padding-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:8px">
+            BOLSAS DE ÁREA · ORIGEN DEL COSTO POR DISTRIBUIR
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+            @foreach($bolsas as $b)
+            @php
+                $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
+                $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
+            @endphp
+            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:280px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+                    <div style="font-weight:700;color:#854D0E;font-size:14px">🎒 {{ $b['nombre'] }}</div>
+                    <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
+                </div>
+                {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
+                    <span style="color:#6B7280">Disponible por distribuir</span>
+                    <b id="bolsa-disp-{{ $b['codigo'] }}" style="color:#B45309">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
+                </div>
+                <div style="height:8px;border-radius:4px;background:#FDE68A;overflow:hidden">
+                    <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
+                </div>
+                <div id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;margin-top:4px;display:{{ $b['disponible'] <= 0.5 ? 'block' : 'none' }}">✓ Bolsa distribuida</div>
+                <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-top:8px;font-size:11px;padding:4px 10px;border:1px solid #D97706;border-radius:6px;background:white;color:#B45309;cursor:pointer"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</button>
+            </div>
+            @endforeach
+        </div>
+
+        {{-- Detalle por cuenta de cada bolsa grande. En el cierre se edita el "a distribuir"
+             (cuánto de cada cuenta se carga este mes) + observaciones; el disponible = suma de eso. --}}
+        @foreach($bolsas as $b)
+        <div id="bolsa-det-{{ $b['codigo'] }}" style="display:none;margin-top:8px;border:1px solid #FDE68A;border-radius:10px;overflow:hidden">
+            <form method="POST" action="{{ route('operativo.distribucion.bolsa-montos') }}">
+                @csrf
+                <input type="hidden" name="mes" value="{{ $mes }}">
+                <input type="hidden" name="anio" value="{{ $anio }}">
+                <input type="hidden" name="departamento" value="{{ $b['codigo'] }}">
+                <div style="overflow-x:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;background:#fff">
+                        <tr style="background:#FFFBEB;color:#92400E;text-align:left">
+                            <td style="padding:6px 8px">UN</td>
+                            <td style="padding:6px 8px">Nombre UN</td>
+                            <td style="padding:6px 8px">Cuenta</td>
+                            <td style="padding:6px 8px">Nombre cuenta</td>
+                            <td style="padding:6px 8px">Tercero</td>
+                            <td style="padding:6px 8px;text-align:right">Saldo</td>
+                            <td style="padding:6px 8px;text-align:right">A distribuir</td>
+                            <td style="padding:6px 8px;text-align:right">Queda mes siguiente</td>
+                            <td style="padding:6px 8px">Observaciones</td>
+                        </tr>
+                        @foreach($b['lineas'] as $l)
+                        @php
+                            $k = $l['un_codigo'].'|'.$l['cuenta_14'];
+                            $kid = preg_replace('/[^A-Za-z0-9]/', '_', $b['codigo'].'_'.$k);
+                            $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
+                        @endphp
+                        <tr style="border-top:1px solid #FDE68A">
+                            <td style="padding:5px 8px;font-family:monospace">{{ $l['un_codigo'] }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
+                            <td style="padding:5px 8px;font-family:monospace">{{ $l['cuenta_14'] }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['nombre'], 26) }}</td>
+                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['tercero'], 24) }}</td>
+                            <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
+                            <td style="padding:5px 8px;text-align:right">
+                                @if($puedeEditarBolsa)
+                                    <input type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}"
+                                        data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="onMontoInput(this)"
+                                        style="width:130px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
+                                @else
+                                    <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
+                                @endif
+                            </td>
+                            <td style="padding:5px 8px;text-align:right;color:#15803D">
+                                <b id="queda-{{ $kid }}">${{ number_format($queda, 0, ',', '.') }}</b>
+                            </td>
+                            <td style="padding:5px 8px">
+                                @if($puedeEditarBolsa)
+                                    <input type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"
+                                        style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;background:#fff">
+                                @else
+                                    <span style="color:#6B7280">{{ $l['observaciones'] }}</span>
+                                @endif
+                            </td>
+                        </tr>
+                        @endforeach
+                        <tr style="background:#FFFBEB;font-weight:700;border-top:2px solid #FDE68A">
+                            <td colspan="5" style="padding:7px 8px;text-align:right;color:#92400E">Disponible = suma de "a distribuir"</td>
+                            <td style="padding:7px 8px;text-align:right;color:#9CA3AF">${{ number_format($b['total'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#B45309" id="adist-tot-{{ $b['codigo'] }}">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#15803D" id="queda-tot-{{ $b['codigo'] }}">${{ number_format(max(0, $b['total'] - $b['a_distribuir']), 0, ',', '.') }}</td>
+                            <td style="padding:7px 8px">
+                                @if($puedeEditarBolsa)
+                                    <button type="submit" style="padding:6px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar montos</button>
+                                @endif
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                @unless($puedeEditarBolsa)
+                <div style="padding:7px 12px;font-size:11px;color:#92400E;background:#FEF9C3;border-top:1px solid #FDE68A">
+                    🔒 Para editar el "a distribuir" y las observaciones, Contabilidad debe <b>abrir el cierre</b> de este mes.
+                </div>
+                @endunless
+            </form>
+        </div>
+        @endforeach
+    </div>
+    @endif
+    @if($kpiObras > 0)
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
+        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+            <div>
+                <div style="font-size:10px;color:#854D0E">Pendiente por distribuir</div>
+                <div style="font-size:16px;font-weight:700;color:#854D0E">${{ number_format($kpiPendiente, 0, ',', '.') }}</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:#6B7280">Obras</div>
+                <div style="font-size:16px;font-weight:700;color:#1B3F6E">{{ $kpiObras }}</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:#DC2626">Bajo margen</div>
+                <div style="font-size:16px;font-weight:700;color:#DC2626">{{ $kpiAlertas }}</div>
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="buscador" placeholder="🔎 Código, proyecto o cliente…" autocomplete="off"
+                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
+            <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
+            <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+            <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
+               style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500">⬇ Excel saldos 14</a>
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#92400E">
+                <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEF3C7;border:1px solid #F59E0B"></span>
+                Celda modificada por Operaciones
+            </span>
+        </div>
+    </div>
+    @php
+        $depsLeyenda = $depEfectivo ? [$depEfectivo] : array_keys(\App\Services\DistribucionService::UMBRALES_MARGEN);
+        $CSEM = \App\Services\DistribucionService::COLORES_SEMAFORO;
+    @endphp
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
+        <span style="font-size:11px;font-weight:700;color:#6B7280">Semáforo de margen:</span>
+        @foreach($depsLeyenda as $dl)
+            @php $u = \App\Services\DistribucionService::UMBRALES_MARGEN[$dl]; @endphp
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#374151">
+                <b style="color:#4B5563">{{ \App\Services\DistribucionService::DEPARTAMENTOS[$dl] ?? $dl }}</b>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['verde'][0] }};color:{{ $CSEM['verde'][1] }}">≥ {{ $u['verde'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['amarillo'][0] }};color:{{ $CSEM['amarillo'][1] }}">≥ {{ $u['amarillo'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['rojo'][0] }};color:{{ $CSEM['rojo'][1] }}">≥ {{ $u['rojo'] }}%</span>
+                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['gris'][0] }};color:{{ $CSEM['gris'][1] }}">&lt; {{ $u['rojo'] }}%</span>
+            </span>
+        @endforeach
+    </div>
+    @if(!$bloqueado && $puedeEditar)
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
+        <span style="font-size:12px;color:#6B7280">Acciones rápidas <span style="color:#9CA3AF">(solo obras con ingreso)</span>:</span>
+        <button type="button" onclick="aplicarTodo()" style="font-size:12px;padding:6px 14px;border:1px solid #16A34A;border-radius:8px;background:white;color:#15803D;cursor:pointer">Aplicar todo el pendiente</button>
+        <button type="button" onclick="ponerEnCero()" style="font-size:12px;padding:6px 14px;border:1px solid #DC2626;border-radius:8px;background:white;color:#DC2626;cursor:pointer">Poner todo en 0</button>
+        <button type="button" onclick="abrirCalculo()" style="font-size:12px;padding:6px 14px;border:1px solid #4338CA;border-radius:8px;background:#EEF2FF;color:#4338CA;font-weight:500;cursor:pointer">✨ Calcular costo sugerido</button>
+    </div>
+    @endif
+    @endif
 </div>
 @endif
 
@@ -162,7 +328,7 @@
 @endphp
 
 @if($kpiObras == 0)
-<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con saldo en cuenta 14 para este período / filtro.</div>
+<div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito pendiente para este período / filtro.</div>
 @endif
 
 <form method="POST" action="{{ route('operativo.distribucion.guardar') }}" id="form-dist">
@@ -172,246 +338,55 @@
 <input type="hidden" name="dist" value="{{ $distId }}">
 <input type="hidden" name="departamento" value="{{ $depEfectivo }}">
 
-@foreach($obras as $cod => $o)
-@php $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280']; @endphp
-<div class="card" id="card-{{ $cod }}" style="margin-bottom:10px;padding:0;overflow:hidden">
+@php
+    $obrasConIngreso = array_filter($obras, fn($o) => empty($o['sin_ingreso']));
+    $obrasSinIngreso = array_filter($obras, fn($o) => !empty($o['sin_ingreso']));
+@endphp
 
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" onclick="toggleObra('{{ $cod }}')">
-        <div style="min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span id="dot-{{ $cod }}" style="width:9px;height:9px;border-radius:50%;background:{{ $colSem[$o['semaforo']] }};display:inline-block"></span>
-                <span style="font-weight:600;color:#1B3F6E">{{ $cod }}</span>
-                <select name="estado_obra[{{ $cod }}]" onclick="event.stopPropagation()" onchange="cambiarEstado('{{ $cod }}', this.value)"
-                    style="font-size:11px;padding:3px 8px;border-radius:8px;border:1px solid {{ $ce[1] }};background:{{ $ce[0] }};color:{{ $ce[1] }};font-weight:500;cursor:pointer">
-                    <option value="abierta" {{ $o['estado']=='abierta'?'selected':'' }}>Abierta</option>
-                    <option value="parcial" {{ $o['estado']=='parcial'?'selected':'' }}>Parcial</option>
-                    <option value="cerrada" {{ $o['estado']=='cerrada'?'selected':'' }}>Cerrada</option>
-                </select>
-                <span style="font-size:12px;color:#9CA3AF">{{ Str::limit($o['nombre'], 40) }}</span>
-            </div>
-            <div style="font-size:11px;color:#6B7280;margin-top:3px" id="metodo-{{ $cod }}">Método: {{ $o['metodo'] }}</div>
-        </div>
-        <div style="text-align:right;flex:none">
-            <div style="font-size:11px;color:#854D0E">A aplicar</div>
-            <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + $o['sum_prov']) }}</div>
-        </div>
+{{-- ══════════ GRUPO: CON INGRESO (expandido) ══════════ --}}
+<div class="grupo-obras" data-grupo="con">
+    <div id="grupo-head-con" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
+        <svg id="chev-grupo-con" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#1B3F6E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
+        <span style="font-weight:700;color:#1B3F6E;font-size:14px">Con ingreso</span>
+        <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#EFF6FF;color:#1B3F6E">{{ count($obrasConIngreso) }}</span>
     </div>
-
-    {{-- ESTADO DE AVANCE DE OBRA (acumulado al mes anterior) --}}
-    <div style="background:#F9FAFB;padding:10px 16px;border-top:1px solid #E5E7EB">
-        <div style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;margin-bottom:6px">ESTADO DE AVANCE DE OBRA · ACUMULADO A {{ mb_strtoupper($mesAnteriorNombre) }}</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Facturado acum. reconocido</div>
-                <div style="font-size:14px;font-weight:600;color:#1B3F6E">{{ $fmt($o['fact_acum_rec']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acum. reconocido</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_acum_rec']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Margen acum. ($)</div>
-                <div style="font-size:14px;font-weight:600;color:{{ $o['margen_acum_pesos'] >= 0 ? '#15803D' : '#DC2626' }}">{{ $fmt($o['margen_acum_pesos']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">MC %</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $o['mc_pct_acum'] === null ? '—' : $o['mc_pct_acum'].'%' }}</div>
-            </div>
-        </div>
-    </div>
-
-    {{-- RENTABILIDAD DEL MES (costo del mes + MC dinámico al aplicar 14→6) --}}
-    <div style="background:#FFFBEB;padding:10px 16px;border-top:1px solid #E5E7EB">
-        <div style="font-size:9px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:6px">RENTABILIDAD DEL MES · {{ mb_strtoupper($mesNombre) }}</div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
-            <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Ingresos del mes</div>
-                <div style="font-size:14px;font-weight:600;color:#854D0E">{{ $fmt($o['ingreso_mes']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Costo del mes (cuenta 6)</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_mes_c6']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Aplicado ahora (14→6)</div>
-                <div style="font-size:14px;font-weight:600;color:#1B3F6E" id="aplic6-{{ $cod }}">{{ $fmt($o['aplicado_mes']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">MC del mes ($)</div>
-                <div style="font-size:14px;font-weight:600;color:{{ $o['mc_mes_pesos'] >= 0 ? '#15803D' : '#DC2626' }}" id="mcmes-{{ $cod }}">{{ $fmt($o['mc_mes_pesos']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Rentabilidad % MC</div>
-                <div style="font-size:14px;font-weight:600;color:#854D0E" id="mcpct-{{ $cod }}">{{ $o['mc_mes_pct'] === null ? '—' : $o['mc_mes_pct'].'%' }}</div>
-            </div>
-        </div>
-    </div>
-
-    {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
-    <div style="background:#EEF2FF;padding:10px 16px;border-top:1px solid #E5E7EB">
-        <div style="font-size:9px;font-weight:700;color:#4338CA;letter-spacing:.4px;margin-bottom:6px">PROYECCIÓN DE RENTABILIDAD · OFERTA vs REALIDAD</div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Valor oferta comercial</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_valor_oferta']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Diferencia por facturar</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_dif_facturar']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario en obra (cta 14)</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Inventario almacén <i>(en actualización)</i></div>
-                <div style="font-size:14px;font-weight:600;color:#9CA3AF">{{ $fmt($o['pr_inv_almacen']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo total</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % ofertado</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_mc_ofertado'] === null ? '—' : $o['pr_mc_ofertado'].'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">MC % proyección <i>(costo acum + inventarios)</i></div>
-                @php
-                    $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
-                    $colProy = '#312E81';
-                    if ($mcp !== null && $ofc !== null) $colProy = $mcp >= $ofc ? '#15803D' : '#DC2626';
-                @endphp
-                <div style="font-size:14px;font-weight:600;color:{{ $colProy }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance de facturación</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_fact'] === null ? '—' : $o['pr_avance_fact'].'%' }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Costo presupuestado</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</div>
-            </div>
-            <div>
-                <div style="font-size:9px;color:#6366F1;line-height:1.3">Avance ejecución obra</div>
-                <div style="font-size:14px;font-weight:600;color:#312E81">{{ $o['pr_avance_ejec'] === null ? '—' : $o['pr_avance_ejec'].'%' }}</div>
-            </div>
-        </div>
-    </div>
-
-    {{-- OBSERVACIONES DEL COORDINADOR --}}
-    <div style="padding:10px 16px;border-top:1px solid #E5E7EB">
-        <label style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;display:block;margin-bottom:5px">OBSERVACIONES DEL COORDINADOR</label>
-        <textarea name="observacion[{{ $cod }}]" rows="2" placeholder="Escribe aquí cualquier observación sobre esta obra (opcional)..."
-            style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical">{{ $o['observacion'] }}</textarea>
-    </div>
-
-    <div style="padding:12px 16px">
-        <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:#F3F4F6">
-            @foreach($categorias as $k => $label)
-                @php $v = $o['cat'][$k]['pendiente']; @endphp
-                @if($v > 0 && $o['total_pendiente'] > 0)
-                    <div style="width:{{ round($v / $o['total_pendiente'] * 100, 2) }}%;background:{{ $colCat[$k] }};height:100%"></div>
-                @endif
-            @endforeach
-        </div>
-    </div>
-
-    <div id="obra-{{ $cod }}" style="display:none;padding:0 16px 14px;border-top:1px solid #F3F4F6">
-        @foreach($categorias as $k => $label)
-            @php $c = $o['cat'][$k]; @endphp
-            @if($c['pendiente'] > 0)
-            <div style="margin-top:12px">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                    <span style="width:9px;height:9px;border-radius:2px;background:{{ $colCat[$k] }};display:inline-block"></span>
-                    <span style="font-size:12px;font-weight:600">{{ $label }}</span>
-                </div>
-                <table style="width:100%;border-collapse:collapse;font-size:11px">
-                    <tr style="color:#9CA3AF">
-                        <td style="padding:3px 6px">Cuenta 14</td><td></td>
-                        <td style="padding:3px 6px">Cuenta 61</td>
-                        <td style="padding:3px 6px">Concepto</td>
-                        <td style="padding:3px 6px;text-align:right">Pendiente</td>
-                        <td style="padding:3px 6px;text-align:right">A aplicar</td>
-                    </tr>
-                    @foreach($c['subs'] as $sub)
-                    @if($sub['pendiente'] > 0)
-                    <tr style="border-top:1px solid #F3F4F6">
-                        <td style="padding:4px 6px;font-family:monospace;color:#9CA3AF">{{ $sub['cuenta_14'] }}</td>
-                        <td style="padding:4px 6px;text-align:center;color:#D1D5DB">→</td>
-                        <td style="padding:4px 6px;font-family:monospace;color:{{ $sub['cuenta_61'] === 'SIN HOMOLOGAR' ? '#DC2626' : '#1B3F6E' }}">{{ $sub['cuenta_61'] }}</td>
-                        <td style="padding:4px 6px;color:#6B7280">{{ Str::limit($sub['nombre'], 26) }}</td>
-                        <td style="padding:4px 6px;text-align:right;color:#854D0E">{{ $fmt($sub['pendiente']) }}</td>
-                        <td style="padding:4px 6px;text-align:right">
-                            <input type="number" min="0" max="{{ round($sub['pendiente']) }}" step="1"
-                                value="{{ round($sub['aplicar']) }}"
-                                name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
-                                data-cod="{{ $cod }}" data-tipo="aplicar"
-                                oninput="capear(this);recalc('{{ $cod }}')"
-                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right">
-                        </td>
-                    </tr>
-                    @endif
-                    @endforeach
-                </table>
-            </div>
-            @endif
+    <div id="grupo-con">
+        @foreach($obrasConIngreso as $cod => $o)
+            @include('operativo.partials.obra-card')
         @endforeach
-
-        <div style="margin-top:14px;border-top:1px dashed #E5E7EB;padding-top:10px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;font-weight:600;color:#854D0E">Provisiones (costo en tránsito)</span>
-                <button type="button" onclick="toggleProvForm('{{ $cod }}')" style="font-size:11px;padding:4px 10px;border:1px solid #1B3F6E;border-radius:6px;background:white;color:#1B3F6E;cursor:pointer">+ Provisión</button>
-            </div>
-
-            <div id="provs-{{ $cod }}">
-                @foreach($o['provisiones'] as $i => $pr)
-                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 6px;background:#FFFBEB;border-radius:6px;margin-top:4px">
-                    <span>➕ <span style="font-family:monospace">{{ $pr['cuenta_14'] }}</span> → <span style="font-family:monospace">{{ $pr['cuenta_61'] }}</span> · {{ Str::limit($pr['nombre'], 24) }}{{ $pr['descripcion'] ? ' · '.$pr['descripcion'] : '' }}</span>
-                    <span style="display:flex;align-items:center;gap:8px"><b>{{ $fmt($pr['monto']) }}</b>
-                        <a href="#" onclick="this.closest('div').remove();recalc('{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][cuenta]" value="{{ $pr['cuenta_14'] }}">
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][monto]" value="{{ round($pr['monto']) }}" data-cod="{{ $cod }}" data-tipo="prov">
-                    <input type="hidden" name="provision[{{ $cod }}][s{{ $i }}][desc]" value="{{ $pr['descripcion'] }}">
-                </div>
-                @endforeach
-            </div>
-
-            <div id="provform-{{ $cod }}" style="display:none;margin-top:8px;background:#F9FAFB;border-radius:8px;padding:10px">
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-                    <div style="flex:2;min-width:180px">
-                        <label style="font-size:10px;color:#6B7280;display:block">Cuenta 14</label>
-                        <select id="prov-cta-{{ $cod }}" style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                            @foreach($catalogo as $cat)
-                                <option value="{{ $cat->cuenta_14 }}">{{ $cat->cuenta_14 }} · {{ Str::limit($cat->nombre, 28) }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div style="flex:1;min-width:110px">
-                        <label style="font-size:10px;color:#6B7280;display:block">Monto</label>
-                        <input type="number" id="prov-monto-{{ $cod }}" min="0" step="1" placeholder="0" style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                    </div>
-                    <div style="flex:2;min-width:140px">
-                        <label style="font-size:10px;color:#6B7280;display:block">Descripción</label>
-                        <input type="text" id="prov-desc-{{ $cod }}" placeholder="Factura pendiente..." style="width:100%;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                    </div>
-                    <button type="button" onclick="addProv('{{ $cod }}')" style="padding:7px 14px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Agregar</button>
-                </div>
-            </div>
-        </div>
-
-        @if($o['total_reversado'] > 0)
-        <div style="margin-top:12px;background:#FEF2F2;border-radius:8px;padding:8px 12px;font-size:11px;color:#DC2626">
-            ⚠ Reversado de más (alerta, no editable): {{ $fmt($o['total_reversado']) }}
-        </div>
+        @if(count($obrasConIngreso) === 0)
+            <div style="color:#9CA3AF;font-size:12px;padding:10px 4px">No hay proyectos con ingreso en este filtro.</div>
         @endif
     </div>
 </div>
-@endforeach
+
+{{-- ══════════ GRUPO: SIN INGRESO (colapsado) ══════════ --}}
+<div class="grupo-obras" data-grupo="sin" style="margin-top:16px">
+    <div id="grupo-head-sin" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:6px 2px;margin-bottom:4px">
+        <svg id="chev-grupo-sin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#854D0E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><polyline points="9 6 15 12 9 18"/></svg>
+        <span style="font-weight:700;color:#854D0E;font-size:14px">Sin ingreso · órdenes abiertas</span>
+        <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:10px;background:#FEF3C7;color:#854D0E">{{ count($obrasSinIngreso) }}</span>
+    </div>
+    <div id="grupo-sin" style="display:none">
+        @foreach($obrasSinIngreso as $cod => $o)
+            @include('operativo.partials.obra-card')
+        @endforeach
+        @if(count($obrasSinIngreso) === 0)
+            <div style="color:#9CA3AF;font-size:12px;padding:10px 4px">No hay proyectos sin ingreso en este filtro.</div>
+        @endif
+    </div>
+</div>
 
 @if($kpiObras > 0 && !$bloqueado)
-<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1rem">
+<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:1rem">
+    @if($puedeEditar)
+    <span id="autosave-status" style="font-size:12px;color:#9CA3AF;margin-right:auto"></span>
+    @endif
     <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
+    @if($distId)
+    {{-- Reporte por obra (lo aplicado y cómo quedó cada obra) de lo YA guardado. --}}
+    <a href="{{ route('operativo.distribucion.reporte-obras', $distId) }}" target="_blank" style="padding:9px 22px;background:white;border:1px solid #15803D;color:#15803D;border-radius:8px;font-size:13px;text-decoration:none">⬇ Excel por obra</a>
+    @endif
     @if($puedeEditar)
     <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
     <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 22px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Enviar a contabilidad</button>
@@ -449,6 +424,28 @@
     </div>
 </div>
 
+{{-- MODAL: reasignar ítem a otra obra (Fase D) --}}
+<div id="modal-reasignar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:12px;padding:20px 22px;max-width:540px;width:92%;max-height:85vh;overflow:auto">
+        <h3 style="font-size:15px;font-weight:600;color:#1B3F6E;margin-bottom:6px">Reasignar ítem a otra obra</h3>
+        <p style="font-size:12px;color:#6B7280;margin-bottom:12px">Origen: <b id="reasig-origen"></b>. Elige la obra destino; el costo baja en el origen y sube en el destino, y se refleja en el plano (reclasificación 14→14).</p>
+        <input type="hidden" id="reasig-item">
+        <input type="hidden" id="reasig-destino">
+        <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Obra destino (código, nombre o cliente)</label>
+        <input type="text" id="reasig-buscar" oninput="filtrarDestinos(this.value)" autocomplete="off" placeholder="🔎 Buscar obra…"
+            style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;margin-bottom:6px">
+        <div id="reasig-lista" style="max-height:200px;overflow:auto;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:8px"></div>
+        <div id="reasig-sel" style="font-size:12px;color:#374151;margin-bottom:10px">Destino: <b>—</b></div>
+        <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Justificación (opcional)</label>
+        <textarea id="reasig-motivo" rows="2" placeholder="Motivo de la reasignación…"
+            style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;margin-bottom:14px"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" onclick="cerrarReasignar()" style="padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;cursor:pointer">Cancelar</button>
+            <button type="button" id="reasig-confirm" onclick="confirmarReasignar()" style="padding:8px 18px;background:#4338CA;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Reasignar</button>
+        </div>
+    </div>
+</div>
+
 @php
     $ctaJs = $catalogo->keyBy('cuenta_14');
     $datosJs = [];
@@ -463,13 +460,130 @@
             'nombre'   => $o['nombre'],
             'pend'     => $o['total_pendiente'],
             'rev'      => $o['total_reversado'],
+            'sinIngreso' => (bool) ($o['sin_ingreso'] ?? false),
+            'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
+            'prov'     => (float) ($o['sum_prov'] ?? 0),   // provisiones (costo sin aplicar, 14→26)
+            'dep'      => $o['depto_margen'] ?? null,       // depto para el semáforo de márgenes
         ];
     }
 @endphp
 <script>
 const CTA = @json($ctaJs);
 const DATOS = @json($datosJs);
+const BOLSAS = @json(collect($bolsas)->keyBy('codigo'));
 const PERIODO = @json($mesNombre);
+
+// Semáforo de márgenes (mismo criterio que el servidor): umbrales por departamento.
+const UMBRALES_MARGEN = @json(\App\Services\DistribucionService::UMBRALES_MARGEN);
+const COLORES_SEMAFORO = @json(\App\Services\DistribucionService::COLORES_SEMAFORO);
+function colorSemaforo(pct, dep){
+    const u = UMBRALES_MARGEN[dep];
+    let nivel = 'gris';
+    if (pct !== null && pct !== undefined && u) {
+        if (pct >= u.verde) nivel = 'verde';
+        else if (pct >= u.amarillo) nivel = 'amarillo';
+        else if (pct >= u.rojo) nivel = 'rojo';
+    }
+    return COLORES_SEMAFORO[nivel]; // [fondo, texto]
+}
+function pintarSemaforo(el, pct, dep){
+    if (!el) return;
+    const c = colorSemaforo(pct, dep);
+    el.style.background = c[0];
+    el.style.color = c[1];
+}
+// Disponible en vivo por bolsa (arranca en lo que dejó el servidor, ya descontadas
+// las asignaciones guardadas). Se decrementa al asignar y se repone al quitar.
+const dispBolsa = {};
+// Pool de saldo RESTANTE por cuenta 14 de cada bolsa (para el consumo FIFO en vivo).
+const poolBolsa = {};
+Object.keys(BOLSAS).forEach(c => {
+    dispBolsa[c] = Number(BOLSAS[c].disponible || 0);
+    poolBolsa[c] = (BOLSAS[c].pool || []).map(l => ({
+        un_codigo: l.un_codigo, cuenta_14: l.cuenta_14, cuenta_61: l.cuenta_61,
+        periodo: Number(l.periodo || 0), pendiente: Number(l.pendiente || 0),
+    }));
+});
+
+// Expandir/colapsar el detalle por cuenta de una bolsa grande.
+function toggleBolsaDetalle(c){
+    const e = document.getElementById('bolsa-det-'+c); if(!e) return;
+    const mostrar = (e.style.display === 'none' || !e.style.display);
+    e.style.display = mostrar ? 'block' : 'none';
+    document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
+
+// Solo dígitos de un valor con formato (ej. "1.500.000" → 1500000).
+function soloDigitos(v){ const n = parseInt(String(v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+
+/* Marca en amarillo la celda "a distribuir" de una bolsa cuando queda distinta al saldo. */
+function marcarTocadaBolsa(inp){
+    if(!inp) return;
+    const saldo = Math.round(Number(inp.dataset.saldo || 0));
+    const val   = soloDigitos(inp.value);
+    inp.classList.toggle('celda-tocada', val !== saldo);
+}
+
+// Al editar "A distribuir": formatea con puntos de miles (es-CO), capea al saldo y
+// recalcula "Queda mes siguiente" por cuenta + los totales de la bolsa en vivo.
+function onMontoInput(inp){
+    const saldo = Number(inp.dataset.saldo || 0);
+    let monto = soloDigitos(inp.value);
+    if (monto > saldo) monto = saldo;                 // no se puede distribuir más que el saldo
+    inp.value = monto ? monto.toLocaleString('es-CO') : '';   // formato de dinero con puntos
+    marcarTocadaBolsa(inp);                                     // resalta si quedó distinta al saldo
+
+    const cell = document.getElementById('queda-' + inp.dataset.kid);
+    if (cell) cell.textContent = fmt(Math.max(0, saldo - monto));
+
+    // Totales de la bolsa: "a distribuir" (suma de inputs) y "queda" (saldo − a distribuir).
+    const tabla = inp.closest('table');
+    let totAdist = 0, totQueda = 0;
+    tabla.querySelectorAll('input[data-tipo="bolsamonto"]').forEach(i => {
+        const s = Number(i.dataset.saldo || 0);
+        let m = soloDigitos(i.value);
+        if (m > s) m = s;
+        totAdist += m;
+        totQueda += Math.max(0, s - m);
+    });
+    const adistEl = document.getElementById('adist-tot-' + inp.dataset.bolsa);
+    if (adistEl) adistEl.textContent = fmt(totAdist);
+    const totEl = document.getElementById('queda-tot-' + inp.dataset.bolsa);
+    if (totEl) totEl.textContent = fmt(totQueda);
+}
+let asignIdx = {};
+
+function fmtPeriodo(p){ p = Number(p||0); if(!p) return '—'; const y = Math.floor(p/100), m = p%100; return String(m).padStart(2,'0')+'/'+y; }
+
+// Consume 'monto' del pool de una bolsa en FIFO (período más antiguo primero, la última
+// porción parcial). Muta el pool y devuelve el detalle [{cuenta_14,cuenta_61,periodo,monto}].
+function drenarFifoJS(pool, monto){
+    pool.sort((a,b) => a.periodo - b.periodo);
+    let rem = Math.max(0, monto); const out = [];
+    for(const l of pool){
+        if(rem <= 0.005) break;
+        if(l.pendiente <= 0.005) continue;
+        const usar = Math.min(l.pendiente, rem);
+        out.push({un_codigo:l.un_codigo, cuenta_14:l.cuenta_14, cuenta_61:l.cuenta_61, periodo:l.periodo, monto:Math.round(usar)});
+        l.pendiente -= usar; rem -= usar;
+    }
+    return out;
+}
+// Repone al pool lo que devolvía un chip quitado (según su detalle).
+function restaurarPool(bolsa, detalle){
+    const pool = poolBolsa[bolsa]; if(!pool || !detalle) return;
+    detalle.forEach(d => {
+        const ln = pool.find(x => x.un_codigo === d.un_codigo && x.cuenta_14 === d.cuenta_14);
+        if(ln) ln.pendiente += Number(d.monto||0);
+        else pool.push({un_codigo:d.un_codigo, cuenta_14:d.cuenta_14, cuenta_61:d.cuenta_61, periodo:Number(d.periodo||0), pendiente:Number(d.monto||0)});
+    });
+}
+function detalleHtml(detalle){
+    return (detalle||[]).map(d =>
+        '<div style="font-size:10px;color:#92400E">· <span style="font-family:monospace">'+d.cuenta_14+'</span> '
+        + fmtPeriodo(d.periodo) + ' → <span style="font-family:monospace">'+d.cuenta_61+'</span>: '+fmt(d.monto)+'</div>'
+    ).join('');
+}
 const ESTCOL = {abierta:['#F0FDF4','#15803D'], parcial:['#FEF9C3','#854D0E'], cerrada:['#EFF6FF','#1B3F6E']};
 let provIdx = {};
 let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
@@ -489,8 +603,113 @@ function cambiarDepartamento(sel){
 }
 
 function toggleObra(cod){ const e=document.getElementById('obra-'+cod); if(e) e.style.display = e.style.display==='none'?'block':'none'; }
+
+/* ===== Grupos colapsables (Con ingreso / Sin ingreso) ===== */
+function toggleGrupo(g){
+    const cont = document.getElementById('grupo-'+g);
+    const chev = document.getElementById('chev-grupo-'+g);
+    if(!cont) return;
+    const abierto = cont.style.display !== 'none';
+    cont.style.display = abierto ? 'none' : 'block';
+    if(chev) chev.style.transform = abierto ? '' : 'rotate(90deg)';
+}
+function abrirGrupo(g){
+    const cont = document.getElementById('grupo-'+g);
+    const chev = document.getElementById('chev-grupo-'+g);
+    if(cont) cont.style.display = 'block';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+}
+/* Expandir / colapsar el detalle de todas las obras. */
+function expandirTodo(abrir){
+    if(abrir){ abrirGrupo('con'); abrirGrupo('sin'); }
+    document.querySelectorAll('[id^="obra-"]').forEach(e => { e.style.display = abrir ? 'block' : 'none'; });
+}
+/* Normaliza para buscar: minúsculas y SIN acentos (á→a), para que "valle"
+   encuentre "FUNDACIÓN VALLE DEL LILI". */
+function normalizaBuscar(s){
+    return (s == null ? '' : String(s)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+/* Buscador por código, nombre del proyecto o cliente (coincidencia parcial,
+   insensible a mayúsculas y acentos). Encuentra también dentro de grupos colapsados. */
+function filtrarObras(q){
+    q = normalizaBuscar(q).trim();
+    document.querySelectorAll('.obra-card').forEach(card => {
+        const hay = !q || normalizaBuscar(card.dataset.buscar).includes(q);
+        card.style.display = hay ? '' : 'none';
+    });
+    if(q){ abrirGrupo('con'); abrirGrupo('sin'); } // al buscar, abre ambos grupos
+}
 function toggleProvForm(cod){ const e=document.getElementById('provform-'+cod); e.style.display = e.style.display==='none'?'block':'none'; }
+/* Ítems inline (Fase C): expandir/colapsar el detalle bajo la fila de la cuenta 14. */
+function toggleItemsCuenta(id, row){
+    const e = document.getElementById(id);
+    if(!e) return;
+    const mostrar = (e.style.display === 'none' || !e.style.display);
+    e.style.display = mostrar ? '' : 'none';   // '' = fila de tabla por defecto
+    if(row){ const c = row.querySelector('.caret-itc'); if(c) c.textContent = mostrar ? '▾' : '▸'; }
+}
+
+/* ===== Fase D: reasignar ítem a otra obra ===== */
+const REASIG_DESTINOS = @json($destinos ?? []);
+let reasigOrigen = '';
+function abrirReasignar(itemId, origen){
+    reasigOrigen = origen;
+    document.getElementById('reasig-item').value = itemId;
+    document.getElementById('reasig-origen').textContent = origen;
+    document.getElementById('reasig-destino').value = '';
+    document.getElementById('reasig-buscar').value = '';
+    document.getElementById('reasig-motivo').value = '';
+    document.getElementById('reasig-sel').innerHTML = 'Destino: <b>—</b>';
+    document.getElementById('reasig-confirm').disabled = true;
+    filtrarDestinos('');
+    document.getElementById('modal-reasignar').style.display = 'flex';
+}
+function cerrarReasignar(){ document.getElementById('modal-reasignar').style.display = 'none'; }
+function filtrarDestinos(q){
+    q = normalizaBuscar(q).trim();
+    const cont = document.getElementById('reasig-lista');
+    const matches = REASIG_DESTINOS
+        .filter(d => d.codigo !== reasigOrigen && (!q || normalizaBuscar(d.codigo+' '+d.nombre+' '+d.cliente).includes(q)))
+        .slice(0, 40);
+    cont.innerHTML = matches.map(d =>
+        '<div onclick="seleccionarDestino(\''+d.codigo+'\')" style="padding:6px 8px;border-bottom:1px solid #F3F4F6;cursor:pointer;font-size:12px">'
+        + '<b style="color:#1B3F6E">'+d.codigo+'</b>'+(d.nombre?' · '+d.nombre:'')+(d.cliente?' · 🏢 '+d.cliente:'')+'</div>'
+    ).join('') || '<div style="padding:8px;color:#9CA3AF;font-size:12px">Sin coincidencias</div>';
+}
+function seleccionarDestino(cod){
+    document.getElementById('reasig-destino').value = cod;
+    document.getElementById('reasig-sel').innerHTML = 'Destino: <b>'+cod+'</b>';
+    document.getElementById('reasig-confirm').disabled = false;
+}
+function confirmarReasignar(){
+    const item = document.getElementById('reasig-item').value;
+    const destino = document.getElementById('reasig-destino').value;
+    if(!destino){ alert('Elige una obra destino.'); return; }
+    const f = document.createElement('form');
+    f.method = 'POST';
+    f.action = @json(url('operativo/items')) + '/' + item + '/reasignar';
+    f.style.display = 'none';
+    const add = (name, val) => { const i = document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; f.appendChild(i); };
+    add('_token', @json(csrf_token()));
+    add('destino', destino);
+    add('dist', @json($distId));
+    add('motivo', document.getElementById('reasig-motivo').value || '');
+    document.body.appendChild(f);
+    f.submit();
+}
 function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.value||0); if(v>max){inp.value=Math.round(max);} if(v<0){inp.value=0;} }
+
+/* Marca en amarillo la celda "a aplicar" cuando Operaciones la deja distinta al
+   pendiente completo de la cuenta (data-tope = saldo pendiente). Así se ve cuáles tocaron. */
+function marcarTocada(inp){
+    if(!inp || inp.dataset.tipo !== 'aplicar') return;
+    const base = Math.round(parseFloat(inp.dataset.tope || 0));
+    const val  = Math.round(parseFloat(inp.value || 0));
+    inp.classList.toggle('celda-tocada', val !== base);
+}
+function remarcarAplicar(){
+    document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(marcarTocada);
+}
 
 function sumAplicar(cod){
     const card=document.getElementById('card-'+cod); let s=0;
@@ -516,23 +735,37 @@ function evaluarCerrable(cod){
 
 function recalc(cod){
     const card=document.getElementById('card-'+cod);
-    let sumA=0, sumP=0;
+    let sumA=0, sumB=0;
     card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=parseFloat(i.value||0));
-    card.querySelectorAll('input[data-tipo="prov"]').forEach(i=>sumP+=parseFloat(i.value||0));
+    card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
-    const aplicado = sumA + sumP;
+    const prov = Number(d.prov||0);          // provisiones activas (costo sin aplicar, 14→26)
+    const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
-    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado);
-    const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado);
+    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
+    const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado14a6);
+    const psa=document.getElementById('provsa-'+cod); if(psa) psa.textContent=fmt(prov);
 
     evaluarCerrable(cod);
 
-    const costoMesTotal = (d.costoMes||0) + aplicado;
+    // La provisión (14→26) es "costo sin aplicar" pero igual cuenta como costo del mes.
+    const costoMesTotal = (d.costoMes||0) + aplicado14a6 + prov;
     const mcMesPesos = (d.ingMes||0) - costoMesTotal;
     const mcEl=document.getElementById('mcmes-'+cod);
     if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }
+    const pctMes = d.ingMes ? (mcMesPesos/d.ingMes*100) : null;
     const pctEl=document.getElementById('mcpct-'+cod);
-    if(pctEl){ pctEl.textContent = d.ingMes ? ((mcMesPesos/d.ingMes*100).toFixed(1)+'%') : '—'; }
+    if(pctEl){ pctEl.textContent = pctMes===null ? '—' : (pctMes.toFixed(1)+'%'); pintarSemaforo(pctEl, pctMes===null?null:Number(pctMes.toFixed(1)), d.dep); }
+
+    // Acumulado de cierre: hasta este mes INCLUYENDO la distribución (14→6) y la provisión.
+    const costoAcumCierre = (d.costoAcum||0) + aplicado14a6 + prov;
+    const mcAcumPesos = (d.ingAcum||0) - costoAcumCierre;
+    const caEl=document.getElementById('costoacum-'+cod); if(caEl) caEl.textContent=fmt(costoAcumCierre);
+    const maEl=document.getElementById('mcacum-'+cod);
+    if(maEl){ maEl.textContent=fmt(mcAcumPesos); maEl.style.color = mcAcumPesos>=0 ? '#15803D' : '#DC2626'; }
+    const pctAcum = d.ingAcum ? (mcAcumPesos/d.ingAcum*100) : null;
+    const mapEl=document.getElementById('mcacumpct-'+cod);
+    if(mapEl){ mapEl.textContent = pctAcum===null ? '—' : (pctAcum.toFixed(1)+'%'); pintarSemaforo(mapEl, pctAcum===null?null:Number(pctAcum.toFixed(1)), d.dep); }
 }
 
 function cambiarEstado(cod, val){
@@ -546,56 +779,187 @@ function cambiarEstado(cod, val){
     if(sel && ESTCOL[val]){ sel.style.background=ESTCOL[val][0]; sel.style.color=ESTCOL[val][1]; sel.style.borderColor=ESTCOL[val][1]; }
 }
 
-function addProv(cod){
-    const c14=document.getElementById('prov-cta-'+cod).value;
-    const monto=parseFloat(document.getElementById('prov-monto-'+cod).value||0);
-    const desc=document.getElementById('prov-desc-'+cod).value||'';
-    if(!c14||monto<=0){ alert('Elige cuenta y un monto mayor a 0.'); return; }
-    const info=CTA[c14]||{cuenta_61:'?',nombre:''};
-    provIdx[cod]=(provIdx[cod]||0)+1; const i='n'+provIdx[cod];
-    const div=document.createElement('div');
-    div.style.cssText='display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 6px;background:#FFFBEB;border-radius:6px;margin-top:4px';
-    div.innerHTML=`<span>➕ <span style="font-family:monospace">${c14}</span> → <span style="font-family:monospace">${info.cuenta_61}</span> · ${info.nombre||''} ${desc?('· '+desc):''}</span>
-        <span style="display:flex;align-items:center;gap:8px"><b>${fmt(monto)}</b>
-        <a href="#" onclick="this.closest('div').remove();recalc('${cod}');return false" style="color:#DC2626;text-decoration:none">✕</a></span>
-        <input type="hidden" name="provision[${cod}][${i}][cuenta]" value="${c14}">
-        <input type="hidden" name="provision[${cod}][${i}][monto]" value="${Math.round(monto)}" data-cod="${cod}" data-tipo="prov">
-        <input type="hidden" name="provision[${cod}][${i}][desc]" value="${desc}">`;
-    document.getElementById('provs-'+cod).appendChild(div);
-    document.getElementById('prov-monto-'+cod).value='';
-    document.getElementById('prov-desc-'+cod).value='';
+/* ===== Provisiones persistentes (se conservan cada mes hasta reversarlas) =====
+   Se crean/reversan por AJAX (sin recargar): así NO se pierde lo que estén editando
+   en la distribución ni sale el aviso de "abandonar sitio". Actualizan lista y margen. */
+const PROV_HEADERS = { 'X-Requested-With':'XMLHttpRequest', 'Accept':'application/json', 'X-CSRF-TOKEN': @json(csrf_token()) };
+
+function crearProvision(cod){
+    const c14  = document.getElementById('prov-cta-'+cod).value;
+    const monto = Number(String(document.getElementById('prov-monto-'+cod).value||'').replace(/\D/g,''));
+    const desc = document.getElementById('prov-desc-'+cod).value || '';
+    if(!c14 || !(monto>0)){ alert('Elige la cuenta 14 y un monto mayor a 0.'); return; }
+    const fd = new FormData();
+    fd.append('codigo_proyecto', cod); fd.append('cuenta_14', c14); fd.append('monto', monto); fd.append('descripcion', desc);
+    fd.append('mes', @json($mes)); fd.append('anio', @json($anio)); fd.append('departamento', @json($depEfectivo));
+    fetch(@json(route('operativo.provisiones.crear')), { method:'POST', headers: PROV_HEADERS, body: fd, credentials:'same-origin' })
+        .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
+        .then(j => {
+            if(!j.ok) throw j;
+            const p = j.provision;
+            const cont = document.getElementById('provs-'+cod);
+            const vac = cont.querySelector('.prov-vacio-'+cod); if(vac) vac.style.display='none';
+            const div = document.createElement('div');
+            div.setAttribute('data-prov-id', p.id); div.dataset.cod = cod; div.dataset.monto = Math.round(p.monto);
+            div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+            div.innerHTML = '<span>🧾 <span style="font-family:monospace">'+p.cuenta_14+'</span> → <span style="font-family:monospace">'+p.cuenta_26+'</span>'
+                + (p.descripcion?(' · '+p.descripcion):'') + ' <span style="color:#9CA3AF">· activa desde '+p.desde+'</span>'
+                + ' <span style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">nueva</span></span>'
+                + '<span style="display:flex;align-items:center;gap:10px"><b>'+fmt(p.monto)+'</b>'
+                + '<a href="#" onclick="reversarProvision('+p.id+');return false" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a></span>';
+            cont.insertBefore(div, cont.querySelector('.prov-vacio-'+cod));
+            if(DATOS[cod]) DATOS[cod].prov = Number(DATOS[cod].prov||0) + Number(p.monto||0);
+            recalc(cod);
+            document.getElementById('prov-monto-'+cod).value=''; document.getElementById('prov-desc-'+cod).value='';
+        })
+        .catch(e => alert(e && e.error ? e.error : 'No se pudo crear la provisión.'));
+}
+
+function reversarProvision(id){
+    if(!confirm('¿Reversar esta provisión? Se generará el asiento inverso (26 → 14) en el mes en curso y dejará de arrastrarse.')) return;
+    const row = document.querySelector('[data-prov-id="'+id+'"]');
+    const cod = row ? row.dataset.cod : null;
+    const monto = row ? Number(row.dataset.monto||0) : 0;
+    const fd = new FormData(); fd.append('mes', @json($mes)); fd.append('anio', @json($anio));
+    fetch(@json(url('operativo/provisiones'))+'/'+id+'/reversar', { method:'POST', headers: PROV_HEADERS, body: fd, credentials:'same-origin' })
+        .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
+        .then(j => {
+            if(!j.ok) throw j;
+            if(row) row.remove();
+            if(cod && DATOS[cod]){ DATOS[cod].prov = Math.max(0, Number(DATOS[cod].prov||0) - monto); recalc(cod); }
+            if(cod){ const c=document.getElementById('provs-'+cod); const vac=c && c.querySelector('.prov-vacio-'+cod);
+                     if(vac && !c.querySelector('[data-prov-id]')) vac.style.display=''; }
+        })
+        .catch(e => alert(e && e.error ? e.error : 'No se pudo reversar la provisión.'));
+}
+
+/* ===== Asignación desde bolsas de área ===== */
+function fmtBolsaDisp(c){
+    const disp = Math.max(0, dispBolsa[c] || 0);
+    const total = Number(BOLSAS[c] ? BOLSAS[c].total : 0) || 0;
+    const pct = total > 0 ? Math.round(disp / total * 100) : 0;
+    const dispEl = document.getElementById('bolsa-disp-'+c); if(dispEl) dispEl.textContent = fmt(disp);
+    const barEl  = document.getElementById('bolsa-bar-'+c);  if(barEl)  barEl.style.width = pct + '%';
+    const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'block' : 'none';
+    // El disponible cambió: refrescar el indicador dentro de cada obra que muestre esta bolsa.
+    refrescarDispObras();
+}
+
+/* Disponible de la bolsa elegida, mostrado DENTRO de cada obra (junto a "Asignar
+   desde bolsa"), para no tener que subir al panel. Refleja el disponible acumulado
+   al mes y se actualiza en vivo con cada asignación. */
+function actualizarDispObra(cod){
+    const sel  = document.getElementById('asignbolsa-cta-'+cod);
+    const wrap = document.getElementById('disp-obra-wrap-'+cod);
+    if(!sel || !wrap) return;
+    const bolsa = sel.value;
+    if(!bolsa){ wrap.style.display = 'none'; return; }
+    const disp = Math.max(0, dispBolsa[bolsa] || 0);
+    const bEl = document.getElementById('disp-obra-bolsa-'+cod); if(bEl) bEl.textContent = bolsa;
+    const dEl = document.getElementById('disp-obra-'+cod);
+    if(dEl){ dEl.textContent = fmt(disp); dEl.style.color = disp <= 0.5 ? '#DC2626' : '#92400E'; }
+    wrap.style.display = 'block';
+}
+function refrescarDispObras(){
+    document.querySelectorAll('[id^="asignbolsa-cta-"]').forEach(sel => {
+        actualizarDispObra(sel.id.slice('asignbolsa-cta-'.length));
+    });
+}
+
+function asignarBolsa(cod){
+    const sel = document.getElementById('asignbolsa-cta-'+cod);
+    const inp = document.getElementById('asignbolsa-monto-'+cod);
+    if(!sel || !inp) return;
+    const bolsa = sel.value;
+    let monto = Math.round(parseFloat(inp.value||0));
+    if(!bolsa){ alert('Elige una bolsa.'); return; }
+    if(!(monto>0)){ alert('Escribe un monto mayor a 0.'); return; }
+    const disp = Math.max(0, dispBolsa[bolsa] || 0);
+    if(disp <= 0.5){ alert('Esa bolsa ya no tiene disponible por distribuir.'); return; }
+    if(monto > disp){
+        alert('Solo puedes asignar hasta '+fmt(disp)+' de la bolsa '+bolsa+'. Se ajustó a ese máximo.');
+        monto = Math.round(disp);
+    }
+    const info = BOLSAS[bolsa] || {nombre:''};
+    // Consumo FIFO en vivo: de qué cuentas 14 (y períodos) sale este monto.
+    const detalle = drenarFifoJS(poolBolsa[bolsa], monto);
+    asignIdx[cod] = (asignIdx[cod]||0) + 1; const i = 'n'+asignIdx[cod];
+    const div = document.createElement('div');
+    div.style.cssText='font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+    div.dataset.bolsa = bolsa; div.dataset.monto = monto; div.dataset.detalle = JSON.stringify(detalle);
+    div.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between">'
+        + '<span>🡒 Desde <b>'+bolsa+'</b> · '+(info.nombre||'')+'</span>'
+        + '<span style="display:flex;align-items:center;gap:8px"><b>'+fmt(monto)+'</b>'
+        + '<a href="#" onclick="quitarBolsa(this,\''+cod+'\');return false" style="color:#DC2626;text-decoration:none">✕</a></span></div>'
+        + '<div style="margin-top:2px">'+detalleHtml(detalle)+'</div>'
+        + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][bolsa]" value="'+bolsa+'">'
+        + '<input type="hidden" name="asignacion_bolsa['+cod+']['+i+'][monto]" value="'+monto+'" data-cod="'+cod+'" data-tipo="bolsa" data-bolsa="'+bolsa+'">';
+    document.getElementById('asigns-'+cod).appendChild(div);
+    dispBolsa[bolsa] = disp - monto;
+    fmtBolsaDisp(bolsa);
+    inp.value='';
+    recalc(cod);
+}
+
+function quitarBolsa(el, cod){
+    const chip = el.closest('div[data-bolsa]');
+    if(!chip) return;
+    const bolsa = chip.dataset.bolsa;
+    const monto = parseFloat(chip.dataset.monto||0);
+    let detalle = []; try { detalle = JSON.parse(chip.dataset.detalle || '[]'); } catch(e){}
+    restaurarPool(bolsa, detalle);          // devuelve el saldo a las cuentas de la bolsa
+    dispBolsa[bolsa] = (dispBolsa[bolsa]||0) + monto;
+    chip.remove();
+    fmtBolsaDisp(bolsa);
     recalc(cod);
 }
 
 function aplicarTodo(){
+    // "Aplicar todo el pendiente" = llenar cada cuenta con su saldo pendiente completo
+    // (el max del input). Operaciones ajusta desde ahí.
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
+        if (inp.dataset.bloqueado === '1') return; // sin ingreso: no se toca
         inp.value = Math.round(parseFloat(inp.max || 0));
     });
+    remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
 }
 
 function ponerEnCero(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
+        if (inp.dataset.bloqueado === '1') return; // solo obras con ingreso
         inp.value = 0;
     });
+    remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
 }
 
+/* Solicita autorización de gerencia para un proyecto sin ingreso.
+   Se hace con un form dinámico para no anidar formularios dentro de #form-dist. */
 /* ===== Cálculo automático de costo sugerido ===== */
 function abrirCalculo(){ document.getElementById('modal-calc').style.display='flex'; }
 function cerrarCalculo(){ document.getElementById('modal-calc').style.display='none'; }
 function cerrarAlerta(){ document.getElementById('modal-alerta').style.display='none'; }
 
-function distribuirEnObra(cod, objetivo){
-    const inputs=[...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')];
-    const maxes=inputs.map(i=>parseFloat(i.max||0));
-    const totalMax=maxes.reduce((a,b)=>a+b,0);
-    if(totalMax<=0){ inputs.forEach(i=>i.value=0); return; }
-    const obj=Math.max(0, Math.min(objetivo, totalMax));
-    inputs.forEach((inp,idx)=>{
-        const share = totalMax>0 ? (maxes[idx]/totalMax)*obj : 0;
-        inp.value = Math.min(Math.round(share), Math.round(maxes[idx]));
+/* Llena los inputs de una obra hasta 'objetivo', consumiendo de MÁS ANTIGUO a
+   MÁS NUEVO (data-periodo asc). Cada input se llena hasta su pendiente (max). */
+function llenarFifoObra(cod, objetivo){
+    const inputs = [...document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]')]
+        .filter(i => i.dataset.bloqueado !== '1')
+        .sort((a,b) => (parseInt(a.dataset.periodo||0,10) - parseInt(b.dataset.periodo||0,10)));
+    let rem = Math.max(0, objetivo);
+    inputs.forEach(inp => {
+        const max = parseFloat(inp.max || 0);
+        const v = Math.min(max, rem);
+        inp.value = Math.round(v);
+        rem -= v;
     });
+}
+
+function distribuirEnObra(cod, objetivo){
+    // Tope de facturación del mes: el objetivo nunca supera lo facturable.
+    const cap = (DATOS[cod] && DATOS[cod].cap != null) ? DATOS[cod].cap : Infinity;
+    llenarFifoObra(cod, Math.min(objetivo, cap));
 }
 
 function ejecutarCalculo(){
@@ -607,6 +971,7 @@ function ejecutarCalculo(){
 
     for(const cod in DATOS){
         const d = DATOS[cod];
+        if (d.sinIngreso) continue; // el cálculo sugerido solo aplica a obras con ingreso
         const inputs = document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]');
 
         // Margen acumulado actual (control): ingreso vs costo cuenta 6 acumulado
@@ -646,6 +1011,7 @@ function ejecutarCalculo(){
         recalc(cod);
     }
 
+    remarcarAplicar();
     cerrarCalculo();
     mostrarAlerta(enPerdida, bajoOfertado);
 }
@@ -748,7 +1114,160 @@ function bloquearForm(){
 
 document.addEventListener('DOMContentLoaded', function(){
     for (const cod in DATOS) { evaluarCerrable(cod); }
+    refrescarDispObras();   // disponible por bolsa dentro de cada obra
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
+
+    // Enlaces por addEventListener (además de los inline): garantizan que el
+    // buscador, expandir/colapsar y los grupos respondan aunque una CSP bloquee
+    // los handlers inline o el navegador no dispare 'keyup'.
+    function on(id, ev, fn){ const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
+    on('buscador', 'input', function(){ filtrarObras(this.value); });
+    on('btn-expandir', 'click', function(){ expandirTodo(true); });
+    on('btn-colapsar', 'click', function(){ expandirTodo(false); });
+    on('grupo-head-con', 'click', function(){ toggleGrupo('con'); });
+    on('grupo-head-sin', 'click', function(){ toggleGrupo('sin'); });
+    document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
+        row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
+    });
+
+    // Marcar en amarillo las celdas ya modificadas al cargar (borradores guardados).
+    remarcarAplicar();
+    document.querySelectorAll('input[data-tipo="bolsamonto"]').forEach(marcarTocadaBolsa);
+
+    // Si llegan desde "Otros costos → Editar montos" con ?bolsa=XXX, abrir esa bolsa.
+    const bolsaAbrir = new URLSearchParams(location.search).get('bolsa');
+    if (bolsaAbrir) {
+        const det = document.getElementById('bolsa-det-' + bolsaAbrir);
+        if (det && (det.style.display === 'none' || !det.style.display)) toggleBolsaDetalle(bolsaAbrir);
+        const box = document.getElementById('bolsa-box-' + bolsaAbrir);
+        if (box) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 });
 </script>
+
+{{-- ══════════ Autoguardado (red de seguridad) ══════════
+     Mientras la persona edita, cada pocos segundos se guarda un BORRADOR REAL en el
+     servidor (base de datos), de modo que si se daña el equipo o cierra sin guardar,
+     el trabajo queda y se puede retomar desde "Mis distribuciones" en cualquier equipo.
+     Además se deja una copia local (localStorage) como respaldo offline por si el
+     servidor no responde, y se avisa al salir con cambios sin guardar. --}}
+@if($puedeEditar)
+<script>
+(function () {
+    const form = document.getElementById('form-dist');
+    if (!form) return;
+
+    const URL_GUARDAR = @json(route('operativo.distribucion.guardar'));
+    // Clave del respaldo local por período + departamento + borrador.
+    const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
+
+    let dirty = false, saving = false, submitting = false, tmr = null;
+
+    const statusEl = document.getElementById('autosave-status');
+    function setStatus(txt, color) { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = color || '#9CA3AF'; } }
+
+    // Respaldo local (ligero): montos "a aplicar" y estado por obra.
+    function serializar() {
+        const data = {};
+        form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]').forEach(el => { if (el.name) data[el.name] = el.value; });
+        return data;
+    }
+    function guardarLocal() { try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), data: serializar() })); } catch (e) {} }
+    function tieneTrabajo(data) { return Object.keys(data || {}).some(k => k.indexOf('aplicar') === 0 && Number(data[k]) > 0); }
+
+    // ── Autoguardado en el SERVIDOR (borrador real en la BD) ──
+    function autoguardarServidor() {
+        if (saving || submitting || !dirty) return;
+        saving = true;
+        setStatus('Autoguardando…', '#9CA3AF');
+        const fd = new FormData(form);
+        fd.set('auto', '1');
+        fd.set('accion', 'guardar');
+        fetch(URL_GUARDAR, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            body: fd,
+            credentials: 'same-origin',
+        }).then(r => r.ok ? r.json() : Promise.reject(r))
+          .then(j => {
+              if (!j || !j.ok) throw new Error('resp');
+              // Reutilizar el mismo borrador en los próximos autoguardados y al guardar a mano.
+              if (j.dist) {
+                  const di = form.querySelector('input[name="dist"]');
+                  if (di && !di.value) di.value = j.dist;
+                  try {
+                      const u = new URL(window.location.href);
+                      if (!u.searchParams.get('dist')) { u.searchParams.set('dist', j.dist); history.replaceState(null, '', u.toString()); }
+                  } catch (e) {}
+              }
+              dirty = false;
+              try { localStorage.removeItem(KEY); } catch (e) {}   // el servidor ya lo tiene
+              setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
+          })
+          .catch(() => { setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309'); })
+          .finally(() => { saving = false; });
+    }
+
+    function alCambiar() {
+        dirty = true;
+        guardarLocal();                                   // respaldo local inmediato
+        setStatus('Cambios sin guardar…', '#B45309');
+        clearTimeout(tmr);
+        tmr = setTimeout(autoguardarServidor, 3000);      // autoguardado en servidor (debounce)
+    }
+    form.addEventListener('input', alCambiar);
+    form.addEventListener('change', alCambiar);
+    setInterval(autoguardarServidor, 25000);              // respaldo periódico
+
+    // Guardar/Enviar a mano ya persiste en BD: limpiamos estado y respaldo local.
+    // (El botón "Ver resumen" usa formaction/nuevo tab: no debe limpiar nada.)
+    form.addEventListener('submit', function (e) {
+        const btn = e.submitter;
+        if (btn && btn.name === 'accion') {
+            submitting = true; dirty = false; clearTimeout(tmr);
+            try { localStorage.removeItem(KEY); } catch (e) {}
+        }
+    });
+
+    // Aviso al salir si quedan cambios sin persistir.
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty && !submitting) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
+
+    // ── Respaldo local: si un autoguardado no alcanzó a subir, ofrecer recuperarlo ──
+    let prev = null;
+    try { prev = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    if (prev && tieneTrabajo(prev.data)) mostrarBanner(prev);
+
+    function fechaCorta(ts) {
+        try { return new Date(ts).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return ''; }
+    }
+    function mostrarBanner(snap) {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'position:sticky;top:0;z-index:120;background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+        bar.innerHTML = '<span>💾 <b>Tienes cambios sin guardar</b> de ' + fechaCorta(snap.t) + ' en este equipo. ¿Recuperarlos?</span>'
+            + '<span style="margin-left:auto;display:flex;gap:8px">'
+            + '<button type="button" id="dr-rec" style="padding:6px 14px;border:none;border-radius:6px;background:#D97706;color:#fff;font-size:12px;font-weight:600;cursor:pointer">Recuperar</button>'
+            + '<button type="button" id="dr-des" style="padding:6px 14px;border:1px solid #D97706;border-radius:6px;background:#fff;color:#B45309;font-size:12px;cursor:pointer">Descartar</button>'
+            + '</span>';
+        const cont = document.querySelector('.content');
+        cont.insertBefore(bar, cont.firstChild);
+        document.getElementById('dr-rec').addEventListener('click', function () { aplicarLocal(snap.data); bar.remove(); });
+        document.getElementById('dr-des').addEventListener('click', function () {
+            try { localStorage.removeItem(KEY); } catch (e) {} bar.remove();
+        });
+    }
+    function aplicarLocal(data) {
+        Object.keys(data).forEach(name => {
+            const el = form.querySelector('[name="' + name + '"]');
+            if (el) el.value = data[name];
+        });
+        if (typeof DATOS === 'object') { for (const cod in DATOS) { try { recalc(cod); } catch (e) {} } }
+        if (typeof remarcarAplicar === 'function') remarcarAplicar();
+        alCambiar();   // marca sucio y dispara autoguardado al servidor
+    }
+})();
+</script>
+@endif
 @endsection

@@ -3,13 +3,15 @@
 @section('title', 'Administración de usuarios')
 
 @section('content')
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-    <h1 class="page-title" style="margin-bottom:0">Administración de usuarios</h1>
-    <a href="{{ route('admin.usuarios.create') }}"
-        style="padding:8px 18px;background:#1B3F6E;color:white;text-decoration:none;border-radius:8px;font-size:13px">
-        + Crear usuario
-    </a>
-</div>
+<x-page-banner title="Administración de usuarios" icon="👥">
+    Gestiona las cuentas del sistema, sus roles y los módulos a los que acceden.
+    <x-slot:actions>
+        <a href="{{ route('admin.usuarios.create') }}"
+            style="padding:8px 18px;background:#1B3F6E;color:white;text-decoration:none;border-radius:8px;font-size:13px">
+            + Crear usuario
+        </a>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">
@@ -52,7 +54,7 @@
                         Todos
                     @else
                         @php
-                            $suyos = $u->modulos_permitidos ?? $u->modulosLegado();
+                            $suyos = array_keys($u->mapaPermisos());
                             $nombres = array_map(fn($c) => $modulos[$c] ?? $c, $suyos);
                         @endphp
                         {{ count($nombres) ? implode(', ', $nombres) : '—' }}

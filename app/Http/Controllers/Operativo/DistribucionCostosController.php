@@ -12,22 +12,32 @@ use App\Models\AplicacionCosto;
 use App\Models\ObraEstado;
 use App\Models\ObservacionObra;
 use App\Models\Distribucion;
+use App\Models\BolsaAsignacion;
+use App\Models\ItemDistribucion;
+use App\Models\ReasignacionItem;
+use App\Models\CierrePeriodo;
+use App\Models\BolsaMonto;
+use App\Models\UnBolsa;
 use App\Models\User;
+use App\Services\DistribucionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Exports\ResumenDistribucionExport;
+use App\Exports\FacturadoTipoExport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\DistribucionVersion;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class DistribucionCostosController extends Controller
 {
-    private array $categorias = [
-        'EQU-MAT-SUM' => 'Equipos y materiales',
-        'MOI'         => 'M.O. interna',
-        'MOE'         => 'M.O. externa',
-        'OTROS COSTO' => 'Otros costos',
-        'MOFIJAOPER'  => 'M.O. fija (supervisores)',
-    ];
+    private array $categorias = DistribucionService::CATEGORIAS;
+
+    private DistribucionService $svc;
+
+    public function __construct()
+    {
+        $this->svc = new DistribucionService();
+    }
 
     public function consultas(Request $request)
     {
@@ -41,13 +51,20 @@ class DistribucionCostosController extends Controller
 
         $usuarios = User::pluck('name', 'id');
 
-        $filas = $dists->map(function ($d) use ($totales, $usuarios) {
+        // Foto CONGELADA del envío: la última versión con evento enviado/reenviado por
+        // distribución. Es el registro oficial que no cambia aunque cambien los datos.
+        $finales = DistribucionVersion::whereIn('evento', ['enviado', 'reenviado'])
+            ->orderByDesc('id')->get(['id', 'distribucion_id'])
+            ->unique('distribucion_id')->keyBy('distribucion_id');
+
+        $filas = $dists->map(function ($d) use ($totales, $usuarios, $finales) {
             $t = $totales[$d->id] ?? null;
             return [
                 'id'           => $d->id,
                 'mes'          => $d->mes,
                 'anio'         => $d->anio,
                 'departamento' => $d->departamento,
+                'tipo'         => $d->tipo ?? 'obras',
                 'version'      => $d->version,
                 'estado'       => $d->estado,
                 'habilitada'   => $d->edicion_habilitada,
@@ -57,10 +74,36 @@ class DistribucionCostosController extends Controller
                 'guardado_at'  => $d->updated_at,
                 'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
                 'enviado_at'   => $d->enviado_at,
+                'version_final_id' => $finales[$d->id]->id ?? null,
             ];
         });
 
-        return view('operativo.distribucion-consultas', ['filas' => $filas]);
+        // ── Otros costos (áreas / bolsas): sus totales salen de BolsaMonto (monto a
+        // distribuir por cuenta), no de AplicacionCosto. El detalle se consulta aparte. ──
+        $depDeUn = \App\Models\UnBolsa::pluck('departamento', 'codigo'); // codigo UN => departamento
+        $filasAreas = $dists->where('tipo', 'areas')->map(function ($d) use ($usuarios, $depDeUn) {
+            $unsDep = $depDeUn->filter(fn ($dep) => $dep === $d->departamento)->keys();
+            $montos = \App\Models\BolsaMonto::where('mes', $d->mes)->where('anio', $d->anio)
+                ->whereIn('un_codigo', $unsDep);
+            return [
+                'id'           => $d->id,
+                'mes'          => $d->mes,
+                'anio'         => $d->anio,
+                'departamento' => $d->departamento,
+                'estado'       => $d->estado,
+                'cuentas'      => (clone $montos)->count(),
+                'a_distribuir' => (float) (clone $montos)->sum('monto_distribuir'),
+                'guardado_at'  => $d->updated_at,
+                'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
+            ];
+        })->values();
+
+        // Dos consultas separadas: distribución de costos (inventario en tránsito) y
+        // otros costos (áreas / bolsas).
+        return view('operativo.distribucion-consultas', [
+            'filasObras' => $filas->where('tipo', 'obras')->values(),
+            'filasAreas' => $filasAreas,
+        ]);
     }
 
     public function index(Request $request)
@@ -72,8 +115,11 @@ class DistribucionCostosController extends Controller
             $mes  = (int) $distribucion->mes;
             $anio = (int) $distribucion->anio;
         } else {
-            $mes  = (int) $request->get('mes', date('n'));
-            $anio = (int) $request->get('anio', date('Y'));
+            // Por defecto (sin filtro explícito) se muestra el ÚLTIMO período con información
+            // cargada, no el mes en curso: si lo último fue junio, arranca en junio.
+            [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+            $mes  = (int) $request->get('mes', $defMes);
+            $anio = (int) $request->get('anio', $defAnio);
         }
         $tipo         = $request->get('tipo', 'todos');
         $estadoFiltro = $request->get('estado', 'todos');
@@ -85,6 +131,19 @@ class DistribucionCostosController extends Controller
 
         $homol = Homologacion::mapaEn($periodo);
 
+        // Corte ACUMULADO al mes filtrado (mismo criterio que sumaAcum y que el
+        // saldo de las bolsas): todos los períodos anteriores + el mes actual.
+        // Así, al filtrar un mes histórico, la cuenta 14 refleja su estado real
+        // a esa fecha, sin contaminarse con reclasificaciones de meses posteriores.
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where(function ($sub) use ($anio, $mes) {
+                $sub->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            });
+        };
+
         $saldos14Query = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->selectRaw('codigo_proyecto, nombre_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_contable')
@@ -92,23 +151,59 @@ class DistribucionCostosController extends Controller
 
         if ($vista === 'mes') {
             $saldos14Query->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($saldos14Query);
         }
 
         $saldos14 = $saldos14Query->get();
+
+        // Solo obras con saldo NETO real en la cuenta 14 (por proyecto), según la vista.
+        // Evita mostrar obras cuyos movimientos de cuenta 14 se cancelan entre sí
+        // (neto ≈ 0): no hay nada que distribuir y solo hacen ruido.
+        $netoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5');
+        if ($vista === 'mes') {
+            $netoQuery->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($netoQuery);
+        }
+        $proyectosConSaldoNeto = $netoQuery->pluck('codigo_proyecto')->flip();
 
         $ingresoMes   = $this->sumaMes('Ingreso', $anio, $mes);
         $ingresoAcum  = $this->sumaAcum('Ingreso', $anio, $mes);
         $costoAplMes  = $this->sumaMes('Costos aplicados', $anio, $mes);
         $costoAplAcum = $this->sumaAcum('Costos aplicados', $anio, $mes);
 
-        // Inventario en obra = saldo TOTAL de cuenta 14 (todos los períodos), para la proyección.
+        // Antigüedad de cada cuenta 14 (período más antiguo con pendiente), para el
+        // reparto FIFO topado al facturado del mes. El reparto en sí se calcula más
+        // abajo, sobre el saldo NETO abierto de cada cuenta (no el bruto por período).
+        $periodoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable');
+        if ($vista === 'mes') {
+            $periodoQuery->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $corteAcum($periodoQuery);
+        }
+        $periodoCuenta = [];  // [cod|cuenta_14] => período más antiguo (anio*100+mes)
+        foreach ($periodoQuery->get() as $r) {
+            $periodoCuenta[$r->codigo_proyecto.'|'.$r->cuenta_contable] = (int) $r->periodo;
+        }
+
+        // Inventario en obra = saldo de cuenta 14 acumulado AL MES FILTRADO (es un stock,
+        // no un flujo), para la proyección. Mismo corte que el saldo mostrado, para que
+        // un mes histórico no se contamine con movimientos posteriores.
         $inventario14 = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where($corteAcum)
             ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto')
             ->pluck('saldo', 'codigo_proyecto');
 
-        // Datos comerciales de la ficha: valor de oferta y costo presupuestado.
-        $fichas = FichaProyecto::get(['codigo_proyecto', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+        // Datos comerciales de la ficha: nombre del proyecto, cliente, valor de oferta
+        // y costo presupuestado.
+        $fichas = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
             ->keyBy('codigo_proyecto');
 
         $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
@@ -123,10 +218,21 @@ class DistribucionCostosController extends Controller
         $observaciones = ObservacionObra::where('anio', $anio)->where('mes', $mes)
             ->pluck('observacion', 'codigo_proyecto');
 
-        // Líneas guardadas DE ESTE borrador (si estoy editando uno)
+        // Líneas guardadas DE ESTE borrador (si estoy editando uno). Se separan las
+        // aplicaciones propias de la obra (origen_bolsa null) de las que vienen de una
+        // bolsa (origen_bolsa) para no repoblar por error los inputs de la obra.
         $guardado = $distribucion
-            ? AplicacionCosto::where('distribucion_id', $distribucion->id)->get()->groupBy('codigo_proyecto')
+            ? AplicacionCosto::where('distribucion_id', $distribucion->id)
+                ->whereNull('origen_bolsa')->get()->groupBy('codigo_proyecto')
             : collect();
+
+        // Asignaciones de bolsa de ESTE borrador (para pintar los chips y descontar
+        // el disponible de cada bolsa).
+        $asignBolsa = $distribucion
+            ? BolsaAsignacion::where('distribucion_id', $distribucion->id)->get()
+            : collect();
+        $asignPorObra  = $asignBolsa->groupBy('codigo_proyecto');
+        $asignPorBolsa = $asignBolsa->groupBy('bolsa_codigo')->map(fn ($g) => (float) $g->sum('monto'));
 
         $obras = [];
         foreach ($saldos14 as $s) {
@@ -160,30 +266,49 @@ class DistribucionCostosController extends Controller
             $obras[$cod]['total_reversado'] += $reversado;
         }
 
+        // Provisiones ACTIVAS al período (se arrastran cada mes hasta reversarlas).
+        $provisionesPorObra = \App\Models\Provision::activasEn($mes, $anio)->get()->groupBy('codigo_proyecto');
+
         foreach ($obras as $cod => &$o) {
             $o['provisiones'] = [];
             $g = $guardado[$cod] ?? collect();
             $savedAplicar = $g->where('es_provision', false)->keyBy('cuenta_14');
 
+            // Proyecto sin ingreso en el mes: arranca en 0 (no se propone el pendiente),
+            // salvo que ya tenga un valor guardado en el borrador.
+            $sinIngreso = abs((float) $o['ingreso_mes']) < 0.5;
+
+            // Operaciones trabaja desde el TOTAL: al cargar la distribución se precarga
+            // el SALDO PENDIENTE COMPLETO de cada cuenta 14 (ellos ajustan hacia abajo).
+            // El único límite es el saldo abierto de la cuenta (no se topa al facturado).
             foreach ($o['cat'] as $k => &$c) {
                 foreach ($c['subs'] as &$sub) {
+                    $sub['periodo'] = $periodoCuenta[$cod.'|'.$sub['cuenta_14']] ?? 0;
+                    // "tope" del input = saldo pendiente completo (usado por "Aplicar todo").
+                    $sub['tope']    = (float) $sub['pendiente'];
+
                     if (isset($savedAplicar[$sub['cuenta_14']])) {
                         $sub['aplicar'] = (float) $savedAplicar[$sub['cuenta_14']]->monto_aplicar;
-                    } elseif ($distribucion) {
+                    } elseif ($distribucion || $sinIngreso) {
                         $sub['aplicar'] = 0;
+                    } else {
+                        // Nuevo borrador con ingreso: precargar el total pendiente.
+                        $sub['aplicar'] = (float) $sub['pendiente'];
                     }
                 }
                 unset($sub);
             }
             unset($c);
 
-            foreach ($g->where('es_provision', true) as $p) {
+            foreach ($provisionesPorObra[$cod] ?? [] as $p) {
                 $o['provisiones'][] = [
+                    'id'          => $p->id,
                     'cuenta_14'   => $p->cuenta_14,
-                    'cuenta_61'   => $p->cuenta_61,
-                    'nombre'      => $p->nombre,
-                    'monto'       => (float) $p->monto_aplicar,
+                    'cuenta_26'   => $p->cuenta_26,
+                    'monto'       => (float) $p->monto,
                     'descripcion' => $p->descripcion,
+                    'desde'       => sprintf('%02d/%d', $p->mes, $p->anio),
+                    'nueva'       => ($p->mes === $mes && $p->anio === $anio), // registrada este mes
                 ];
             }
 
@@ -192,8 +317,26 @@ class DistribucionCostosController extends Controller
             $o['sum_aplicar'] = $sumA;
             $o['sum_prov']    = array_sum(array_column($o['provisiones'], 'monto'));
 
+            // Asignaciones de bolsa guardadas para esta obra: cuentan como costo del mes.
+            // Se arrastra el detalle (cuentas 14 y períodos) para mostrar trazabilidad.
+            $o['asignaciones_bolsa'] = ($asignPorObra[$cod] ?? collect())
+                ->map(fn ($a) => [
+                    'bolsa'   => $a->bolsa_codigo,
+                    'monto'   => (float) $a->monto,
+                    'detalle' => is_array($a->detalle) ? $a->detalle : [],
+                ])
+                ->values()->all();
+            $o['sum_bolsa'] = array_sum(array_column($o['asignaciones_bolsa'], 'monto'));
+
             if (isset($estadoManual[$cod])) {
                 $o['estado'] = $estadoManual[$cod];
+            }
+
+            // Estado según el ingreso del mes: las obras que tuvieron ingreso se muestran
+            // como "parcial" y las que no, como "abierta". Las obras cerradas (cierre total
+            // o cierre manual) conservan su estado y no se reabren.
+            if ($o['estado'] !== 'cerrada') {
+                $o['estado'] = abs((float) $o['ingreso_mes']) >= 0.5 ? 'parcial' : 'abierta';
             }
 
             // Inventario en obra (cuenta 14 total) e inventario de almacén (0 por ahora)
@@ -202,10 +345,25 @@ class DistribucionCostosController extends Controller
             $o['inventario_almacen'] = 0; // en actualización: pendiente módulo de almacén
 
             $this->calcularMargenes($o);
+            // Departamento de la obra (por prefijo) para el semáforo de márgenes.
+            $o['depto_margen'] = \App\Models\User::departamentoDeCodigo($cod);
             $o['tipo']   = $this->tipoObra($cod);
             $o['metodo'] = $o['estado'] === 'abierta'
                 ? 'Reclasificar OT áreas → OT operación' : 'Cuenta 14 → 61';
             $o['observacion'] = (string) ($observaciones[$cod] ?? '');
+
+            // Órdenes sin ingreso en el mes (p. ej. solo visita/mano de obra del supervisor):
+            // Operaciones puede cargarles costo SIN autorización. El costo entra desde la
+            // bolsa de área y se reclasifica 14→14 hacia la OT. La aplicación directa 14→61 sí
+            // exige ingreso (no se reconoce costo contra la 6 sin facturación).
+            $o['sin_ingreso']           = abs((float) $o['ingreso_mes']) < 0.5;
+            $o['requiere_autorizacion'] = false; // ya no se exige autorización de gerencia
+            $o['autorizado']            = false;
+            $o['autorizacion_estado']   = null;
+            $o['autorizacion_motivo']   = null;
+            $o['autorizacion_coment']   = null;
+            $o['autorizacion_monto']    = null;
+            $o['bloqueado_ingreso']     = false; // la tarjeta nunca se bloquea
         }
         unset($o);
 
@@ -227,7 +385,14 @@ class DistribucionCostosController extends Controller
             $prefijosDepto = null; // admin sin elegir = ve todo
         }
 
-        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto) {
+        // Las bolsas de área (UN) son el ORIGEN del costo, no un destino: nunca deben
+        // aparecer como una obra en la lista (sí en el panel superior).
+        $bolsaCodigos = array_flip(UnBolsa::codigos());
+
+        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto, $bolsaCodigos) {
+            if (isset($bolsaCodigos[$o['codigo']])) return false;
+            // Solo obras con saldo neto real en cuenta 14 (por proyecto).
+            if (!isset($proyectosConSaldoNeto[$o['codigo']])) return false;
             if ($tipo !== 'todos' && $o['tipo'] !== $tipo) return false;
             if ($estadoFiltro !== 'todos' && $o['estado'] !== $estadoFiltro) return false;
 
@@ -248,6 +413,10 @@ class DistribucionCostosController extends Controller
             ($a['orden_sem'] <=> $b['orden_sem']) ?: ($b['total_pendiente'] <=> $a['total_pendiente'])
         );
 
+        // Detalle de ítems por cuenta (Fase B/C): los ítems del período de cada obra,
+        // agrupados por cuenta de costo, con su neto (salidas − reintegros).
+        $this->adjuntarItemsPorCuenta($obras, $mes, $anio);
+
         // Catálogo para el desplegable de provisiones: las cuentas vigentes EN ESTE PERÍODO.
         $catalogo = Homologacion::vigentesEn($periodo)
             ->orderBy('cuenta_14')
@@ -255,8 +424,46 @@ class DistribucionCostosController extends Controller
 
         $bloqueado = $distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada;
 
+        // Panel: DOS bolsas grandes (Mantenimiento e Instalaciones). Cada una con su total
+        // (saldo de todas sus UN), su "a distribuir" (suma de montos editados en el cierre) y
+        // el disponible = a_distribuir − lo ya asignado en este borrador.
+        $bolsas = $this->svc->bolsasGrandes($depEfectivo, $periodo, $anio, $mes);
+        foreach ($bolsas as &$bp) {
+            $bp['asignado']   = (float) ($asignPorBolsa[$bp['codigo']] ?? 0);
+            $bp['disponible'] = max(0.0, round($bp['a_distribuir'] - $bp['asignado'], 2));
+
+            // Pool RESTANTE por (UN|cuenta) para el consumo FIFO en vivo del front: se parte
+            // del "a distribuir" y se descuenta lo ya consumido en asignaciones previas del borrador.
+            $rest = [];
+            foreach ($bp['lineas'] as $l) {
+                $k = $l['un_codigo'].'|'.$l['cuenta_14'];
+                $rest[$k] = [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'], 'cuenta_61' => $l['cuenta_61'],
+                    'periodo'   => $l['periodo'],   'pendiente' => (float) $l['monto_distribuir'],
+                ];
+            }
+            foreach ($asignBolsa->where('bolsa_codigo', $bp['codigo']) as $a) {
+                foreach ((array) (is_array($a->detalle) ? $a->detalle : []) as $d) {
+                    $k = ($d['un_codigo'] ?? '').'|'.($d['cuenta_14'] ?? '');
+                    if (isset($rest[$k])) {
+                        $rest[$k]['pendiente'] -= (float) $d['monto'];
+                    }
+                }
+            }
+            $bp['pool'] = array_values(array_filter($rest, fn ($r) => $r['pendiente'] > 0.5));
+        }
+        unset($bp);
+        unset($bp);
+
+        // Candidatos destino para reasignar ítems (búsqueda por código/nombre/cliente).
+        $destinos = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente'])
+            ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
+            ->values();
+
         return view('operativo.distribucion', [
             'obras'        => $obras,
+            'bolsas'       => $bolsas,
+            'destinos'     => $destinos,
             'categorias'   => $this->categorias,
             'catalogo'     => $catalogo,
             'mes'          => $mes,
@@ -269,21 +476,187 @@ class DistribucionCostosController extends Controller
             'envio'        => $distribucion,
             'distId'       => $distribucion?->id,
             'bloqueado'    => $bloqueado,
+            'edicionAbierta' => CierrePeriodo::estaAbierto($mes, $anio),
             'kpiPendiente' => array_sum(array_column($obras, 'total_pendiente')),
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
         ]);
     }
 
+    /** Último período (mes, año) con información cargada en RegistroFinanciero (BIABLE). */
+    private function ultimoPeriodoConDatos(): array
+    {
+        $row = RegistroFinanciero::orderByDesc('anio')->orderByDesc('mes')->first(['anio', 'mes']);
+
+        return $row ? [(int) $row->mes, (int) $row->anio] : [(int) date('n'), (int) date('Y')];
+    }
+
+    /**
+     * Punto 2: guardar los "montos a distribuir" (y observaciones) por cuenta de las
+     * bolsas grandes, en el cierre. El disponible de la bolsa = suma de estos montos.
+     * Solo con el cierre del período abierto.
+     */
+    public function guardarBolsaMontos(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $mes  = (int) $request->input('mes');
+        $anio = (int) $request->input('anio');
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return back()->with('error',
+                'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
+        }
+
+        $montos = (array) $request->input('monto', []); // ["UN|cuenta" => valor]
+        $obs    = (array) $request->input('obs', []);
+        $n = 0;
+        foreach ($montos as $key => $val) {
+            [$un, $cuenta] = array_pad(explode('|', (string) $key, 2), 2, '');
+            if ($un === '' || $cuenta === '') continue;
+            BolsaMonto::updateOrCreate(
+                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta],
+                [
+                    // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
+                    'monto_distribuir' => max(0.0, (float) preg_replace('/[^\d]/', '', (string) $val)),
+                    'observaciones'    => trim((string) ($obs[$key] ?? '')) ?: null,
+                    'user_id'          => $request->user()?->id,
+                ]
+            );
+            $n++;
+        }
+
+        // Guardar el borrador de "otros costos" (áreas / bolsas) como una distribución
+        // propia, para que quede en "Mis distribuciones" → Otros costos, separada de la
+        // distribución de obras. El detalle (cuenta, tercero, monto, observación) vive en
+        // BolsaMonto; esta distribución es el encabezado consultable del mes/departamento.
+        $departamento = $request->input('departamento');
+        if (in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
+            Distribucion::updateOrCreate(
+                ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento, 'tipo' => 'areas'],
+                ['version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false,
+                 'guardado_por' => $request->user()?->id]
+            );
+        }
+
+        return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). Se guardó en Mis distribuciones → Otros costos.");
+    }
+
+    /**
+     * Crear una provisión (costo en tránsito) para una obra. Se registra UNA vez en el
+     * período abierto y se arrastra activa cada mes hasta que la reversen. Contablemente:
+     * Débito cuenta 14 elegida / Crédito cuenta 26 (contrapartida de provisión).
+     */
+    public function crearProvision(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'codigo_proyecto' => 'required|string',
+            'cuenta_14'       => 'required|string',
+            'monto'           => 'required',
+            'mes'             => 'required|integer|between:1,12',
+            'anio'            => 'required|integer|min:2020',
+            'departamento'    => 'nullable|string',
+            'descripcion'     => 'nullable|string',
+        ]);
+
+        $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            $m = 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes crear provisiones.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+        $monto = (float) preg_replace('/[^\d]/', '', (string) $datos['monto']); // llega con formato de dinero
+        if ($monto <= 0) {
+            $m = 'La provisión debe tener un monto mayor a 0.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+
+        $prov = \App\Models\Provision::create([
+            'codigo_proyecto' => $datos['codigo_proyecto'],
+            'departamento'    => $datos['departamento'] ?: ($request->user()?->departamentoUnico()),
+            'cuenta_14'       => $datos['cuenta_14'],
+            'cuenta_26'       => \App\Http\Controllers\Contable\PlanoContableController::CUENTA_PROVISION,
+            'monto'           => $monto,
+            'descripcion'     => $datos['descripcion'] ?? null,
+            'mes'             => $mes, 'anio' => $anio, 'estado' => 'activa',
+            'user_id'         => $request->user()?->id,
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'provision' => [
+                'id' => $prov->id, 'codigo_proyecto' => $prov->codigo_proyecto,
+                'cuenta_14' => $prov->cuenta_14, 'cuenta_26' => $prov->cuenta_26,
+                'monto' => (float) $prov->monto, 'descripcion' => $prov->descripcion,
+                'desde' => sprintf('%02d/%d', $prov->mes, $prov->anio),
+            ]]);
+        }
+        return back()->with('success', 'Provisión creada. Se conservará cada mes hasta que la reverses.');
+    }
+
+    /**
+     * Reversar una provisión: hace el asiento inverso (Débito 26 / Crédito 14) en el
+     * período abierto y deja de arrastrarse a partir de ese mes.
+     */
+    public function reversarProvision(Request $request, \App\Models\Provision $provision)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'mes'  => 'required|integer|between:1,12',
+            'anio' => 'required|integer|min:2020',
+        ]);
+        $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
+
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            $m = 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes reversar provisiones.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+        if ($provision->estado === 'reversada') {
+            $m = 'Esa provisión ya fue reversada.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+
+        $provision->update([
+            'estado' => 'reversada',
+            'reversada_mes' => $mes, 'reversada_anio' => $anio,
+            'reversada_por' => $request->user()?->id,
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true]);
+        }
+        return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 14) en '.$mes.'/'.$anio.'.');
+    }
+
     public function guardar(Request $request)
 {
     abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
         'No tienes permiso para editar en Operación.');
-    
+
         $accion = $request->input('accion', 'guardar');
         $distId = $request->input('dist');
         $mes    = (int) $request->mes;
         $anio   = (int) $request->anio;
+
+        // Autoguardado (AJAX): responde JSON en vez de redirigir y nunca "envía"
+        // (siempre queda como borrador). Es la red de seguridad que persiste en la BD.
+        $esAuto = $request->boolean('auto');
+        if ($esAuto) {
+            $accion = 'guardar';
+        }
+        $responderError = fn (string $m) => $esAuto
+            ? response()->json(['ok' => false, 'error' => $m], 422)
+            : back()->with('error', $m);
+
+        // Refuerzo de solo lectura: solo se puede editar si Contabilidad abrió el cierre
+        // de ese mes. Impide guardar/enviar/asignar manipulando el formulario.
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            return $responderError(
+                'El cierre de '.$mes.'/'.$anio.' no está abierto. La distribución es de solo lectura hasta que Contabilidad abra el cierre de ese mes.');
+        }
 
         $aplicar    = $request->aplicar ?? [];
         $provision  = $request->provision ?? [];
@@ -292,7 +665,7 @@ class DistribucionCostosController extends Controller
         $distribucion = $distId ? Distribucion::find($distId) : null;
 
         if ($distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada) {
-            return back()->with('error', 'Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
+            return $responderError('Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
         }
 
         // Determinar el departamento del plano:
@@ -301,119 +674,299 @@ class DistribucionCostosController extends Controller
         $usuario = $request->user();
         $departamento = $usuario?->departamentoUnico() ?: $request->input('departamento');
 
-        if (!$distribucion) {
-            if (!in_array($departamento, ['mantenimiento', 'instalaciones'])) {
-                return back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
+        if (!$distribucion && !in_array($departamento, ['mantenimiento', 'instalaciones'])) {
+            return $esAuto
+                ? response()->json(['ok' => false, 'error' => 'Falta el departamento del plano.'], 422)
+                : back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
+        }
+
+        // La aplicación directa 14→61 reconoce costo contra la facturación, así que solo
+        // aplica a órdenes CON ingreso en el mes. Las órdenes sin ingreso no reciben
+        // aplicación directa, pero SÍ pueden recibir costo desde la bolsa de área (se
+        // reclasifica 14→14 hacia la OT, más abajo) — ya no se exige autorización.
+        $ingresoMesG = $this->sumaMes('Ingreso', $anio, $mes);
+        $sinIngreso  = fn ($cod) => abs((float) ($ingresoMesG[$cod] ?? 0)) < 0.5;
+
+        // Refuerzo para proyectos CON ingreso: no aplicar más que el saldo abierto de
+        // cada cuenta 14. Operaciones controla los valores: se guarda lo que dejen (ya
+        // NO se topa al facturado del mes; el límite es el saldo de la cuenta).
+        $saldos14G = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            // Corte acumulado al mes distribuido: no se puede reclasificar costo de
+            // períodos posteriores al que se está distribuyendo (mismo criterio que la vista).
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
+            ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as saldo, MIN(anio*100+mes) as periodo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+        $pendNetoG = [];   // saldo abierto (neto) por cuenta
+        $periodoCuentaG = []; // antigüedad por cuenta
+        foreach ($saldos14G as $r) {
+            $key = $r->codigo_proyecto.'|'.$r->cuenta_contable;
+            $neto = (float) $r->saldo;
+            $pendNetoG[$key]      = $neto < 0 ? abs($neto) : 0.0;
+            $periodoCuentaG[$key] = (int) $r->periodo;
+        }
+        foreach ($aplicar as $cod => $cuentas) {
+            $ing = (float) ($ingresoMesG[$cod] ?? 0);
+            if (abs($ing) < 0.5) continue; // sin ingreso: lo maneja el bloqueo de autorización
+            // Se guarda lo que dejó operaciones, recortando solo al saldo abierto de la cuenta.
+            $capadas = [];
+            foreach ((array) $cuentas as $c14 => $monto) {
+                $monto = min((float) $monto, $pendNetoG[$cod.'|'.$c14] ?? 0.0);
+                if ($monto <= 0.5) continue;
+                $capadas[(string) $c14] = $monto;
             }
-            // Numeración separada por departamento
-            $version = (Distribucion::where('mes', $mes)->where('anio', $anio)
-                        ->where('departamento', $departamento)->max('version') ?? 0) + 1;
-            $distribucion = Distribucion::create([
-                'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
-                'version' => $version, 'estado' => 'borrador',
-                'edicion_habilitada' => false, 'guardado_por' => $request->user()?->id,
-            ]);
-        } else {
-            $distribucion->guardado_por = $request->user()?->id;
+            $aplicar[$cod] = $capadas;
         }
 
-        $cerrar = array_keys(array_filter($estadoObra, fn($e) => $e === 'cerrada'));
-        $pendientePorObra = collect();
-        if (!empty($cerrar)) {
-            $pendientePorObra = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-                ->whereIn('codigo_proyecto', $cerrar)
-                ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
-                ->groupBy('codigo_proyecto')
-                ->pluck('saldo', 'codigo_proyecto');
+        // ── Asignaciones desde bolsas de área (origen del costo) ──
+        // Formato del form: asignacion_bolsa[cod][idx] = ['bolsa'=>..., 'monto'=>...].
+        // Se agregan por (obra, bolsa) y se validan contra el saldo real de la bolsa:
+        // no se puede asignar más que su disponible (refuerzo de servidor del tope).
+        // El "bolsa" del form ahora es el DEPARTAMENTO (bolsa grande: mantenimiento/instalaciones).
+        $asignInput = $request->input('asignacion_bolsa', []);
+        $asignPorObraBolsa = [];
+        foreach ((array) $asignInput as $cod => $items) {
+            // Las órdenes sin ingreso SÍ reciben costo desde la bolsa (14→14): no se filtran.
+            foreach ((array) $items as $it) {
+                $bolsa = trim((string) ($it['bolsa'] ?? ''));
+                $monto = (float) ($it['monto'] ?? 0);
+                if ($bolsa === '' || $monto <= 0.5) continue;
+                $asignPorObraBolsa[$cod][$bolsa] = ($asignPorObraBolsa[$cod][$bolsa] ?? 0) + $monto;
+            }
         }
 
+        $periodoG = Homologacion::periodo($anio, $mes);
+        // Bolsas grandes (por departamento): sus líneas UN+cuenta ya vienen capadas al
+        // "monto a distribuir" editado en el cierre; el disponible = suma de esos montos.
+        $grandes = collect($this->svc->bolsasGrandes(null, $periodoG, $anio, $mes))->keyBy('codigo');
+        $poolBolsa   = []; // [depto] => [ {un_codigo,cuenta_14,periodo,monto} ]  (mutable, se drena FIFO)
+        $infoGrande  = []; // [depto][un|cuenta] => línea (cuenta_61, estructura, nombre)
+        $dispBolsaAD = []; // [depto] => a_distribuir (disponible)
+        foreach ($grandes as $d => $g) {
+            $dispBolsaAD[$d] = (float) $g['a_distribuir'];
+            foreach ($g['lineas'] as $l) {
+                $poolBolsa[$d][] = [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'],
+                    'periodo' => $l['periodo'], 'monto' => (float) $l['monto_distribuir'],
+                ];
+                $infoGrande[$d][$l['un_codigo'].'|'.$l['cuenta_14']] = $l;
+            }
+        }
+
+        // Tope por bolsa grande: recortar lo que exceda el disponible (suma de montos a distribuir).
+        $restanteBolsa = $dispBolsaAD;
+        $asignFinal = [];
+        $recortes = [];
+        foreach ($asignPorObraBolsa as $cod => $porBolsa) {
+            foreach ($porBolsa as $bolsa => $monto) {
+                $disp = $restanteBolsa[$bolsa] ?? 0;
+                $usar = min($monto, max(0.0, $disp));
+                if ($usar <= 0.5) { $recortes[$bolsa] = true; continue; }
+                if ($usar < $monto - 0.5) $recortes[$bolsa] = true;
+                $asignFinal[$cod][$bolsa] = round($usar, 2);
+                $restanteBolsa[$bolsa]    = $disp - $usar;
+            }
+        }
+
+        // Todo el guardado (crear/actualizar el borrador, estados de obra, borrar y
+        // reinsertar las líneas de AplicacionCosto, observaciones y la versión) va en
+        // una sola transacción: si algo falla a mitad, no queda un plano parcial.
         $noCerradas = [];
-        foreach ($estadoObra as $cod => $est) {
-            if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
-            if ($est === 'cerrada') {
-                $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
-                $pendAbs   = $saldo < 0 ? abs($saldo) : 0;
-                $reversado = $saldo > 0 ? $saldo : 0;
-                $aplicado  = array_sum(array_map('floatval', $aplicar[$cod] ?? []));
-                if ($reversado > 0.5 || $aplicado < $pendAbs - 0.5) {
-                    $est = 'parcial';
-                    $noCerradas[] = $cod;
+        $msg = '';
+
+        DB::transaction(function () use (
+            &$distribucion, &$noCerradas, &$msg,
+            $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $sinIngreso,
+            $asignFinal, $poolBolsa, $infoGrande, $esAuto
+        ) {
+            if (!$distribucion) {
+                // Numeración separada por departamento
+                $version = (Distribucion::where('mes', $mes)->where('anio', $anio)
+                            ->where('departamento', $departamento)->max('version') ?? 0) + 1;
+                $distribucion = Distribucion::create([
+                    'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
+                    'tipo' => 'obras', // distribución de obras (inventario en tránsito)
+                    'version' => $version, 'estado' => 'borrador',
+                    'edicion_habilitada' => false, 'guardado_por' => $request->user()?->id,
+                ]);
+            } else {
+                $distribucion->guardado_por = $request->user()?->id;
+            }
+
+            $cerrar = array_keys(array_filter($estadoObra, fn($e) => $e === 'cerrada'));
+            $pendientePorObra = collect();
+            if (!empty($cerrar)) {
+                $pendientePorObra = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+                    ->whereIn('codigo_proyecto', $cerrar)
+                    ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+                    ->groupBy('codigo_proyecto')
+                    ->pluck('saldo', 'codigo_proyecto');
+            }
+
+            foreach ($estadoObra as $cod => $est) {
+                if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
+                if ($est === 'cerrada') {
+                    $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
+                    $pendAbs   = $saldo < 0 ? abs($saldo) : 0;
+                    $reversado = $saldo > 0 ? $saldo : 0;
+                    $aplicado  = array_sum(array_map('floatval', $aplicar[$cod] ?? []));
+                    if ($reversado > 0.5 || $aplicado < $pendAbs - 0.5) {
+                        $est = 'parcial';
+                        $noCerradas[] = $cod;
+                    }
+                }
+                ObraEstado::updateOrCreate(
+                    ['codigo_proyecto' => $cod],
+                    ['estado' => $est, 'user_id' => $request->user()?->id]
+                );
+            }
+
+            // IMPORTANTE: la cuenta 61 y la estructura que se copian a AplicacionCosto quedan
+            // CONGELADAS. Deben ser las del período que se está distribuyendo, no las de hoy.
+            $periodo = Homologacion::periodo($anio, $mes);
+            $homol   = Homologacion::mapaEn($periodo);
+
+            AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
+
+            foreach ($aplicar as $cod => $cuentas) {
+                if ($sinIngreso($cod)) continue; // sin ingreso: no hay aplicación directa 14→61 (usa bolsa)
+                foreach ($cuentas as $c14 => $monto) {
+                    $monto = (float) $monto;
+                    if ($monto <= 0) continue;
+                    $h = $homol[(string) $c14] ?? null;
+                    AplicacionCosto::create([
+                        'distribucion_id' => $distribucion->id,
+                        'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
+                        'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
+                        'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
+                        'monto_aplicar' => $monto, 'es_provision' => false,
+                        'estado' => 'borrador', 'user_id' => $request->user()?->id,
+                    ]);
                 }
             }
-            ObraEstado::updateOrCreate(
-                ['codigo_proyecto' => $cod],
-                ['estado' => $est, 'user_id' => $request->user()?->id]
-            );
-        }
 
-        // IMPORTANTE: la cuenta 61 y la estructura que se copian a AplicacionCosto quedan
-        // CONGELADAS. Deben ser las del período que se está distribuyendo, no las de hoy.
-        $periodo = Homologacion::periodo($anio, $mes);
-        $homol   = Homologacion::mapaEn($periodo);
+            // Las provisiones ya NO se guardan aquí: son persistentes (tabla provisiones),
+            // se crean/reversan con sus propios botones y se arrastran mes a mes.
 
-        AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
+            // ── Asignaciones de bolsa: persistir y reflejar en el costo del proyecto ──
+            // (las líneas origen_bolsa de aplicaciones_costo ya se borraron con el delete
+            //  general de arriba). Cada asignación se baja a las cuentas 14 reales de la
+            //  bolsa (FIFO, drenando el pool) para que el plano acredite las cuentas
+            //  correctas y el resumen la cuente como costo del mes de la obra.
+            BolsaAsignacion::where('distribucion_id', $distribucion->id)->delete();
 
-        foreach ($aplicar as $cod => $cuentas) {
-            foreach ($cuentas as $c14 => $monto) {
-                $monto = (float) $monto;
-                if ($monto <= 0) continue;
-                $h = $homol[(string) $c14] ?? null;
-                AplicacionCosto::create([
-                    'distribucion_id' => $distribucion->id,
-                    'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                    'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
-                    'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
-                    'monto_aplicar' => $monto, 'es_provision' => false,
-                    'estado' => 'borrador', 'user_id' => $request->user()?->id,
-                ]);
+            foreach ($asignFinal as $cod => $porBolsa) {
+                foreach ($porBolsa as $bolsa => $monto) { // $bolsa = departamento (bolsa grande)
+                    $info = $infoGrande[$bolsa] ?? [];
+                    // Consumo FIFO real (más antiguo primero) sobre el pool de la bolsa grande:
+                    // devuelve porciones por (UN, cuenta) — la UN real de origen.
+                    $porciones = $this->svc->drenarBolsaGrande($poolBolsa[$bolsa], (float) $monto);
+
+                    $detalle = [];
+                    foreach ($porciones as $p) {
+                        if ($p['monto'] <= 0.005) continue;
+                        $un  = $p['un_codigo'];
+                        $c14 = $p['cuenta_14'];
+                        $l   = $info[$un.'|'.$c14] ?? [];
+                        $c61 = $l['cuenta_61'] ?? 'SIN HOMOLOGAR';
+
+                        // Trazabilidad: de qué UN, cuenta 14 y período salió cada porción.
+                        $detalle[] = [
+                            'un_codigo' => (string) $un,
+                            'cuenta_14' => (string) $c14,
+                            'cuenta_61' => (string) $c61,
+                            'periodo'   => (int) ($l['periodo'] ?? 0),
+                            'monto'     => round($p['monto'], 2),
+                        ];
+
+                        // El plano acredita la cuenta 14 de la UN REAL de origen: origen_bolsa = UN.
+                        AplicacionCosto::create([
+                            'distribucion_id' => $distribucion->id,
+                            'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
+                            'cuenta_14' => $c14, 'origen_bolsa' => $un,
+                            'cuenta_61' => $c61,
+                            'categoria' => $l['estructura'] ?? null,
+                            'nombre'    => $l['nombre'] ?? null,
+                            'monto_aplicar' => round($p['monto'], 2), 'es_provision' => false,
+                            'descripcion' => 'Desde bolsa '.(\App\Services\DistribucionService::DEPARTAMENTOS[$bolsa] ?? $bolsa).' · UN '.$un,
+                            'estado' => 'borrador', 'user_id' => $request->user()?->id,
+                        ]);
+                    }
+
+                    BolsaAsignacion::create([
+                        'distribucion_id' => $distribucion->id,
+                        'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
+                        'bolsa_codigo' => $bolsa, 'codigo_proyecto' => $cod, // bolsa_codigo = departamento
+                        'monto' => round((float) $monto, 2), 'detalle' => $detalle,
+                        'user_id' => $request->user()?->id,
+                    ]);
+                }
             }
-        }
 
-        foreach ($provision as $cod => $items) {
-            foreach ($items as $p) {
-                $monto = (float) ($p['monto'] ?? 0);
-                $c14   = $p['cuenta'] ?? null;
-                if ($monto <= 0 || !$c14) continue;
-                $h = $homol[(string) $c14] ?? null;
-                AplicacionCosto::create([
-                    'distribucion_id' => $distribucion->id,
-                    'mes' => $mes, 'anio' => $anio, 'codigo_proyecto' => $cod,
-                    'cuenta_14' => $c14, 'cuenta_61' => $h->cuenta_61 ?? 'SIN HOMOLOGAR',
-                    'categoria' => $h->estructura ?? null, 'nombre' => $h->nombre ?? null,
-                    'monto_aplicar' => $monto, 'es_provision' => true,
-                    'descripcion' => $p['desc'] ?? null,
-                    'estado' => 'borrador', 'user_id' => $request->user()?->id,
-                ]);
+            // Conciliación FIFO: marcar reconocidos los ítems comerciales que cubre esta
+            // reclasificación 14→61 (los más antiguos primero, por obra y cuenta).
+            $this->reconocerItemsFifo($distribucion, $mes, $anio);
+
+            // Guardar observaciones del coordinador (por obra, mes y año)
+            $observacionesInput = $request->input('observacion', []);
+            foreach ($observacionesInput as $cod => $texto) {
+                $texto = trim((string) $texto);
+                ObservacionObra::updateOrCreate(
+                    ['codigo_proyecto' => $cod, 'mes' => $mes, 'anio' => $anio],
+                    ['observacion' => $texto !== '' ? $texto : null, 'user_id' => $request->user()?->id]
+                );
             }
-        }
 
-        // Guardar observaciones del coordinador (por obra, mes y año)
-        $observacionesInput = $request->input('observacion', []);
-        foreach ($observacionesInput as $cod => $texto) {
-            $texto = trim((string) $texto);
-            ObservacionObra::updateOrCreate(
-                ['codigo_proyecto' => $cod, 'mes' => $mes, 'anio' => $anio],
-                ['observacion' => $texto !== '' ? $texto : null, 'user_id' => $request->user()?->id]
-            );
-        }
+            if ($accion === 'enviar') {
+                $distribucion->estado = 'enviado';
+                $distribucion->reemplazada = false; // esta pasa a ser la vigente
+                $distribucion->edicion_habilitada = false;
+                $distribucion->enviado_at = now();
+                $distribucion->enviado_por = $request->user()?->id;
+                $msg = 'Borrador enviado a contabilidad. Queda en solo lectura.';
+            } else {
+                $msg = 'Borrador guardado.';
+            }
+            $distribucion->save();
 
-        if ($accion === 'enviar') {
-            $distribucion->estado = 'enviado';
-            $distribucion->edicion_habilitada = false;
-            $distribucion->enviado_at = now();
-            $distribucion->enviado_por = $request->user()?->id;
-            $msg = 'Borrador enviado a contabilidad. Queda en solo lectura.';
-        } else {
-            $msg = 'Borrador guardado.';
-        }
-        $distribucion->save();
+            // Reenvío: cualquier OTRA versión enviada del mismo mes/año/departamento queda
+            // reemplazada, para que el plano de contabilidad no tenga dudas de cuál es la
+            // vigente (evita que un reenvío se lea contra una versión anterior).
+            if ($accion === 'enviar') {
+                Distribucion::where('mes', $distribucion->mes)
+                    ->where('anio', $distribucion->anio)
+                    ->where('departamento', $distribucion->departamento)
+                    ->where('id', '!=', $distribucion->id)
+                    ->where('estado', 'enviado')
+                    ->update(['reemplazada' => true]);
+            }
 
-        // Registrar la versión en la bitácora (foto congelada de este momento)
-        $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
-        $this->registrarVersion($distribucion, $evento, $request);
+            // Registrar la versión en la bitácora (foto congelada de este momento).
+            // En autoguardado NO se registra, para no llenar la bitácora de snapshots.
+            if (! $esAuto) {
+                $evento = $accion === 'enviar' ? 'enviado' : 'guardado';
+                $this->registrarVersion($distribucion, $evento, $request);
+            }
+        });
 
         if (!empty($noCerradas)) {
             $msg .= ' Nota: ' . implode(', ', $noCerradas) . ' no se pudieron cerrar (saldo abierto en cuenta 14); quedaron en parcial.';
+        }
+        if (!empty($recortes)) {
+            $msg .= ' Nota: se recortaron asignaciones que superaban el saldo disponible de la(s) bolsa(s): ' . implode(', ', array_keys($recortes)) . '.';
+        }
+
+        if ($esAuto) {
+            return response()->json([
+                'ok'   => true,
+                'dist' => $distribucion->id,
+                'hora' => now()->format('h:i a'),
+            ]);
         }
 
         return redirect()->route('operativo.distribucion', ['dist' => $distribucion->id])->with('success', $msg);
@@ -432,6 +985,53 @@ class DistribucionCostosController extends Controller
     return back()->with('success', 'Borrador eliminado.');
 }
 
+    /**
+     * Fase D: reasignar un ítem de una obra a otra. Mueve el ítem (cambia codigo_obra:
+     * baja el costo en el origen y sube en el destino), deja trazabilidad y se refleja
+     * en el plano como una reclasificación 14→14 (misma cuenta, cambia la UN).
+     */
+    public function reasignarItem(Request $request, ItemDistribucion $item)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $datos = $request->validate([
+            'destino' => 'required|string|max:60',
+            'motivo'  => 'nullable|string|max:500',
+        ]);
+
+        $origen  = $item->codigo_obra;
+        $destino = trim($datos['destino']);
+        if ($destino === '' || strcasecmp($destino, $origen) === 0) {
+            return back()->with('error', 'La obra destino debe ser distinta de la de origen.');
+        }
+
+        DB::transaction(function () use ($item, $origen, $destino, $datos, $request) {
+            ReasignacionItem::create([
+                'item_distribucion_id' => $item->id,
+                'mes' => $item->mes, 'anio' => $item->anio,
+                'codigo_obra_origen' => $origen, 'codigo_obra_destino' => $destino,
+                'cuenta' => $item->cuenta, 'item' => $item->item,
+                'costo' => abs((float) $item->costo), 'naturaleza' => $item->naturaleza,
+                'motivo' => $datos['motivo'] ?? null,
+                'user_id' => $request->user()?->id, 'user_nombre' => $request->user()?->name,
+            ]);
+
+            // Mover el ítem a la obra destino. Se reinicia el reconocimiento: ahora
+            // pertenece a otra obra y deberá reconocerse con la distribución del destino.
+            $item->codigo_obra      = $destino;
+            $item->reconocido       = false;
+            $item->monto_reconocido = 0;
+            $item->reconocido_at    = null;
+            $item->distribucion_id  = null;
+            $item->save();
+        });
+
+        return redirect()->route('operativo.distribucion', array_filter([
+            'mes' => $item->mes, 'anio' => $item->anio, 'dist' => $request->input('dist'),
+        ]))->with('success', "Ítem reasignado de {$origen} a {$destino}. Reclasificación de UN (14→14) reflejada en el plano.");
+    }
+
     public function resumen(Request $request)
     {
         $mes  = (int) $request->input('mes', date('n'));
@@ -444,7 +1044,14 @@ class DistribucionCostosController extends Controller
             $departamento = 'mantenimiento';
         }
 
-        $datos = $this->construirResumen($mes, $anio, $departamento, $request->input('aplicar', []));
+        // El resumen (pantalla y Excel) se arma con EXACTAMENTE los mismos datos: lo que
+        // el operador escribió en "aplicar" y las asignaciones de bolsa. El botón de
+        // descarga reenvía este mismo payload (ver los hidden en la vista), así el Excel
+        // no recalcula con datos distintos.
+        $aplicar    = $request->input('aplicar', []);
+        $asignBolsa = $this->agruparAsignBolsa($request->input('asignacion_bolsa', []));
+
+        $datos = $this->construirResumen($mes, $anio, $departamento, $aplicar, $asignBolsa);
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? '').' '.$anio;
@@ -462,11 +1069,263 @@ class DistribucionCostosController extends Controller
             'departamento' => $departamento,
             'periodo'      => $periodo,
             'descargar'    => false,
+            'aplicar'      => $aplicar,     // para reenviar el mismo payload en la descarga
+            'asignBolsa'   => $asignBolsa,
         ]));
     }
 
+    /**
+     * Informe: total FACTURADO del período agrupado por tipo de obra (según tipoObra()).
+     * Filtrable por mes/año y (para director/admin) por departamento. Descargable en Excel.
+     */
+    public function facturado(Request $request)
+    {
+        $mes  = (int) $request->input('mes', date('n'));
+        $anio = (int) $request->input('anio', date('Y'));
+
+        $usuario     = $request->user();
+        $depUsuario  = $usuario?->departamentoUnico();
+        $depElegido  = $request->input('departamento');
+        $depEfectivo = $depUsuario ?: ($depElegido ?: null);
+        $prefijos    = $depEfectivo ? User::prefijosDeDepartamento($depEfectivo) : null;
+
+        $labels = [
+            'obras'      => 'Obras',
+            'contrato'   => 'Contratos',
+            'reparacion' => 'Reparaciones',
+            'garantia'   => 'Garantías',
+            'otro'       => 'Otros',
+        ];
+        $porTipo = array_fill_keys(array_keys($labels), 0.0);
+        $total   = 0.0;
+
+        $bolsaCodigos = array_flip(UnBolsa::codigos()); // las bolsas no son facturación
+        $ingresoMes   = $this->sumaMes('Ingreso', $anio, $mes);
+
+        foreach ($ingresoMes as $cod => $val) {
+            if (isset($bolsaCodigos[$cod])) continue;
+            if ($prefijos !== null) {
+                $c = strtoupper((string) $cod); $ok = false;
+                foreach ($prefijos as $p) if (str_starts_with($c, $p)) { $ok = true; break; }
+                if (!$ok) continue;
+            }
+            $tk = $this->tipoObra((string) $cod);
+            if (!isset($porTipo[$tk])) $porTipo[$tk] = 0.0;
+            $porTipo[$tk] += (float) $val;
+            $total += (float) $val;
+        }
+
+        // Filas para la vista/Excel: solo los tipos con facturación (orden del menú).
+        $filas = [];
+        foreach ($labels as $tk => $label) {
+            if (abs($porTipo[$tk]) > 0.5) {
+                $filas[] = ['tipo' => $tk, 'label' => $label, 'total' => $porTipo[$tk]];
+            }
+        }
+
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? '').' '.$anio;
+
+        if ($request->input('descargar') == '1') {
+            $suf = $depEfectivo ? '_'.ucfirst($depEfectivo) : '';
+            $archivo = 'Facturado_por_tipo'.$suf.'_'.str_replace(' ', '_', $periodo).'.xlsx';
+            return Excel::download(new FacturadoTipoExport($filas, $total, $periodo), $archivo);
+        }
+
+        return view('operativo.facturado', [
+            'mes'         => $mes,
+            'anio'        => $anio,
+            'periodo'     => $periodo,
+            'depUsuario'  => $depUsuario,
+            'depEfectivo' => $depEfectivo,
+            'filas'       => $filas,
+            'total'       => $total,
+        ]);
+    }
+
+    /**
+     * Adjunta a cada obra el detalle de ítems por cuenta (vista de CONCILIACIÓN, no
+     * aditiva): el costo ya está en la cuenta; aquí solo se listan los ítems que la
+     * componen y se contrasta la suma de ítems (salidas − reintegros) contra el total
+     * real de la cuenta (costo del período ya en la cuenta 6). La diferencia detecta
+     * ítems faltantes o sin cruzar.
+     * $o['items_por_cuenta'] = [cuenta => ['suma_items','total_cuenta','diferencia','cuadra','items'=>[]]].
+     */
+    private function adjuntarItemsPorCuenta(array &$obras, int $mes, int $anio): void
+    {
+        foreach ($obras as $cod => &$o) {
+            $o['items_por_cuenta'] = [];
+        }
+        unset($o);
+
+        if (empty($obras)) {
+            return;
+        }
+        $codigos = array_keys($obras);
+
+        // Saldo real por (obra, cuenta 14): la conciliación es contra la CUENTA 14
+        // ('Costos por aplicar'), NO contra la cuenta 6. Los ítems se agrupan por su
+        // cuenta 14 (la de la llave), así que el total debe salir de la misma cuenta 14
+        // para que las llaves coincidan. Mismo corte acumulado al mes que el saldo de la obra.
+        $totales = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
+            ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+        foreach ($totales as $t) {
+            $cod = $t->codigo_proyecto;
+            if (!isset($obras[$cod])) continue;
+            $cta = (string) $t->cuenta_contable;
+            $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => abs((float) $t->total), 'reconocido_total' => 0.0, 'items' => []];
+        }
+
+        // Ítems ACUMULADOS al mes filtrado por (obra, cuenta): mismo corte que el saldo
+        // de la cuenta 14, para que la suma de ítems pendientes cuadre con el saldo
+        // acumulado de la cuenta (no solo con el movimiento del propio mes).
+        $items = ItemDistribucion::whereIn('codigo_obra', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(function ($s) use ($anio, $mes) {
+                        $s->where('anio', $anio)->where('mes', '<=', $mes);
+                    });
+            })
+            ->orderBy('cuenta')->orderBy('fecha')->orderBy('id')
+            ->get();
+        foreach ($items as $it) {
+            $cod = $it->codigo_obra;
+            if (!isset($obras[$cod])) continue;
+            $cta = (string) $it->cuenta;
+            if ($cta === '') continue; // ítem sin cuenta (no cruzó la llave): se reporta en el cargue, no en la conciliación
+            if (!isset($obras[$cod]['items_por_cuenta'][$cta])) {
+                $obras[$cod]['items_por_cuenta'][$cta] = ['suma_items' => 0.0, 'total_cuenta' => 0.0, 'reconocido_total' => 0.0, 'items' => []];
+            }
+            $obras[$cod]['items_por_cuenta'][$cta]['suma_items'] += $it->costoNeto();
+            $obras[$cod]['items_por_cuenta'][$cta]['items'][] = [
+                'id'               => $it->id,
+                'item'             => (string) $it->item,
+                'tipo_inventario'  => (string) $it->tipo_inventario,
+                'movimiento'       => trim((string) $it->codigo_movimiento . ' ' . (string) $it->tipo_movimiento),
+                'tercero'          => (string) $it->tercero,
+                'cantidad'         => $it->cantidad,
+                'fecha'            => $it->fecha ? $it->fecha->format('d/m/Y') : '',
+                'numero_documento' => (string) $it->numero_documento,
+                'costo'            => abs((float) $it->costo),
+                'reintegro'        => $it->esReintegro(),
+                'reconocido'       => (bool) $it->reconocido,
+                'monto_reconocido' => (float) $it->monto_reconocido,
+                'pendiente'        => $it->pendiente(),
+            ];
+        }
+
+        // Conciliación contra la CUENTA 14 usando el ESTADO CONTABLE REAL.
+        // El "reconocido" (14→61 ya reclasificado) NO se toma del reconocimiento propio de la
+        // app —contabilidad lo hace en BIABLE—, sino del hecho de que el saldo de la cuenta 14
+        // ya bajó: Reconocido = suma de ítems − saldo pendiente de la cuenta 14. Se reparte
+        // FIFO (los ítems más antiguos quedan reconocidos; los más nuevos, que suman el saldo
+        // de la cuenta 14, quedan pendientes). Así Pendiente = saldo cuenta 14 → cuadra.
+        foreach ($obras as $cod => &$o) {
+            if (empty($o['items_por_cuenta'])) continue;
+            ksort($o['items_por_cuenta']);
+            foreach ($o['items_por_cuenta'] as $cta => &$g) {
+                $g['suma_items']       = round($g['suma_items'], 2);
+                $g['reconocido_total'] = round(max(0.0, $g['suma_items'] - $g['total_cuenta']), 2);
+                $g['pendiente_total']  = round($g['suma_items'] - $g['reconocido_total'], 2);
+                $g['diferencia']       = round($g['total_cuenta'] - $g['pendiente_total'], 2);
+                $g['cuadra']           = abs($g['diferencia']) <= 0.5;
+
+                // FIFO por fecha: marcar reconocidos los ítems más antiguos hasta cubrir el
+                // monto reconocido; el resto (los más nuevos) quedan pendientes.
+                $rem = $g['reconocido_total'];
+                foreach ($g['items'] as &$it) {
+                    $c = (float) $it['costo'];
+                    if ($rem >= $c - 0.005) {
+                        $it['reconocido'] = true;  $it['monto_reconocido'] = $c;              $it['pendiente'] = 0.0;
+                        $rem -= $c;
+                    } elseif ($rem > 0.005) {
+                        $it['reconocido'] = false; $it['monto_reconocido'] = round($rem, 2);  $it['pendiente'] = round($c - $rem, 2);
+                        $rem = 0.0;
+                    } else {
+                        $it['reconocido'] = false; $it['monto_reconocido'] = 0.0;             $it['pendiente'] = $c;
+                    }
+                }
+                unset($it);
+            }
+            unset($g);
+        }
+        unset($o);
+    }
+
+    /**
+     * Conciliación FIFO: al reclasificar 14→61, marca reconocidos los ítems comerciales
+     * pendientes de cada (obra, cuenta) del período, del más antiguo al más nuevo, hasta
+     * cubrir el monto aplicado. Reconocimiento parcial vía monto_reconocido. Idempotente:
+     * al re-guardar/reenviar deshace primero lo que esta distribución había reconocido.
+     */
+    private function reconocerItemsFifo(Distribucion $distribucion, int $mes, int $anio): void
+    {
+        ItemDistribucion::where('distribucion_id', $distribucion->id)->update([
+            'reconocido' => false, 'monto_reconocido' => 0, 'reconocido_at' => null, 'distribucion_id' => null,
+        ]);
+
+        // Monto reclasificado (14→61) por (obra, cuenta 14): solo aplicaciones PROPIAS de
+        // la obra (no provisiones ni costo de bolsas, que no salen del inventario de ítems).
+        // Los ítems se agrupan por su cuenta 14 (la de la llave), así que el reconocimiento
+        // consume los ítems de esa misma cuenta 14.
+        $aplicado = AplicacionCosto::where('distribucion_id', $distribucion->id)
+            ->where('es_provision', false)->whereNull('origen_bolsa')
+            ->selectRaw('codigo_proyecto, cuenta_14, SUM(monto_aplicar) as total')
+            ->groupBy('codigo_proyecto', 'cuenta_14')
+            ->get();
+
+        foreach ($aplicado as $ap) {
+            $restante = (float) $ap->total;
+            if ($restante <= 0.5) continue;
+
+            $items = ItemDistribucion::where('codigo_obra', $ap->codigo_proyecto)
+                ->where('cuenta', $ap->cuenta_14)
+                ->where('mes', $mes)->where('anio', $anio)
+                ->orderBy('fecha')->orderBy('id')
+                ->get();
+
+            foreach ($items as $it) {
+                if ($restante <= 0.005) break;
+                $pendiente = abs((float) $it->costo) - (float) $it->monto_reconocido;
+                if ($pendiente <= 0.005) continue; // ya reconocido (por otra distribución)
+                $usar = min($pendiente, $restante);
+                $it->monto_reconocido = (float) $it->monto_reconocido + $usar;
+                $it->reconocido       = $it->monto_reconocido >= abs((float) $it->costo) - 0.005;
+                $it->reconocido_at    = now();
+                $it->distribucion_id  = $distribucion->id;
+                $it->save();
+                $restante -= $usar;
+            }
+        }
+    }
+
+    /** Convierte el input del form (asignacion_bolsa[cod][idx]=['bolsa','monto']) a [cod => [bolsa => monto]]. */
+    private function agruparAsignBolsa($input): array
+    {
+        $out = [];
+        foreach ((array) $input as $cod => $items) {
+            foreach ((array) $items as $it) {
+                $bolsa = trim((string) ($it['bolsa'] ?? ''));
+                $monto = (float) ($it['monto'] ?? 0);
+                if ($bolsa === '' || $monto <= 0.5) continue;
+                $out[$cod][$bolsa] = ($out[$cod][$bolsa] ?? 0) + $monto;
+            }
+        }
+        return $out;
+    }
+
     // Lógica compartida: arma la tabla del resumen para un departamento concreto.
-    private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = []): array
+    // $asignBolsa = [cod => [bolsa => monto]] (costo asignado desde bolsas de área).
+    private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = [], array $asignBolsa = []): array
     {
         if ($departamento === 'instalaciones') {
             $tipos = ['obras' => 'Obras', 'garantia' => 'Garantías'];
@@ -567,6 +1426,46 @@ class DistribucionCostosController extends Controller
             }
         }
 
+        // 4) Costo asignado desde bolsas de área (14 -> 6), repartido a las cuentas 14
+        //    reales de la bolsa por FIFO (mismo criterio que al guardar) y clasificado
+        //    por su estructura. Así el resumen incluye lo que se ve en la pantalla.
+        if (!empty($asignBolsa)) {
+            // El "bolsa" es ahora el departamento (bolsa grande). Se drena su pool de
+            // líneas UN+cuenta (capadas al monto a distribuir) en FIFO, igual que al guardar.
+            $grandes = collect($this->svc->bolsasGrandes(null, $periodoContable, $anio, $mes))->keyBy('codigo');
+            $pool = [];
+            foreach ($grandes as $d => $g) {
+                $pool[$d] = array_map(fn ($l) => [
+                    'un_codigo' => $l['un_codigo'], 'cuenta_14' => $l['cuenta_14'],
+                    'periodo' => $l['periodo'], 'monto' => (float) $l['monto_distribuir'],
+                ], $g['lineas']);
+            }
+            foreach ($asignBolsa as $cod => $porBolsa) {
+                if (!$esDelDepto($cod)) continue;
+                $tk = $this->tipoObra((string) $cod);
+                if (!isset($tabla[$tk])) continue;
+                foreach ($porBolsa as $bolsa => $monto) {
+                    if (!isset($pool[$bolsa])) continue;
+                    foreach ($this->svc->drenarBolsaGrande($pool[$bolsa], (float) $monto) as $p) {
+                        $m = $p['monto'];
+                        if ($m <= 0.005) continue;
+                        $c14 = $p['cuenta_14'];
+                        $h  = $mapa14[(string) $c14] ?? null;
+                        $ck = $h->estructura ?? 'OTROS COSTO';
+                        if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
+                        $tabla[$tk]['cat'][$ck] += $m;
+                        $tabla[$tk]['detalle'][$ck][] = [
+                            'proyecto'  => (string) $cod,
+                            'cuenta_14' => (string) $c14,
+                            'cuenta_61' => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
+                            'monto'     => $m,
+                            'origen'    => 'bolsa',  // asignado desde una bolsa de área
+                        ];
+                    }
+                }
+            }
+        }
+
         foreach ($tabla as $tk => &$t) {
             $t['costo_total'] = array_sum($t['cat']);
             $t['mc_pesos']    = $t['ingreso'] - $t['costo_total'];
@@ -627,6 +1526,280 @@ class DistribucionCostosController extends Controller
             'user_id'         => $request->user()?->id,
             'user_nombre'     => $request->user()?->name,
             'snapshot'        => $this->armarSnapshotResumen($distribucion),
+        ]);
+    }
+
+    /**
+     * Reporte Excel POR OBRA de una distribución: lo aplicado en cada obra (propio y
+     * desde bolsas) y cómo quedó (ingreso, costo, margen del mes, inventario en tránsito
+     * pendiente/restante y estado). Se genera desde una distribución guardada.
+     */
+    public function reporteObras(Request $request, Distribucion $distribucion)
+    {
+        abort_unless($request->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        $mes = (int) $distribucion->mes;
+        $anio = (int) $distribucion->anio;
+        $dep = $distribucion->departamento;
+
+        // Lo aplicado por obra en esta distribución (propio = reduce su 14; bolsa = de áreas).
+        $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)->get();
+        $porObra = [];
+        foreach ($lineas as $l) {
+            $cod = $l->codigo_proyecto;
+            $porObra[$cod] ??= ['propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0];
+            $m = (float) $l->monto_aplicar;
+            $l->origen_bolsa ? $porObra[$cod]['bolsa'] += $m : $porObra[$cod]['propio'] += $m;
+            $porObra[$cod]['total'] += $m;
+        }
+        $codigos = array_keys($porObra);
+        sort($codigos);
+
+        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
+        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
+        $pend14 = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                    ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto')->pluck('saldo', 'codigo_proyecto');
+        $fichas    = FichaProyecto::whereIn('codigo_proyecto', $codigos)->get()->keyBy('codigo_proyecto');
+        $nombreMov = RegistroFinanciero::whereIn('codigo_proyecto', $codigos)->pluck('nombre_proyecto', 'codigo_proyecto');
+        $estados   = ObraEstado::whereIn('codigo_proyecto', $codigos)->pluck('estado', 'codigo_proyecto');
+
+        // Números CRUDOS en las columnas de valores (el formato de miles lo pone Excel);
+        // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
+        $head = ['Código', 'Proyecto', 'Cliente', 'Ingreso del mes', 'Costo del mes (cta 6)',
+            'Aplicado 14→6', 'Aplicado desde bolsas', 'Aplicado total', 'Costo total del mes',
+            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Restante 14', 'Estado'];
+        $filas = [$head];
+
+        $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0,
+              'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
+
+        foreach ($codigos as $cod) {
+            $a = $porObra[$cod];
+            $ing = (float) ($ingMes[$cod] ?? 0);
+            $c6  = abs((float) ($costoMes[$cod] ?? 0));
+            $saldo = (float) ($pend14[$cod] ?? 0);
+            $pend = $saldo < 0 ? abs($saldo) : 0.0;   // saldo negativo = pendiente por aplicar
+            $costoTot = $c6 + $a['total'];
+            $mc = $ing - $costoTot;
+            $mcPct = $ing != 0 ? ($mc / $ing * 100) : null;
+            $rest = max(0.0, $pend - $a['propio']);   // lo que queda en la 14 propia de la obra
+
+            $filas[] = [
+                $cod,
+                $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
+                $fichas[$cod]->cliente ?? '',
+                round($ing), round($c6), round($a['propio']), round($a['bolsa']), round($a['total']),
+                round($costoTot), round($mc),
+                $mcPct === null ? '—' : number_format($mcPct, 1, ',', '.').'%',
+                round($pend), round($rest), ucfirst($estados[$cod] ?? 'abierta'),
+            ];
+
+            $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio'];
+            $t['bolsa'] += $a['bolsa']; $t['total'] += $a['total']; $t['costoTot'] += $costoTot;
+            $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
+        }
+
+        $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
+        $filas[] = ['TOTAL', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
+            round($t['bolsa']), round($t['total']), round($t['costoTot']), round($t['mc']),
+            $mcPctTot === null ? '—' : number_format($mcPctTot, 1, ',', '.').'%',
+            round($t['pend']), round($t['rest']), ''];
+
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);
+        return Excel::download(new \App\Exports\ReporteObrasExport($filas), 'Distribucion_por_obra_'.$periodo.'.xlsx');
+    }
+
+    /**
+     * Reporte Excel de las OBRAS CON SALDO ABIERTO/PARCIAL en la cuenta 14 (inventario en
+     * tránsito), para enviar a Contabilidad y Operaciones a validar. Trae todo lo de la
+     * tarjeta (código, proyecto, cliente, ingresos, costos, provisión, saldo de la 14 y
+     * márgenes del mes/acumulado/proyección) con los márgenes pintados con el semáforo.
+     */
+    public function reporteSaldos(Request $request)
+    {
+        abort_unless($request->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $defMes);
+        $anio = (int) $request->get('anio', $defAnio);
+
+        // Departamento efectivo (el del supervisor manda; si no, el que eligió el director).
+        $usuario     = $request->user();
+        $depEfectivo = $usuario?->departamentoUnico() ?: $request->get('departamento');
+        $prefijos    = $depEfectivo ? \App\Models\User::prefijosDeDepartamento($depEfectivo) : null;
+
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where(function ($sub) use ($anio, $mes) {
+                $sub->where('anio', '<', $anio)
+                    ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            });
+        };
+
+        // Obras con saldo NETO real en la cuenta 14 (acumulado al mes filtrado).
+        $neto = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where($corteAcum)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->pluck('saldo', 'codigo_proyecto');
+
+        $codigos = collect($neto->keys())
+            ->filter(fn ($cod) => ! $prefijos || $this->empiezaPorAlguno((string) $cod, $prefijos))
+            ->values()->all();
+        sort($codigos);
+
+        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
+        $ingAcum  = $this->sumaAcum('Ingreso', $anio, $mes);
+        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
+        $costoAcum= $this->sumaAcum('Costos aplicados', $anio, $mes);
+        $fichas   = FichaProyecto::whereIn('codigo_proyecto', $codigos)->get()->keyBy('codigo_proyecto');
+        $nombreMov= RegistroFinanciero::whereIn('codigo_proyecto', $codigos)->pluck('nombre_proyecto', 'codigo_proyecto');
+        $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
+        $estadoManual = ObraEstado::pluck('estado', 'codigo_proyecto');
+        $provPorObra  = \App\Models\Provision::activasEn($mes, $anio)->get()
+            ->groupBy('codigo_proyecto')->map(fn ($g) => (float) $g->sum('monto'));
+
+        // Aplicado ya guardado en la última distribución de obras del período (propio y bolsa).
+        $ultimaDist = Distribucion::where('mes', $mes)->where('anio', $anio)
+            ->where('tipo', 'obras')
+            ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
+            ->orderByDesc('version')->first();
+        $aplicadoPropio = []; $aplicadoBolsa = [];
+        if ($ultimaDist) {
+            foreach (AplicacionCosto::where('distribucion_id', $ultimaDist->id)->get() as $l) {
+                $cod = $l->codigo_proyecto; $m = (float) $l->monto_aplicar;
+                if ($l->origen_bolsa) $aplicadoBolsa[$cod] = ($aplicadoBolsa[$cod] ?? 0) + $m;
+                else                  $aplicadoPropio[$cod] = ($aplicadoPropio[$cod] ?? 0) + $m;
+            }
+        }
+
+        $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
+        $hex    = fn ($nivel) => [
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][0], '#'),
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][1], '#'),
+        ];
+
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Saldo cuenta 14 (pendiente)',
+            'Ingresos del mes', 'Costo aplicado del mes', 'Inventario en tránsito aplicado',
+            'Provisión (costo sin aplicar)', 'Margen del mes ($)', 'Rentabilidad % MC',
+            'Facturado acumulado', 'Costo acumulado (con distribución)', 'Margen acumulado ($)', 'MC % acumulado',
+            'Valor oferta comercial', 'Diferencia por facturar', 'Avance de facturación',
+            'Inventario en tránsito', 'Costo total', 'Costo presupuestado', 'Avance ejecución obra',
+            'MC % ofertado', 'MC % proyección'];
+        $filas  = [$head];
+        $pintar = [];       // celdas de margen a pintar con el semáforo
+        $fila   = 1;        // fila 1 = encabezado; los datos arrancan en la 2
+
+        foreach ($codigos as $cod) {
+            $saldo14 = (float) ($neto[$cod] ?? 0);
+            $pend    = $saldo14 < 0 ? abs($saldo14) : 0.0;
+
+            // Estado (igual que la tarjeta): cerrada si está cerrada; si no, por ingreso.
+            $estado = (isset($cerradas[$cod]) || ($estadoManual[$cod] ?? null) === 'cerrada')
+                ? 'cerrada'
+                : (abs((float) ($ingMes[$cod] ?? 0)) >= 0.5 ? 'parcial' : 'abierta');
+            if ($estado === 'cerrada') continue; // solo abiertas/parciales
+
+            $o = [
+                'ingreso_mes'    => (float) ($ingMes[$cod] ?? 0),
+                'ingreso_acum'   => (float) ($ingAcum[$cod] ?? 0),
+                'costo_apl_mes'  => abs((float) ($costoMes[$cod] ?? 0)),
+                'costo_apl_acum' => abs((float) ($costoAcum[$cod] ?? 0)),
+                'sum_aplicar'    => (float) ($aplicadoPropio[$cod] ?? 0),
+                'sum_bolsa'      => (float) ($aplicadoBolsa[$cod] ?? 0),
+                'sum_prov'       => (float) ($provPorObra[$cod] ?? 0),
+                'inventario_obra'    => $saldo14 < 0 ? abs($saldo14) : 0.0,
+                'inventario_almacen' => 0,
+                'valor_oferta'   => (float) ($fichas[$cod]->valor_contratado ?? 0),
+                'costo_presup'   => (float) ($fichas[$cod]->costo_estimado ?? 0),
+                'ofertado'       => $this->normalizarMargen($fichas[$cod]->margen_ofertado ?? null),
+            ];
+            $this->calcularMargenes($o);
+
+            $dep  = \App\Models\User::departamentoDeCodigo($cod);
+            $nMes = \App\Services\DistribucionService::nivelMargen($o['mc_mes_pct'], $dep);
+            $nAcu = \App\Services\DistribucionService::nivelMargen($o['mc_acum_cierre_pct'], $dep);
+            $nPro = \App\Services\DistribucionService::nivelMargen($o['pr_mc_proy'], $dep);
+            // Regla especial: si el ofertado es menor al proyectado, la proyección va en verde.
+            if ($o['pr_mc_proy'] !== null && $o['pr_mc_ofertado'] !== null && $o['pr_mc_ofertado'] < $o['pr_mc_proy']) {
+                $nPro = 'verde';
+            }
+
+            $fila++;
+            [$b, $f] = $hex($nMes); $pintar[] = ['fila' => $fila, 'col' => 'K', 'bg' => $b, 'fg' => $f];
+            [$b, $f] = $hex($nAcu); $pintar[] = ['fila' => $fila, 'col' => 'O', 'bg' => $b, 'fg' => $f];
+            [$b, $f] = $hex($nPro); $pintar[] = ['fila' => $fila, 'col' => 'X', 'bg' => $b, 'fg' => $f];
+
+            $filas[] = [
+                $cod,
+                $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
+                $fichas[$cod]->cliente ?? '',
+                ucfirst($estado),
+                round($pend),
+                round($o['ingreso_mes']), round($o['costo_mes_c6']), round($o['aplicado_mes']),
+                round($o['costo_sin_aplicar']), round($o['mc_mes_pesos']), $fmtPct($o['mc_mes_pct']),
+                round($o['ingreso_acum']), round($o['costo_acum_cierre']), round($o['margen_acum_cierre_pesos']), $fmtPct($o['mc_acum_cierre_pct']),
+                round($o['pr_valor_oferta']), round($o['pr_dif_facturar']), $fmtPct($o['pr_avance_fact']),
+                round($o['pr_inv_obra']), round($o['pr_costo_total']), round($o['pr_costo_presup']), $fmtPct($o['pr_avance_ejec']),
+                $fmtPct($o['pr_mc_ofertado']), $fmtPct($o['pr_mc_proy']),
+            ];
+        }
+
+        $moneyCols = ['E','F','G','H','I','J','L','M','N','P','Q','S','T','U'];
+        $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.($depEfectivo ? '_'.ucfirst((string) $depEfectivo) : '');
+
+        return Excel::download(
+            new \App\Exports\ReporteSaldos14Export($filas, $pintar, $moneyCols),
+            'Saldos_cuenta_14_'.$periodo.'.xlsx'
+        );
+    }
+
+    /** ¿El código empieza por alguno de los prefijos dados? */
+    private function empiezaPorAlguno(string $cod, array $prefijos): bool
+    {
+        $c = strtoupper($cod);
+        foreach ($prefijos as $p) {
+            if (str_starts_with($c, strtoupper($p))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Consulta de una distribución de "otros costos" (áreas / bolsas): muestra, por
+     * cuenta, el valor a cargar en el mes, la cuenta, su nombre, el tercero y la
+     * observación. El detalle se arma con las bolsas grandes del período (BolsaMonto).
+     */
+    public function consultarAreas(Distribucion $distribucion)
+    {
+        abort_unless(request()->user()->puedeVerModulo('operacion'), 403,
+            'No tienes permiso para ver Operación.');
+
+        $mes  = (int) $distribucion->mes;
+        $anio = (int) $distribucion->anio;
+        $dep  = $distribucion->departamento;
+        $periodo = Homologacion::periodo($anio, $mes);
+
+        $bolsa  = collect($this->svc->bolsasGrandes($dep, $periodo, $anio, $mes))->first();
+        $lineas = $bolsa['lineas'] ?? [];
+        $total  = (float) ($bolsa['a_distribuir'] ?? 0);
+
+        return view('operativo.distribucion-areas-consulta', [
+            'distribucion' => $distribucion,
+            'lineas'       => $lineas,
+            'total'        => $total,
+            'mes'          => $mes,
+            'anio'         => $anio,
+            'dep'          => $dep,
         ]);
     }
 
@@ -693,7 +1866,10 @@ class DistribucionCostosController extends Controller
         }
 
         return [
-            'codigo' => $cod, 'nombre' => $nombre, 'estado' => $estado, 'cat' => $cat,
+            // Nombre del proyecto de la ficha; si no hay, el que ya venía (razón social /
+            // nombre_proyecto de los movimientos), para no dejarlo vacío.
+            'codigo' => $cod, 'nombre' => ($fichas[$cod]->nombre_obra ?? null) ?: $nombre, 'estado' => $estado, 'cat' => $cat,
+            'cliente' => $fichas[$cod]->cliente ?? null,
             'total_pendiente' => 0, 'total_reversado' => 0,
             'ingreso_mes'    => (float) ($ingresoMes[$cod] ?? 0),
             'ingreso_acum'   => (float) ($ingresoAcum[$cod] ?? 0),
@@ -707,105 +1883,35 @@ class DistribucionCostosController extends Controller
         ];
     }
 
+    // ── Cálculos delegados al DistribucionService (lógica extraída del controlador) ──
+
     private function calcularMargenes(array &$o): void
     {
-        $ingMes  = $o['ingreso_mes'];
-        $ingAcum = $o['ingreso_acum'];
-
-        // (Se mantienen para el semáforo y el orden, aunque ya no se muestran)
-        $o['margen_mes'] = $ingMes != 0
-            ? round(($ingMes - $o['costo_apl_mes']) / $ingMes * 100, 1) : null;
-        $o['margen_acum'] = $ingAcum != 0
-            ? round(($ingAcum - $o['costo_apl_acum']) / $ingAcum * 100, 1) : null;
-        $o['margen_proy'] = $ingAcum != 0
-            ? round(($ingAcum - ($o['costo_apl_acum'] + $o['sum_aplicar'] + $o['sum_prov'])) / $ingAcum * 100, 1) : null;
-
-        // === Estado de avance de obra (acumulado al mes ANTERIOR; mismo corte ingreso y costo) ===
-        $o['fact_acum_rec']     = $ingAcum - $ingMes;
-        $o['costo_acum_rec']    = $o['costo_apl_acum'] - $o['costo_apl_mes'];
-        $o['margen_acum_pesos'] = $o['fact_acum_rec'] - $o['costo_acum_rec'];
-        $o['mc_pct_acum']       = $o['fact_acum_rec'] != 0
-            ? round((1 - $o['costo_acum_rec'] / $o['fact_acum_rec']) * 100, 1) : null;
-
-        // === Rentabilidad del mes (el JS recalcula MC al aplicar 14→6) ===
-        $o['costo_mes_c6'] = $o['costo_apl_mes'];                 // costo del mes ya en cuenta 6
-        $aplicadoIni       = $o['sum_aplicar'] + $o['sum_prov'];  // lo que se está moviendo 14→6
-        $o['aplicado_mes'] = $aplicadoIni;
-        $costoMesTotal     = $o['costo_apl_mes'] + $aplicadoIni;
-        $o['mc_mes_pesos'] = $ingMes - $costoMesTotal;
-        $o['mc_mes_pct']   = $ingMes != 0 ? round($o['mc_mes_pesos'] / $ingMes * 100, 1) : null;
-
-        // === Proyección de rentabilidad (oferta comercial vs realidad) ===
-        $valorOferta  = $o['valor_oferta'];
-        $costoPresup  = $o['costo_presup'];
-        $factTotal    = $ingAcum;             // facturado total incl. mes
-        $costoAcumTot = $o['costo_apl_acum']; // costo cuenta 6 acumulado incl. mes
-        $costoTotal   = $costoAcumTot + $o['inventario_obra'] + $o['inventario_almacen'];
-
-        $o['pr_valor_oferta'] = $valorOferta;
-        $o['pr_dif_facturar'] = $valorOferta - $factTotal;
-        $o['pr_avance_fact']  = $valorOferta != 0 ? round($factTotal / $valorOferta * 100, 1) : null;
-        $o['pr_inv_obra']     = $o['inventario_obra'];
-        $o['pr_inv_almacen']  = $o['inventario_almacen'];
-        $o['pr_costo_total']  = $costoTotal;
-        $o['pr_mc_ofertado']  = $o['ofertado'];
-        $o['pr_mc_proy']      = $valorOferta != 0 ? round(($valorOferta - $costoTotal) / $valorOferta * 100, 1) : null;
-        $o['pr_costo_presup'] = $costoPresup;
-        $o['pr_avance_ejec']  = $costoPresup != 0 ? round($costoTotal / $costoPresup * 100, 1) : null;
-
-        $of = $o['ofertado'];
-
-        if ($of === null || $o['margen_acum'] === null) {
-            $o['semaforo'] = 'gris';  $o['orden_sem'] = 3;
-        } elseif ($o['margen_acum'] < $of) {
-            $o['semaforo'] = 'rojo';  $o['orden_sem'] = 0;
-        } elseif ($o['margen_proy'] !== null && $o['margen_proy'] < $of) {
-            $o['semaforo'] = 'ambar'; $o['orden_sem'] = 1;
-        } else {
-            $o['semaforo'] = 'verde'; $o['orden_sem'] = 2;
-        }
+        $this->svc->calcularMargenes($o);
     }
 
     private function sumaMes(string $cm, int $anio, int $mes)
     {
-        return RegistroFinanciero::where('cuenta_mayor', $cm)
-            ->where('anio', $anio)->where('mes', $mes)
-            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+        return $this->svc->sumaMes($cm, $anio, $mes);
     }
 
     private function sumaAcum(string $cm, int $anio, int $mes)
     {
-        return RegistroFinanciero::where('cuenta_mayor', $cm)
-            ->where(function ($q) use ($anio, $mes) {
-                $q->where('anio', '<', $anio)
-                  ->orWhere(function ($q2) use ($anio, $mes) {
-                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
-                  });
-            })
-            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+        return $this->svc->sumaAcum($cm, $anio, $mes);
+    }
+
+    private function repartoFifo(array $lineas, float $tope): array
+    {
+        return $this->svc->repartoFifo($lineas, $tope);
     }
 
     private function normalizarMargen($v): ?float
     {
-        if ($v === null || $v === '') return null;
-        $v = (float) $v;
-        if (abs($v) <= 1.5) $v = $v * 100;
-        return round($v, 1);
+        return $this->svc->normalizarMargen($v);
     }
 
     private function tipoObra(string $cod): string
     {
-        $c = strtoupper($cod);
-        // Mantenimiento
-        if (str_starts_with($c, 'GM')) return 'garantia';
-        if (str_starts_with($c, 'MO')) return 'obras';
-        if (str_starts_with($c, 'R'))  return 'reparacion';
-        if (str_starts_with($c, 'C'))  return 'contrato';
-        // Instalaciones
-        if (str_starts_with($c, 'GI')) return 'garantia';
-        if (str_starts_with($c, 'O'))  return 'obras';   // O → todas Obras
-        return 'otro';
+        return $this->svc->tipoObra($cod);
     }
 }

@@ -20,6 +20,9 @@ class MaestroComercialController extends Controller
 
     public function importar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,xls|max:51200',
         ]);
@@ -124,6 +127,9 @@ class MaestroComercialController extends Controller
 
     public function guardar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $data = $request->validate([
             'codigo_proyecto'       => 'required|string|max:255',
             'cliente'               => 'nullable|string',
@@ -150,6 +156,9 @@ class MaestroComercialController extends Controller
 
     public function actualizar(Request $request, FichaProyecto $ficha)
     {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $data = $request->validate([
             'codigo_proyecto'       => 'required|string|max:255',
             'cliente'               => 'nullable|string',
@@ -170,6 +179,9 @@ class MaestroComercialController extends Controller
 
     public function eliminar(FichaProyecto $ficha)
     {
+        abort_unless(auth()->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $ficha->delete();
         return back()->with('success', 'Proyecto eliminado.');
     }

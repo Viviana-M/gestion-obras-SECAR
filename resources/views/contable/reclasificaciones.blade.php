@@ -3,7 +3,9 @@
 @section('title', 'Planos de reclasificación')
 
 @section('content')
-<h1 class="page-title">Planos de reclasificación</h1>
+<x-page-banner title="Planos de reclasificación" icon="🔄">
+    Genera los asientos correctivos que mueven los costos ya asentados a la cuenta 61 nueva, sin reescribir el histórico.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#15803D">{{ session('success') }}</div>
