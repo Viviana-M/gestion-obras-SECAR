@@ -338,11 +338,17 @@ class RedistribucionMoEspecialTest extends TestCase
                 $vio61 = true;
                 $this->assertSame('30020105', $cc); // centro de costo de MTO00099 en la cuenta 61
                 $this->assertEqualsWithDelta(600000, (float) $mov->getCell('H'.$r)->getValue(), 0.5); // débito (número normal)
+                // El crédito, aunque sea 0, NO queda vacío.
+                $this->assertNotNull($mov->getCell('I'.$r)->getValue());
+                $this->assertEqualsWithDelta(0, (float) $mov->getCell('I'.$r)->getValue(), 0.5);
             }
             if (str_starts_with($cta, '14')) {
                 $vio14 = true;
                 $this->assertSame('', $cc); // la cuenta 14 NO lleva centro de costo
                 $this->assertEqualsWithDelta(600000, (float) $mov->getCell('I'.$r)->getValue(), 0.5); // crédito (número normal)
+                // El débito, aunque sea 0, NO queda vacío.
+                $this->assertNotNull($mov->getCell('H'.$r)->getValue());
+                $this->assertEqualsWithDelta(0, (float) $mov->getCell('H'.$r)->getValue(), 0.5);
             }
         }
         $this->assertTrue($vio61 && $vio14);

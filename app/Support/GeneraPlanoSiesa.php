@@ -78,7 +78,10 @@ trait GeneraPlanoSiesa
                 $m['base_gravable'], $m['tipo_doc_banco'], $m['num_doc_banco'],
             ];
         }
-        $h2->fromArray($filas, null, 'A2');
+        // 4º parámetro true (strictNullComparison): sin él, fromArray trata el 0 como nulo y deja la
+        // casilla VACÍA. Con true, los 0 (débito/crédito/base gravable) se escriben como 0 y solo
+        // los null reales (centro de costo, flujo, docs de banco) quedan vacíos.
+        $h2->fromArray($filas, null, 'A2', true);
 
         // Hojas 3 y 4: van vacias, pero SIESA las exige con sus encabezados
         $h3 = $ss->createSheet();
