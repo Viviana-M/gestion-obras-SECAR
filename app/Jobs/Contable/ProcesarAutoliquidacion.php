@@ -10,15 +10,17 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**
  * Procesa la planilla de autoliquidación EN SEGUNDO PLANO (igual que el cierre financiero).
  *
- * La importación de miles de filas no cabe bien en una petición web (memoria/tiempo del servidor
- * o del túnel), así que la carga solo mueve el archivo y encola este job; aquí se hace el trabajo
- * pesado sin límites de la web. El período (mes/anio) y el mapa de columnas ya vienen resueltos
- * desde el controlador (lectura liviana del encabezado).
+ * Toda la lectura del Excel ocurre AQUÍ (en el worker), no en la petición web: leer miles de
+ * filas toma ~20s y en la web el navegador o el túnel cortan antes. La carga web solo guarda el
+ * archivo y encola este job. Aquí se reconocen las columnas (por nombre), se detecta el período
+ * (columna Fecha) y se importa reemplazando ese período.
  */
 class ProcesarAutoliquidacion implements ShouldQueue
 {
@@ -28,14 +30,8 @@ class ProcesarAutoliquidacion implements ShouldQueue
 
     public $tries = 1;
 
-    /**
-     * @param  array<string,int>  $mapa  campo canónico → índice de columna
-     */
     public function __construct(
         private string $rutaArchivo,
-        private int $mes,
-        private int $anio,
-        private array $mapa,
     ) {}
 
     public function handle(): void
@@ -48,9 +44,51 @@ class ProcesarAutoliquidacion implements ShouldQueue
             throw new \RuntimeException("No encuentro el archivo: {$archivo}");
         }
 
-        // Recargar REEMPLAZA el período: se borra y se vuelve a insertar.
-        AutoliquidacionAporte::where('mes', $this->mes)->where('anio', $this->anio)->delete();
+        // Encabezado + filas para reconocer columnas y detectar el período.
+        $reader = IOFactory::createReaderForFile($archivo);
+        $reader->setReadDataOnly(true);
+        $filas = $reader->load($archivo)->getSheet(0)->toArray(null, true, false, false);
 
-        Excel::import(new AutoliquidacionImport($this->mes, $this->anio, $this->mapa), $archivo);
+        $mapa = AutoliquidacionImport::mapaColumnas($filas[0] ?? []);
+        if (! isset($mapa['empleado'], $mapa['aporte_empresa'], $mapa['fecha'])) {
+            Log::warning('Autoliquidación: el archivo no tiene el formato PILA (falta Empleado/Aporte empresa/Fecha).', [
+                'archivo' => $this->rutaArchivo,
+            ]);
+
+            return;
+        }
+
+        [$mes, $anio] = $this->periodo($filas, $mapa['fecha']);
+        if (! $mes || ! $anio) {
+            Log::warning('Autoliquidación: no pude leer el período de la columna Fecha.', [
+                'archivo' => $this->rutaArchivo,
+            ]);
+
+            return;
+        }
+
+        // Recargar REEMPLAZA el período: se borra y se vuelve a insertar.
+        AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)->delete();
+        Excel::import(new AutoliquidacionImport($mes, $anio, $mapa), $archivo);
+    }
+
+    /**
+     * Primer par [mes, anio] legible de la columna Fecha; [null, null] si ninguna es válida.
+     *
+     * @return array{0:?int,1:?int}
+     */
+    private function periodo(array $filas, int $colFecha): array
+    {
+        foreach ($filas as $i => $f) {
+            if ($i === 0) {
+                continue;
+            }
+            $fc = AutoliquidacionImport::parsearFecha($f[$colFecha] ?? null);
+            if ($fc) {
+                return [(int) $fc->month, (int) $fc->year];
+            }
+        }
+
+        return [null, null];
     }
 }

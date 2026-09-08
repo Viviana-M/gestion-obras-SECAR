@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
-use App\Imports\Contable\AutoliquidacionImport;
 use App\Jobs\Contable\ProcesarAutoliquidacion;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
@@ -176,64 +175,25 @@ class AutoliquidacionController extends Controller
             'No tienes permiso para editar en Contabilidad.');
 
         $request->validate([
-            'archivo' => 'required|file|mimes:xlsx,xls|max:51200',
+            'archivo' => 'required|file|mimes:xlsx,xls|max:102400',
         ]);
 
-        // Planillas grandes (miles de filas): dar tiempo y memoria a esta petición. Si el servidor
-        // tiene el memory_limit ajustado (p. ej. 128M), leer/importar el archivo completo lo agota y
-        // la carga "no hace nada" (muere sin alcanzar a mostrar mensaje). Ambas llamadas son @ por
-        // si el hosting no permite cambiarlas (no rompen: la lectura ya se hace por partes y por
-        // chunks para no depender de esto).
-        @set_time_limit(0);
-        @ini_set('memory_limit', '512M');
-
-        $archivo = $request->file('archivo');
-
-        // Para reconocer las columnas (por su nombre) y sacar el período solo hace falta el
-        // encabezado y las primeras filas: se leen SOLO esas, no el archivo completo. Leerlo entero
-        // aquí con Excel::toArray dispara la memoria (una planilla de miles de filas puede pasar de
-        // 100 MB y morir sin mensaje en servidores con memory_limit ajustado). La importación de
-        // todas las filas la hace Excel::import por lotes (liviano en memoria).
-        $filas = $this->leerPrimerasFilas($archivo, 2000);
-        $mapa  = AutoliquidacionImport::mapaColumnas($filas[0] ?? []);
-
-        // Validar que sea una planilla de autoliquidación (PILA): debe traer, reconocidas por su
-        // nombre, las columnas Empleado, Aporte empresa y Fecha. Así se aceptan tanto el plano
-        // estándar como el movimiento contable de la PILA, y se rechaza (con mensaje claro, en vez
-        // de fallar en silencio) cualquier otro reporte que no traiga el detalle por empleado.
-        if (! $this->formatoPilaOk($mapa)) {
-            return back()->with('error',
-                'El archivo no tiene el formato de la planilla de autoliquidación (PILA). '.
-                'Debe traer, al menos, las columnas "Empleado", "Aporte empresa" y "Fecha". '.
-                'El archivo que subiste parece otro reporte del ERP. '.
-                'Descarga la AUTOLIQUIDACIÓN (PILA) con las columnas indicadas abajo.');
-        }
-
-        // El período se toma de la columna FECHA (ej. 2026-04-30 → abril 2026).
-        $periodo = $this->periodoDesdeFilas($filas, $mapa);
-        if (! $periodo) {
-            return back()->with('error',
-                'No pude leer el período de la columna "Fecha". Revisa que traiga fechas '.
-                'válidas (ej. 2026-04-30).');
-        }
-        [$mesArchivo, $anioArchivo] = $periodo;
-
-        // Leer el Excel (miles de filas) toma ~20s: no cabe en la petición web (el navegador o el
-        // túnel cortan antes). Igual que el cierre financiero, la web solo MUEVE el archivo y ENCOLA
-        // el trabajo (responde al instante); un worker (php artisan queue:work) hace la importación
-        // aparte, sin límite de la web. El período y el mapa ya se resolvieron con la lectura liviana.
+        // La carga web hace lo MÍNIMO: guarda el archivo y encola el trabajo. NO lee el Excel aquí
+        // (leer miles de filas toma ~20s y el navegador/túnel cortan la petición antes, dejándola
+        // "sin hacer nada"). Toda la lectura, validación y período los resuelve el worker
+        // (php artisan queue:work) al procesar el job, sin límite de la web — igual que el cierre.
         $dir = storage_path('app/autoliquidacion');
         if (! is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
         $nombre = uniqid('pila_').'.xlsx';
-        $archivo->move($dir, $nombre);
+        $request->file('archivo')->move($dir, $nombre);
 
-        ProcesarAutoliquidacion::dispatch('autoliquidacion/'.$nombre, $mesArchivo, $anioArchivo, $mapa);
+        ProcesarAutoliquidacion::dispatch('autoliquidacion/'.$nombre);
 
-        return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
-            ->with('success', "Planilla de {$mesArchivo}/{$anioArchivo} recibida. Se está procesando en segundo plano; ".
-                'en unos segundos aparecerá aquí — recarga la página.');
+        return redirect()->route('contable.autoliquidacion.index')
+            ->with('success', 'Archivo recibido. Se está procesando en segundo plano; '.
+                'en unos segundos aparecerá en el selector de período — recarga la página.');
     }
 
     /**
@@ -254,85 +214,4 @@ class AutoliquidacionController extends Controller
             ->with('success', "Período {$mes}/{$anio} vaciado: {$n} filas borradas. Ahora vuelve a cargar la planilla.");
     }
 
-    /**
-     * Lee SOLO las primeras filas del archivo (encabezado + hasta $maxFilas de datos) de la primera
-     * hoja, sin cargar el resto en memoria. Sirve para reconocer las columnas y detectar el período
-     * de planillas grandes sin dispararse la memoria. Devuelve la matriz de filas (0-based).
-     *
-     * @return array<int, array<int, mixed>>
-     */
-    private function leerPrimerasFilas(\Illuminate\Http\UploadedFile $archivo, int $maxFilas): array
-    {
-        $ruta = $archivo->getRealPath();
-
-        try {
-            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($ruta);
-            $reader->setReadDataOnly(true);
-
-            // Leer únicamente las primeras (maxFilas + encabezado) filas.
-            if (method_exists($reader, 'setReadFilter')) {
-                $reader->setReadFilter(new class($maxFilas + 1) implements \PhpOffice\PhpSpreadsheet\Reader\IReadFilter {
-                    public function __construct(private int $max) {}
-
-                    public function readCell($column, $row, $worksheetName = ''): bool
-                    {
-                        return $row <= $this->max;
-                    }
-                });
-            }
-
-            // Solo la primera hoja (evita cargar copias/resúmenes).
-            if (method_exists($reader, 'listWorksheetNames') && method_exists($reader, 'setLoadSheetsOnly')) {
-                $hojas = $reader->listWorksheetNames($ruta);
-                if (! empty($hojas[0])) {
-                    $reader->setLoadSheetsOnly($hojas[0]);
-                }
-            }
-
-            return $reader->load($ruta)->getSheet(0)->toArray(null, true, false, false);
-        } catch (\Throwable $e) {
-            // Ante cualquier problema con el lector acotado, caer a la lectura estándar.
-            return Excel::toArray(new class {}, $archivo)[0] ?? [];
-        }
-    }
-
-    /**
-     * Lee el período [mes, anio] de la columna Fecha (ubicada por su nombre, no por posición)
-     * tomando la primera fila de datos con una fecha válida. Null si ninguna es legible.
-     *
-     * @param  array<int, array<int, mixed>>  $filas
-     * @param  array<string, int>  $mapa
-     */
-    private function periodoDesdeFilas(array $filas, array $mapa): ?array
-    {
-        $col = $mapa['fecha'] ?? null;
-        if ($col === null) {
-            return null;
-        }
-
-        foreach ($filas as $i => $fila) {
-            if ($i === 0) {
-                continue; // encabezado
-            }
-            $fecha = AutoliquidacionImport::parsearFecha($fila[$col] ?? null);
-            if ($fecha) {
-                return [(int) $fecha->month, (int) $fecha->year];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Valida que el archivo sea una planilla de autoliquidación (PILA): que se hayan reconocido
-     * —por su nombre de columna— el Empleado, el Aporte empresa y la Fecha. Así se aceptan tanto
-     * el plano estándar como el movimiento contable de la PILA, y se distingue de otros reportes
-     * (p. ej. un movimiento contable sin detalle por empleado, con Valor Débito/Crédito).
-     *
-     * @param  array<string, int>  $mapa
-     */
-    private function formatoPilaOk(array $mapa): bool
-    {
-        return isset($mapa['empleado'], $mapa['aporte_empresa'], $mapa['fecha']);
-    }
 }
