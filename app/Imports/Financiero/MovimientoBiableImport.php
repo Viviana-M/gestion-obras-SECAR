@@ -133,8 +133,12 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
             'descripcion'      => trim((string) ($row['nombre_auxiliar'] ?? '')),
-            'tercero_dcto'     => trim((string) ($row['tercero_docto'] ?? '')) ?: null,
-            'razon_social'     => trim((string) ($row['razon_social_docto'] ?? '')) ?: null,
+            // Tercero del MOVIMIENTO (col "Tercero"/"Nombre Tercero"), que en las líneas de nómina es
+            // el EMPLEADO. NO el "Tercero Docto" (tercero del documento), que en nómina es SECAR y
+            // hacía que el cruce por cédula de MO Apoyo no encontrara a nadie. Si el movimiento no
+            // trae tercero, cae al del documento.
+            'tercero_dcto'     => (trim((string) ($row['tercero'] ?? '')) ?: trim((string) ($row['tercero_docto'] ?? ''))) ?: null,
+            'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
             'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
             'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
             'movto_libro2'     => $movto,
