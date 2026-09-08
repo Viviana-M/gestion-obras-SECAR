@@ -60,69 +60,74 @@ class RedistribucionMoEspecialService
         }
 
         $cuentasMO = $this->cuentasMO($mes, $anio);
-
-        // 1) MO DIRECTA: líneas de MO (cuenta 14) del período —EN CUALQUIER UN del cierre—, agrupadas
-        //    por tercero (documento + razón social) y atribuidas a la persona por cédula o nombre.
-        //    El cruce lo define la CÉDULA (que la persona esté en Mano de Obra Directa), no la UN:
-        //    se toma toda la MO de esas personas donde sea que la haya distribuido Nómina, y se
-        //    reclasifica 14→61 conservando la UN de cada línea.
-        $directo = collect();
-        if (! empty($cuentasMO)) {
-            $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-                ->whereIn('cuenta_contable', $cuentasMO)
-                ->where('mes', $mes)->where('anio', $anio)
-                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
-                ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
-                ->get();
-        }
-
-        // 2) SEGURIDAD SOCIAL (desde la cuenta 14): la SS también está en la cuenta 14, pero a
-        //    nombre del FONDO/EPS (tercero = fondo, sin cédula). La autoliquidación (fondo +
-        //    empleado + aporte) se usa SOLO como llave para repartir el monto de la cuenta 14 de
-        //    cada fondo entre las personas, según su proporción de aporte_empresa en ese fondo.
-        //    El valor sale de la cuenta 14, no del número de la autoliquidación.
-        $fondos = $this->fondosAutoliquidacion($mes, $anio, $porCed, $porNom);
+        $bolsas    = UnBolsa::codigos(); // UN de las bolsas de apoyo (p. ej. MTO00099, INS00099)
 
         $out = [];
         foreach ($nombreMae as $ced => $nom) {
             $out[$ced] = ['cedula' => (string) $ced, 'nombre' => $nom, 'doc' => '',
                 'directo' => 0.0, 'ss' => 0.0, 'total' => 0.0, 'buckets' => []];
         }
+        $salarioUn = []; // [$ced][$un] => salario, para repartir la SS a las mismas UN del salario
+
+        // 1) MO DIRECTA (SALARIO): líneas de MO (cuenta 14) del cierre, SOLO en las UN de las bolsas
+        //    de apoyo, cuyo tercero (el empleado) esté en Mano de Obra Directa. Se reclasifica 14→61
+        //    conservando la UN de cada línea.
+        $directo = collect();
+        if (! empty($cuentasMO) && ! empty($bolsas)) {
+            $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+                ->whereIn('cuenta_contable', $cuentasMO)
+                ->whereIn('codigo_proyecto', $bolsas)
+                ->where('mes', $mes)->where('anio', $anio)
+                ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')
+                ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
+                ->get();
+        }
 
         foreach ($directo as $r) {
             $m = (float) $r->saldo < 0 ? abs((float) $r->saldo) : 0.0; // el costo por repartir va negativo
             if ($m <= 0.005) continue;
 
-            $terceroErp = trim((string) $r->tercero_dcto) ?: trim((string) $r->razon_social);
-
-            // ¿MO directa (salario)? El tercero de la línea es la persona.
             $ced = $this->cruzar($r->tercero_dcto, $r->razon_social, $porCed, $porNom);
-            if ($ced !== null && isset($out[$ced])) {
-                $out[$ced]['directo'] += $m;
-                $out[$ced]['total']   += $m;
-                // Documento real de la persona (el que trae el ERP en su línea de salario).
-                if ($out[$ced]['doc'] === '' && trim((string) $r->tercero_dcto) !== '') {
-                    $out[$ced]['doc'] = trim((string) $r->tercero_dcto);
-                }
-                $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo', 'tercero' => $terceroErp];
-                continue;
-            }
+            if ($ced === null || ! isset($out[$ced])) continue; // solo el salario de nuestras personas
 
-            // ¿Seguridad social? El tercero de la línea es un fondo/EPS de la autoliquidación:
-            // se reparte su cuenta 14 entre las personas según su proporción de aporte del fondo.
-            $fk = $fondos['byNit'][$this->normCedula($r->tercero_dcto)]
-                ?? $fondos['byNom'][$this->normNombre($r->razon_social)] ?? null;
-            if ($fk === null) continue;
-            $totalFondo = (float) ($fondos['total'][$fk] ?? 0);
-            if ($totalFondo <= 0.005) continue;
-            foreach (($fondos['persons'][$fk] ?? []) as $pced => $aporte) {
-                if (! isset($out[$pced])) continue;
-                $porcion = $m * ((float) $aporte / $totalFondo); // el valor sale de la cuenta 14
+            $terceroErp = trim((string) $r->tercero_dcto) ?: trim((string) $r->razon_social);
+            $out[$ced]['directo'] += $m;
+            $out[$ced]['total']   += $m;
+            if ($out[$ced]['doc'] === '' && trim((string) $r->tercero_dcto) !== '') {
+                $out[$ced]['doc'] = trim((string) $r->tercero_dcto);
+            }
+            $out[$ced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $m, 'tipo' => 'directo', 'tercero' => $terceroErp];
+            $salarioUn[$ced][(string) $r->un] = ($salarioUn[$ced][(string) $r->un] ?? 0) + $m;
+        }
+
+        // 2) SEGURIDAD SOCIAL: el valor se toma DIRECTO de la autoliquidación (aporte empresa por
+        //    empleado, fondo y cuenta 14), con el fondo/EPS como tercero. Se reparte a la(s) UN
+        //    donde la persona tiene salario (proporcional si tiene en varias). Si la persona no
+        //    tiene salario en las bolsas, no se puede ubicar la UN y se omite.
+        $aportes = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+            ->selectRaw('empleado, empleado_nombre, cedula as fondo_nit, razon_social as fondo_nom, id_cuenta, SUM(aporte_empresa) as monto')
+            ->groupBy('empleado', 'empleado_nombre', 'cedula', 'razon_social', 'id_cuenta')
+            ->havingRaw('SUM(aporte_empresa) > 0.005')
+            ->get();
+
+        foreach ($aportes as $a) {
+            $ced = $this->cruzar($a->empleado, $a->empleado_nombre, $porCed, $porNom);
+            if ($ced === null || ! isset($out[$ced])) continue;
+
+            $salUn = $salarioUn[$ced] ?? [];
+            $totalSal = array_sum($salUn);
+            if ($totalSal <= 0.005) continue; // sin salario en las bolsas: no hay UN donde ubicar la SS
+
+            $aporte = (float) $a->monto;
+            $fondoTercero = trim((string) $a->fondo_nit) ?: trim((string) $a->fondo_nom);
+            $cuenta = trim((string) $a->id_cuenta) ?: '14';
+
+            foreach ($salUn as $un => $sal) {
+                $porcion = $aporte * ($sal / $totalSal);
                 if ($porcion <= 0.005) continue;
-                $out[$pced]['ss']    += $porcion;
-                $out[$pced]['total'] += $porcion;
-                // El crédito conserva el tercero del ERP (el fondo/EPS de esta línea).
-                $out[$pced]['buckets'][] = ['un' => (string) $r->un, 'cuenta' => (string) $r->cuenta, 'monto' => $porcion, 'tipo' => 'ss', 'tercero' => $terceroErp];
+                $out[$ced]['ss']    += $porcion;
+                $out[$ced]['total'] += $porcion;
+                $out[$ced]['buckets'][] = ['un' => (string) $un, 'cuenta' => $cuenta, 'monto' => $porcion, 'tipo' => 'ss', 'tercero' => $fondoTercero];
             }
         }
 

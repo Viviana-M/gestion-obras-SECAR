@@ -46,10 +46,11 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     /** Aporte de seguridad social del empleado (tercero = fondo) en la autoliquidación. */
-    private function ssBolsa(string $empleado, string $un, float $aporte, int $mes = 4, int $anio = 2026): void
+    private function ssBolsa(string $empleado, string $un, float $aporte, int $mes = 4, int $anio = 2026, string $fondo = '800100'): void
     {
         AutoliquidacionAporte::create([
-            'cedula' => '800100', 'razon_social' => 'NUEVA EPS', 'empleado' => $empleado, 'empleado_nombre' => 'ARLEY',
+            'id_cuenta' => '14200530', 'cedula' => $fondo, 'razon_social' => 'NUEVA EPS',
+            'empleado' => $empleado, 'empleado_nombre' => 'ARLEY',
             'un_codigo' => $un, 'cuenta_contable' => '14200530', 'concepto_pila' => 'EPS',
             'aporte_empresa' => $aporte, 'aporte_empleado' => 0, 'real_descontado' => 0, 'mes' => $mes, 'anio' => $anio,
         ]);
@@ -78,49 +79,41 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function toma_la_mo_de_la_persona_en_cualquier_un_no_solo_en_bolsas(): void
+    public function solo_toma_la_mo_de_las_bolsas_configuradas(): void
     {
-        // El cruce es por CÉDULA: la MO de la persona cuenta esté en la UN que esté (obra OB*, C*,
-        // etc.), no solo en las UN marcadas como bolsa. Así se reclasifica toda su MO del cierre.
+        // El salario se toma SOLO de las UN marcadas como bolsa (MTO00099/INS00099); la MO de la
+        // persona en UN de obra (OB*, C*…) NO se reclasifica en este módulo.
+        $this->homologarMO('14200506');
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+
+        $this->moBolsa('MTO00099', '14200506', '111', 500000); // en bolsa → cuenta
+        $this->moBolsa('OB008657', '14200506', '111', 300000); // fuera de bolsa → se ignora
+
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(4, 2026);
+        $this->assertEqualsWithDelta(500000, $costo['111']['directo'], 0.5); // solo la de la bolsa
+    }
+
+    #[Test]
+    public function la_ss_se_toma_de_la_autoliquidacion_en_la_un_del_salario(): void
+    {
+        // El valor de la SS se toma DIRECTO de la autoliquidación (aporte empresa por persona/fondo)
+        // y se ubica en la UN donde la persona tiene su salario.
         $this->homologarMO('14200506');
         $this->homologarMO('14200530');
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
 
-        $this->moBolsa('OB008657', '14200506', '111', 500000); // MO en una UN de obra (no bolsa)
-        $this->moBolsa('C6112401', '14200530', '111', 300000); // MO en otra UN de obra (no bolsa)
+        $this->moBolsa('MTO00099', '14200506', '111', 600000);  // salario de ARLEY en la bolsa
+        $this->ssBolsa('111', 'ADM00099', 400000);              // SS en la autoliq (la UN de la autoliq no importa)
 
-        $svc   = app(RedistribucionMoEspecialService::class);
-        $costo = $svc->costoPorPersona(4, 2026);
-        $this->assertEqualsWithDelta(800000, $costo['111']['directo'], 0.5);
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona(4, 2026);
 
-        // Y el plano reclasifica esa MO conservando las UN de obra del cierre.
-        $uns = collect($svc->movimientosRedistribucion(4, 2026))->pluck('un')->unique()->all();
-        $this->assertContains('OB008657', $uns);
-        $this->assertContains('C6112401', $uns);
-    }
+        $this->assertEqualsWithDelta(600000, $costo['111']['directo'], 0.5);
+        $this->assertEqualsWithDelta(400000, $costo['111']['ss'], 0.5); // valor directo de la autoliquidación
 
-    #[Test]
-    public function la_ss_sale_de_la_cuenta_14_repartida_por_la_autoliquidacion(): void
-    {
-        $this->homologarMO('14200530');
-        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'YILMAR', 'activo' => true]);
-
-        // La SS está en la cuenta 14 a nombre del fondo (tercero = 800100) = 1.000.000.
-        $this->moBolsa('MTO00099', '14200530', '800100', 1000000);
-        // La autoliquidación del fondo: ARLEY 600.000, YILMAR 400.000 (total 1.000.000).
-        $this->ssBolsa('111', 'MTO00099', 600000);
-        $this->ssBolsa('222', 'MTO00099', 400000);
-
-        $svc   = app(RedistribucionMoEspecialService::class);
-        $costo = $svc->costoPorPersona(4, 2026);
-
-        // El valor sale de la cuenta 14 (1.000.000), repartido por la proporción de la autoliquidación.
-        $this->assertEqualsWithDelta(600000, $costo['111']['ss'], 0.5);
-        $this->assertEqualsWithDelta(400000, $costo['222']['ss'], 0.5);
-        $this->assertEqualsWithDelta(0, $costo['111']['directo'], 0.5); // aquí no hay salario, solo SS
-        // Cuadra la autoliquidación con la cuenta 14 del fondo: sin descuadres.
-        $this->assertSame([], $svc->descuadresFondos(4, 2026));
+        // La SS queda en la UN del salario (MTO00099) y con el fondo como tercero.
+        $ss = collect($costo['111']['buckets'])->firstWhere('tipo', 'ss');
+        $this->assertSame('MTO00099', $ss['un']);
+        $this->assertSame('800100', $ss['tercero']);
     }
 
     #[Test]
@@ -294,13 +287,13 @@ class RedistribucionMoEspecialTest extends TestCase
     #[Test]
     public function el_plano_conserva_el_fondo_de_ss_en_ambas_patas(): void
     {
-        // La SS viene en la cuenta 14 a nombre del fondo; tanto el crédito (14) como el débito (61)
-        // conservan el MISMO tercero del cierre (el fondo/EPS), en la misma UN. Así la 14 del fondo
-        // queda en cero y la 61 queda a su nombre.
+        // La SS (tomada de la autoliquidación) va con el fondo/EPS como tercero en AMBAS patas:
+        // crédito a la 14 y débito a la 61, en la UN del salario de la persona.
+        $this->homologarMO('14200506');
         $this->homologarMO('14200530');
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
-        $this->moBolsa('MTO00099', '14200530', '800100', 400000); // SS en cuenta 14 a nombre del fondo
-        $this->ssBolsa('111', 'MTO00099', 400000);                // autoliquidación atribuye a ARLEY
+        $this->moBolsa('MTO00099', '14200506', '111', 600000); // salario de ARLEY (define la UN)
+        $this->ssBolsa('111', 'ADM00099', 400000);             // SS del fondo 800100 (cuenta 14 = 14200530)
 
         $resp = $this->actingAs($this->contable())
             ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 7]));
@@ -309,7 +302,7 @@ class RedistribucionMoEspecialTest extends TestCase
         $ss  = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname());
         $mov = $ss->getSheetByName('Movimientocontable');
         // Columnas: C=cuenta, D=tercero, H=débito, I=crédito.
-        $credFondo14 = 0; $debFondo61 = 0; $otroTercero = 0;
+        $credFondo14 = 0; $debFondo61 = 0;
         foreach (range(2, $mov->getHighestRow()) as $row) {
             $cta  = (string) $mov->getCell('C'.$row)->getValue();
             $terc = (string) $mov->getCell('D'.$row)->getValue();
@@ -317,11 +310,9 @@ class RedistribucionMoEspecialTest extends TestCase
             $i    = (float) $mov->getCell('I'.$row)->getValue();
             if ($terc === '800100' && $cta === '14200530') $credFondo14 += $i; // crédito a la 14 del fondo
             if ($terc === '800100' && $cta === '73950505') $debFondo61 += $h;  // débito a la 61 del fondo
-            if ($terc !== '800100') $otroTercero += $h + $i;                    // nadie más
         }
         $this->assertEqualsWithDelta(400000, $credFondo14, 0.5);
         $this->assertEqualsWithDelta(400000, $debFondo61, 0.5);
-        $this->assertEqualsWithDelta(0, $otroTercero, 0.5); // no aparece la persona en el plano de SS
     }
 
     #[Test]
