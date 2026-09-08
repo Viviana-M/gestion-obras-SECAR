@@ -230,7 +230,10 @@ class AutoliquidacionController extends Controller
         $nombre = uniqid('pila_').'.xlsx';
         $archivo->move($dir, $nombre);
 
-        ProcesarAutoliquidacion::dispatch('autoliquidacion/'.$nombre, $mesArchivo, $anioArchivo, $mapa);
+        // Se procesa DESPUÉS de responder al navegador, en el mismo proceso (no requiere tener un
+        // "queue:work" corriendo). Así la respuesta sale de inmediato (sin timeout del túnel) y la
+        // importación pesada ocurre a continuación, ya sin la vista esperando.
+        ProcesarAutoliquidacion::dispatchAfterResponse('autoliquidacion/'.$nombre, $mesArchivo, $anioArchivo, $mapa);
 
         return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
             ->with('success', "Planilla de {$mesArchivo}/{$anioArchivo} recibida. Se está procesando en segundo plano; ".
