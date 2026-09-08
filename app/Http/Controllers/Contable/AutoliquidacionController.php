@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\Contable\ProcesarAutoliquidacion;
+use App\Imports\Contable\AutoliquidacionImport;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -174,26 +175,122 @@ class AutoliquidacionController extends Controller
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
             'No tienes permiso para editar en Contabilidad.');
 
+        // Sin regla mimes: en algunos equipos/Windows el tipo MIME de un .xlsx se detecta mal y la
+        // validación lo rechazaba EN SILENCIO. Se valida solo que sea un archivo; que de verdad sea
+        // la planilla PILA se comprueba leyendo el encabezado más abajo (con mensaje claro).
         $request->validate([
-            'archivo' => 'required|file|mimes:xlsx,xls|max:102400',
+            'archivo' => 'required|file|max:102400',
         ]);
 
-        // La carga web hace lo MÍNIMO: guarda el archivo y encola el trabajo. NO lee el Excel aquí
-        // (leer miles de filas toma ~20s y el navegador/túnel cortan la petición antes, dejándola
-        // "sin hacer nada"). Toda la lectura, validación y período los resuelve el worker
-        // (php artisan queue:work) al procesar el job, sin límite de la web — igual que el cierre.
-        $dir = storage_path('app/autoliquidacion');
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        // Blindajes para importar sin caerse ni depender de un worker:
+        //  - ignore_user_abort: si el navegador o el túnel cortan la conexión a mitad, PHP TERMINA
+        //    la importación igual (antes, un corte dejaba la carga "sin hacer nada").
+        //  - set_time_limit(0) + memory alto: para planillas de miles de filas.
+        @set_time_limit(0);
+        @ini_set('memory_limit', '1024M');
+        if (function_exists('ignore_user_abort')) {
+            @ignore_user_abort(true);
         }
-        $nombre = uniqid('pila_').'.xlsx';
-        $request->file('archivo')->move($dir, $nombre);
 
-        ProcesarAutoliquidacion::dispatch('autoliquidacion/'.$nombre);
+        $archivo = $request->file('archivo');
 
-        return redirect()->route('contable.autoliquidacion.index')
-            ->with('success', 'Archivo recibido. Se está procesando en segundo plano; '.
-                'en unos segundos aparecerá en el selector de período — recarga la página.');
+        // Encabezado + primeras filas (lectura liviana) para reconocer columnas y período.
+        $filas = $this->leerPrimerasFilas($archivo, 2000);
+        $mapa  = AutoliquidacionImport::mapaColumnas($filas[0] ?? []);
+
+        if (! isset($mapa['empleado'], $mapa['aporte_empresa'], $mapa['fecha'])) {
+            return back()->with('error',
+                'El archivo no tiene el formato de la planilla de autoliquidación (PILA): faltan las '.
+                'columnas "Empleado", "Aporte empresa" y/o "Fecha". Revisa que sea el reporte correcto.');
+        }
+
+        $periodo = $this->periodoDesdeFilas($filas, $mapa);
+        if (! $periodo) {
+            return back()->with('error',
+                'No pude leer el período de la columna "Fecha". Revisa que traiga fechas válidas (ej. 2026-08-31).');
+        }
+        [$mesArchivo, $anioArchivo] = $periodo;
+
+        // Importa directo (sin transacción envolvente: si la conexión se corta a mitad, lo ya
+        // insertado queda). Se desactiva el log de queries (se come la memoria). Cualquier error
+        // se muestra en pantalla en vez de fallar en silencio.
+        DB::connection()->disableQueryLog();
+        try {
+            AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
+            Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo, $mapa), $archivo);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return back()->with('error', 'No se pudo procesar el archivo: '.$e->getMessage());
+        }
+
+        $base       = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
+        $nFilas     = (clone $base)->count();
+        $colPersona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
+            ? DB::raw("COALESCE(NULLIF(empleado, ''), cedula)")
+            : 'cedula';
+        $personas = (clone $base)->distinct()->count($colPersona);
+        $empresa  = (float) (clone $base)->sum('aporte_empresa');
+        $totalFmt = '$'.number_format($empresa, 0, ',', '.');
+
+        return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
+            ->with('success', "Planilla {$mesArchivo}/{$anioArchivo}: {$nFilas} filas, {$personas} personas, aporte empresa {$totalFmt}.");
+    }
+
+    /**
+     * Lee SOLO las primeras filas (encabezado + hasta $maxFilas) de la primera hoja, para reconocer
+     * columnas y período sin cargar el archivo entero. Ante cualquier problema, cae a la lectura
+     * estándar.
+     *
+     * @return array<int, array<int, mixed>>
+     */
+    private function leerPrimerasFilas(\Illuminate\Http\UploadedFile $archivo, int $maxFilas): array
+    {
+        $ruta = $archivo->getRealPath();
+
+        try {
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($ruta);
+            $reader->setReadDataOnly(true);
+            if (method_exists($reader, 'setReadFilter')) {
+                $reader->setReadFilter(new class($maxFilas + 1) implements \PhpOffice\PhpSpreadsheet\Reader\IReadFilter {
+                    public function __construct(private int $max) {}
+
+                    public function readCell($column, $row, $worksheetName = ''): bool
+                    {
+                        return $row <= $this->max;
+                    }
+                });
+            }
+
+            return $reader->load($ruta)->getSheet(0)->toArray(null, true, false, false);
+        } catch (\Throwable $e) {
+            return Excel::toArray(new class {}, $archivo)[0] ?? [];
+        }
+    }
+
+    /**
+     * Primer par [mes, anio] legible de la columna Fecha; null si ninguna es válida.
+     *
+     * @param  array<int, array<int, mixed>>  $filas
+     * @param  array<string, int>  $mapa
+     */
+    private function periodoDesdeFilas(array $filas, array $mapa): ?array
+    {
+        $col = $mapa['fecha'] ?? null;
+        if ($col === null) {
+            return null;
+        }
+        foreach ($filas as $i => $fila) {
+            if ($i === 0) {
+                continue;
+            }
+            $fecha = AutoliquidacionImport::parsearFecha($fila[$col] ?? null);
+            if ($fecha) {
+                return [(int) $fecha->month, (int) $fecha->year];
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -19,6 +19,11 @@
 @if(session('error'))
 <div style="background:#FEF2F2;border:1px solid #FECACA;color:#DC2626;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">{{ session('error') }}</div>
 @endif
+@if($errors->any())
+<div style="background:#FEF2F2;border:1px solid #FECACA;color:#DC2626;border-radius:8px;padding:9px 14px;font-size:13px;margin-bottom:1rem">
+    @foreach($errors->all() as $err){{ $err }}<br>@endforeach
+</div>
+@endif
 
 @php
     // Columnas que reconoce el módulo POR SU NOMBRE (el orden no importa y el archivo puede traer

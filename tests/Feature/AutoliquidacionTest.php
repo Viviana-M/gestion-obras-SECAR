@@ -109,13 +109,11 @@ class AutoliquidacionTest extends TestCase
     }
 
     #[Test]
-    public function sin_fecha_valida_no_carga(): void
+    public function sin_fecha_valida_avisa_y_no_carga(): void
     {
-        // La carga se acepta (se procesa en segundo plano), pero al no poder leer el período de la
-        // columna Fecha el worker no importa nada: no debe quedar ninguna fila.
         $this->actingAs($this->contable())->post(route('contable.autoliquidacion.store'), [
             'archivo' => $this->planilla([$this->fila('111', 'ADM00099', 'EPS', 2000, '')], 'plana.xlsx'),
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHas('error');
 
         $this->assertSame(0, AutoliquidacionAporte::count());
     }
@@ -141,9 +139,8 @@ class AutoliquidacionTest extends TestCase
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $this->actingAs($this->contable())->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])
-            ->assertRedirect();
+            ->assertRedirect()->assertSessionHas('error');
 
-        // El worker reconoce que no es la planilla PILA (sin Empleado/Aporte empresa) y no importa nada.
         $this->assertSame(0, AutoliquidacionAporte::count());
     }
 
