@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -81,17 +80,6 @@ trait GeneraPlanoSiesa
         }
         $h2->fromArray($filas, null, 'A2');
 
-        // Débito (H), crédito (I) y base gravable (J) van SIEMPRE con el formato que exige SIESA
-        // (signo + 15 enteros + punto + 4 decimales), sin celdas vacías: 0 → +000000000000000.0000.
-        // Se escriben como TEXTO explícito para que no se pierda el formato (leading zeros/signo).
-        $fila = 2;
-        foreach ($movimientos as $m) {
-            $h2->setCellValueExplicit('H'.$fila, $this->valorSiesa($m['debito']), DataType::TYPE_STRING);
-            $h2->setCellValueExplicit('I'.$fila, $this->valorSiesa($m['credito']), DataType::TYPE_STRING);
-            $h2->setCellValueExplicit('J'.$fila, $this->valorSiesa($m['base_gravable']), DataType::TYPE_STRING);
-            $fila++;
-        }
-
         // Hojas 3 y 4: van vacias, pero SIESA las exige con sus encabezados
         $h3 = $ss->createSheet();
         $h3->setTitle('MovimientoCxC');
@@ -142,15 +130,6 @@ trait GeneraPlanoSiesa
         $hoja->getStyle($rango)->getFont()->setBold(true);
         $hoja->getStyle($rango)->getFill()->setFillType(Fill::FILL_SOLID)
              ->getStartColor()->setRGB('F3F4F6');
-    }
-
-    /**
-     * Formato de valor que exige SIESA: signo + 15 enteros + punto + 4 decimales.
-     * Ej.: 0 → "+000000000000000.0000"; 400000 → "+000000000400000.0000".
-     */
-    protected function valorSiesa($valor): string
-    {
-        return sprintf('%+021.4f', (float) $valor);
     }
 
     protected function ultimoDiaDelMesSiesa(int $anio, int $mes): string

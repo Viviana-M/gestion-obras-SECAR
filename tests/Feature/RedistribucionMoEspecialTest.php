@@ -316,7 +316,7 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function el_plano_pone_centro_de_costo_por_un_y_formato_siesa(): void
+    public function el_plano_pone_centro_de_costo_por_un_en_la_cuenta_6(): void
     {
         // Homologación a una cuenta 61 (inicia en 6).
         Homologacion::create(['cuenta_14' => '14200506', 'cuenta_61' => '61050101', 'nombre' => 'MO',
@@ -333,18 +333,16 @@ class RedistribucionMoEspecialTest extends TestCase
         foreach (range(2, $mov->getHighestRow()) as $r) {
             $cta = (string) $mov->getCell('C'.$r)->getValue();
             $cc  = (string) $mov->getCell('F'.$r)->getValue();
-            $j   = (string) $mov->getCell('J'.$r)->getValue();
-            // Base gravable SIEMPRE con formato SIESA en 0.
-            $this->assertSame('+000000000000000.0000', $j);
+            $this->assertEqualsWithDelta(0, (float) $mov->getCell('J'.$r)->getValue(), 0.5); // base gravable = 0
             if (str_starts_with($cta, '6')) {
                 $vio61 = true;
                 $this->assertSame('30020105', $cc); // centro de costo de MTO00099 en la cuenta 61
-                $this->assertSame('+000000000600000.0000', (string) $mov->getCell('H'.$r)->getValue()); // débito formateado
+                $this->assertEqualsWithDelta(600000, (float) $mov->getCell('H'.$r)->getValue(), 0.5); // débito (número normal)
             }
             if (str_starts_with($cta, '14')) {
                 $vio14 = true;
                 $this->assertSame('', $cc); // la cuenta 14 NO lleva centro de costo
-                $this->assertSame('+000000000600000.0000', (string) $mov->getCell('I'.$r)->getValue()); // crédito formateado
+                $this->assertEqualsWithDelta(600000, (float) $mov->getCell('I'.$r)->getValue(), 0.5); // crédito (número normal)
             }
         }
         $this->assertTrue($vio61 && $vio14);
