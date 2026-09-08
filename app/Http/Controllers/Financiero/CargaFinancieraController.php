@@ -52,10 +52,27 @@ class CargaFinancieraController extends Controller
             'user_id' => $request->user()?->id,
         ]);
 
-        ProcesarArchivoFinanciero::dispatch($ruta, $mes, $anio, $carga->id);
+        // Se procesa AQUÍ mismo (no en la cola) para no depender de tener un worker corriendo.
+        //  - ignore_user_abort: si el navegador/túnel corta la conexión a mitad, PHP TERMINA igual.
+        //  - set_time_limit(0) + memoria alta: el cierre trae miles de filas.
+        // El job marca la carga como 'completado'/'error', así que el historial refleja el resultado.
+        @set_time_limit(0);
+        @ini_set('memory_limit', '1024M');
+        if (function_exists('ignore_user_abort')) {
+            @ignore_user_abort(true);
+        }
+
+        try {
+            ProcesarArchivoFinanciero::dispatchSync($ruta, $mes, $anio, $carga->id);
+        } catch (\Throwable $e) {
+            report($e);
+            $carga->update(['estado' => 'error', 'error' => $e->getMessage()]);
+
+            return back()->with('error', 'No se pudo procesar el archivo: '.$e->getMessage());
+        }
 
         return back()->with('success',
-            'Archivo recibido. Procesando en segundo plano — revisa el historial en unos minutos.');
+            'Archivo recibido y procesado. Revisa el historial y los reportes.');
     }
 
     
