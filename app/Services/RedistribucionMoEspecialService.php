@@ -59,15 +59,16 @@ class RedistribucionMoEspecialService
             return [];
         }
 
-        $unBolsa   = UnBolsa::codigos();
         $cuentasMO = $this->cuentasMO($mes, $anio);
 
-        // 1) MO DIRECTA: líneas de bolsa (cuenta 14 MO) del período, agrupadas por tercero
-        //    (documento + razón social) y atribuidas a la persona por cédula o nombre.
+        // 1) MO DIRECTA: líneas de MO (cuenta 14) del período —EN CUALQUIER UN del cierre—, agrupadas
+        //    por tercero (documento + razón social) y atribuidas a la persona por cédula o nombre.
+        //    El cruce lo define la CÉDULA (que la persona esté en Mano de Obra Directa), no la UN:
+        //    se toma toda la MO de esas personas donde sea que la haya distribuido Nómina, y se
+        //    reclasifica 14→61 conservando la UN de cada línea.
         $directo = collect();
-        if (! empty($cuentasMO) && ! empty($unBolsa)) {
+        if (! empty($cuentasMO)) {
             $directo = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-                ->whereIn('codigo_proyecto', $unBolsa)
                 ->whereIn('cuenta_contable', $cuentasMO)
                 ->where('mes', $mes)->where('anio', $anio)
                 ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as saldo')

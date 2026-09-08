@@ -78,6 +78,28 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function toma_la_mo_de_la_persona_en_cualquier_un_no_solo_en_bolsas(): void
+    {
+        // El cruce es por CÉDULA: la MO de la persona cuenta esté en la UN que esté (obra OB*, C*,
+        // etc.), no solo en las UN marcadas como bolsa. Así se reclasifica toda su MO del cierre.
+        $this->homologarMO('14200506');
+        $this->homologarMO('14200530');
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+
+        $this->moBolsa('OB008657', '14200506', '111', 500000); // MO en una UN de obra (no bolsa)
+        $this->moBolsa('C6112401', '14200530', '111', 300000); // MO en otra UN de obra (no bolsa)
+
+        $svc   = app(RedistribucionMoEspecialService::class);
+        $costo = $svc->costoPorPersona(4, 2026);
+        $this->assertEqualsWithDelta(800000, $costo['111']['directo'], 0.5);
+
+        // Y el plano reclasifica esa MO conservando las UN de obra del cierre.
+        $uns = collect($svc->movimientosRedistribucion(4, 2026))->pluck('un')->unique()->all();
+        $this->assertContains('OB008657', $uns);
+        $this->assertContains('C6112401', $uns);
+    }
+
+    #[Test]
     public function la_ss_sale_de_la_cuenta_14_repartida_por_la_autoliquidacion(): void
     {
         $this->homologarMO('14200530');
