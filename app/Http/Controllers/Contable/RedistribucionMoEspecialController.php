@@ -71,10 +71,15 @@ class RedistribucionMoEspecialController extends Controller
 
         $mov = [];
         foreach ($this->svc->movimientosRedistribucion($mes, $anio) as $m) {
+            // El auxiliar de centro de costos va SOLO cuando la cuenta inicia en 6 (la 61), según la
+            // UN de la bolsa: MTO00099 → 30020105, INS00099 → 30010103.
+            $ccCredito = str_starts_with((string) $m['cuenta_credito'], '6') ? $this->centroCosto($m['un']) : null;
+            $ccDebito  = str_starts_with((string) $m['cuenta_debito'], '6') ? $this->centroCosto($m['un']) : null;
+
             // CR la cuenta 14 conservando el tercero del ERP (persona en salario; fondo/EPS en SS)
             // y DB la cuenta 61 a nombre de la persona, en la MISMA UN que trae la línea.
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_credito'], $m['tercero_credito'], $m['un'], null, 0, $m['monto'], self::TIPO_DOC);
-            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_debito'], $m['tercero_debito'], $m['un'], null, $m['monto'], 0, self::TIPO_DOC);
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_credito'], $m['tercero_credito'], $m['un'], $ccCredito, 0, $m['monto'], self::TIPO_DOC);
+            $mov[] = $this->filaPlano($numeroDoc, $m['cuenta_debito'], $m['tercero_debito'], $m['un'], $ccDebito, $m['monto'], 0, self::TIPO_DOC);
         }
 
         if (empty($mov)) {
@@ -87,6 +92,16 @@ class RedistribucionMoEspecialController extends Controller
 
         return response()->download($archivo, 'PLANO_REDISTRIBUCION_MO_'.sprintf('%d_%02d', $anio, $mes).'.xlsx')
             ->deleteFileAfterSend(true);
+    }
+
+    /** Auxiliar de centro de costos según la UN de la bolsa (para las cuentas 61). */
+    private function centroCosto(string $un): ?string
+    {
+        return match ($un) {
+            'MTO00099' => '30020105',
+            'INS00099' => '30010103',
+            default    => null,
+        };
     }
 
     /** Período seleccionado; por defecto el último con datos financieros. */

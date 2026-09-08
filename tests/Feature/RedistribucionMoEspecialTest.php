@@ -316,6 +316,41 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function el_plano_pone_centro_de_costo_por_un_y_formato_siesa(): void
+    {
+        // Homologación a una cuenta 61 (inicia en 6).
+        Homologacion::create(['cuenta_14' => '14200506', 'cuenta_61' => '61050101', 'nombre' => 'MO',
+            'estructura' => 'MOI', 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200506', '111', 600000);
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.redistribucion-mo.plano', ['mes' => 4, 'anio' => 2026, 'documento' => 9]));
+        $resp->assertOk();
+
+        $mov = \PhpOffice\PhpSpreadsheet\IOFactory::load($resp->getFile()->getPathname())->getSheetByName('Movimientocontable');
+        $vio61 = false; $vio14 = false;
+        foreach (range(2, $mov->getHighestRow()) as $r) {
+            $cta = (string) $mov->getCell('C'.$r)->getValue();
+            $cc  = (string) $mov->getCell('F'.$r)->getValue();
+            $j   = (string) $mov->getCell('J'.$r)->getValue();
+            // Base gravable SIEMPRE con formato SIESA en 0.
+            $this->assertSame('+000000000000000.0000', $j);
+            if (str_starts_with($cta, '6')) {
+                $vio61 = true;
+                $this->assertSame('30020105', $cc); // centro de costo de MTO00099 en la cuenta 61
+                $this->assertSame('+000000000600000.0000', (string) $mov->getCell('H'.$r)->getValue()); // débito formateado
+            }
+            if (str_starts_with($cta, '14')) {
+                $vio14 = true;
+                $this->assertSame('', $cc); // la cuenta 14 NO lleva centro de costo
+                $this->assertSame('+000000000600000.0000', (string) $mov->getCell('I'.$r)->getValue()); // crédito formateado
+            }
+        }
+        $this->assertTrue($vio61 && $vio14);
+    }
+
+    #[Test]
     public function la_lista_de_personas_viene_del_maestro_de_administracion(): void
     {
         // La lista la administra Administración → Mano de obra directa (mano_obra_directa).
