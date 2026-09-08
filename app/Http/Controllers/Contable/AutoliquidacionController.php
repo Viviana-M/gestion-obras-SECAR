@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
 use App\Imports\Contable\AutoliquidacionImport;
-use App\Jobs\Contable\ProcesarAutoliquidacion;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -218,26 +218,33 @@ class AutoliquidacionController extends Controller
         }
         [$mesArchivo, $anioArchivo] = $periodo;
 
-        // La importación de miles de filas no cabe bien en la petición web (memoria/tiempo del
-        // servidor o del túnel). Igual que el cierre financiero, se MUEVE el archivo a storage y se
-        // procesa en un JOB en segundo plano (borra el período y reimporta). Así los archivos
-        // grandes ya no tumban la carga. El período y el mapa de columnas ya se resolvieron arriba
-        // con la lectura liviana del encabezado.
-        $dir = storage_path('app/autoliquidacion');
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        $nombre = uniqid('pila_').'.xlsx';
-        $archivo->move($dir, $nombre);
+        // Importa directamente (borra el período y reimporta). SIN transacción envolvente: así,
+        // si la conexión del navegador/túnel se corta a mitad, los lotes ya insertados quedan
+        // guardados (antes, con transacción, un corte hacía rollback y "se quitaba" todo). Se
+        // desactiva el log de queries (se come la memoria en importaciones largas). Cualquier
+        // error se muestra en pantalla en vez de fallar en silencio.
+        DB::connection()->disableQueryLog();
+        try {
+            AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
+            Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo, $mapa), $archivo);
+        } catch (\Throwable $e) {
+            report($e);
 
-        // Se procesa DESPUÉS de responder al navegador, en el mismo proceso (no requiere tener un
-        // "queue:work" corriendo). Así la respuesta sale de inmediato (sin timeout del túnel) y la
-        // importación pesada ocurre a continuación, ya sin la vista esperando.
-        ProcesarAutoliquidacion::dispatchAfterResponse('autoliquidacion/'.$nombre, $mesArchivo, $anioArchivo, $mapa);
+            return back()->with('error', 'No se pudo procesar el archivo: '.$e->getMessage());
+        }
+
+        $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
+        $nFilas   = (clone $base)->count();
+        // "Personas" = empleados distintos (cédula del empleado), no los fondos/EPS.
+        $colPersona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
+            ? DB::raw("COALESCE(NULLIF(empleado, ''), cedula)")
+            : 'cedula';
+        $personas = (clone $base)->distinct()->count($colPersona);
+        $empresa  = (float) (clone $base)->sum('aporte_empresa');
+        $totalFmt = '$'.number_format($empresa, 0, ',', '.');
 
         return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
-            ->with('success', "Planilla de {$mesArchivo}/{$anioArchivo} recibida. Se está procesando en segundo plano; ".
-                'en unos segundos aparecerá aquí — recarga la página.');
+            ->with('success', "Planilla {$mesArchivo}/{$anioArchivo}: {$nFilas} filas, {$personas} personas, aporte empresa {$totalFmt}.");
     }
 
     /**
