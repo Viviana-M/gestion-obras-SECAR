@@ -19,29 +19,35 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  */
 class DiagnosticoAutoliquidacion extends Command
 {
-    protected $signature = 'autoliq:diagnostico {mes? : Mes (1-12)} {anio? : Año}';
+    protected $signature = 'autoliq:diagnostico {mes? : Mes (1-12)} {anio? : Año} {--archivo= : Ruta a un .xlsx específico (usa / en vez de \\)}';
 
-    protected $description = 'Importa el último archivo de autoliquidación subido y muestra resultado o error';
+    protected $description = 'Importa un archivo de autoliquidación y muestra resultado o error';
 
     public function handle(): int
     {
         DB::connection()->disableQueryLog();
 
-        $dir = storage_path('app/autoliquidacion');
-        if (! is_dir($dir)) {
-            $this->error("No existe la carpeta {$dir}. Sube primero la autoliquidación desde la web.");
+        // 1) Si pasan --archivo, se usa ese; si no, el último subido en storage.
+        $ruta = (string) ($this->option('archivo') ?: '');
+        if ($ruta !== '') {
+            $ruta = str_replace('\\', '/', $ruta);
+            if (! is_file($ruta)) {
+                $this->error("No encuentro el archivo: {$ruta}");
 
-            return 1;
+                return 1;
+            }
+        } else {
+            $dir = storage_path('app/autoliquidacion');
+            $archivos = is_dir($dir) ? (glob($dir.DIRECTORY_SEPARATOR.'*.xlsx') ?: []) : [];
+            if (empty($archivos)) {
+                $this->error('No hay archivos subidos. Pasa la ruta de tu Excel:');
+                $this->line('  php artisan autoliq:diagnostico --archivo="C:/Users/tu_usuario/Downloads/Autoliquidacion_Agosto.xlsx"');
+
+                return 1;
+            }
+            usort($archivos, fn ($a, $b) => filemtime($b) <=> filemtime($a));
+            $ruta = $archivos[0];
         }
-
-        $archivos = glob($dir.DIRECTORY_SEPARATOR.'*.xlsx') ?: [];
-        if (empty($archivos)) {
-            $this->error("No hay archivos en {$dir}. Sube primero la autoliquidación desde la web.");
-
-            return 1;
-        }
-        usort($archivos, fn ($a, $b) => filemtime($b) <=> filemtime($a));
-        $ruta = $archivos[0];
         $this->info('Archivo: '.$ruta.'  ('.round(filesize($ruta) / 1024).' KB)');
 
         try {
