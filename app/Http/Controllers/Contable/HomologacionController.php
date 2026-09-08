@@ -301,7 +301,7 @@ class HomologacionController extends Controller
             'No tienes permiso para editar en Contabilidad.');
 
         $request->validate([
-            'archivo'      => 'required|file|mimes:xlsx,xls|max:51200',
+            'archivo'      => 'required|file|max:51200', // sin mimes: en Windows el .xlsx se detecta mal y se rechazaba
             'vigente_mes'  => 'required|integer|between:1,12',
             'vigente_anio' => 'required|integer|between:2000,2100',
         ], [
