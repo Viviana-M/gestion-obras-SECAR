@@ -79,14 +79,19 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
 
     public function model(array $row)
     {
-        // Este módulo trata del APORTE EMPRESA (lo que va a la cuenta 14 y se reclasifica a la 61).
-        // Solo se importan las líneas de aporte de una persona: deben traer Empleado y un aporte
-        // empresa distinto de cero. Así se descartan el renglón de totales al pie (sin empleado) y
-        // las contrapartidas/puente (mismo empleado y concepto, pero aporte empresa en 0), que si
-        // no inflarían el conteo de filas y personas.
+        // Este módulo trata del APORTE EMPRESA que va a la CUENTA 14 (por aplicar) y se reclasifica
+        // a la 61. Solo se importan las líneas de aporte de una persona que:
+        //  - traen Empleado y aporte empresa distinto de cero (descarta totales al pie y puentes), y
+        //  - su "ID Cuenta" empieza en 14. Las demás (26, 23, 51, 52…) son gasto directo o pasivo,
+        //    NO "por aplicar", así que se obvian (no se reclasifican).
         $empleado = $this->celda($row, 'empleado');
         $aporteEmpresa = $this->num($this->valor($row, 'aporte_empresa'));
         if ($empleado === null || abs($aporteEmpresa) < 0.005) {
+            return null;
+        }
+
+        $idCuenta = (string) ($this->celda($row, 'id_cuenta') ?? '');
+        if (! str_starts_with(ltrim($idCuenta), '14')) {
             return null;
         }
 

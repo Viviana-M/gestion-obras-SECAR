@@ -58,7 +58,8 @@ class AutoliquidacionTest extends TestCase
     private function fila(string $ced, string $un, string $concepto, float $empresa,
         string $fecha = '2026-04-30', float $empleado = 0, float $real = 0): array
     {
-        return ['26109505', 'CUENTA PUENTE EPS', $ced, 'APELLIDO NOMBRE', $un, $fecha,
+        // ID Cuenta empieza en 14 (la que se reclasifica); las demás las obvia el importador.
+        return ['14200569', 'CUENTA PUENTE EPS', $ced, 'APELLIDO NOMBRE', $un, $fecha,
             'AREA '.$un, $concepto, $ced, 'APELLIDO NOMBRE', $empleado, $empresa, $real];
     }
 
@@ -294,6 +295,35 @@ class AutoliquidacionTest extends TestCase
 
         // El total de aporte empresa es la suma de las 2 líneas de aporte (no incluye el total al pie).
         $this->assertEqualsWithDelta(165692, (float) AutoliquidacionAporte::where('mes', 8)->sum('aporte_empresa'), 0.5);
+    }
+
+    #[Test]
+    public function solo_importa_las_lineas_cuya_id_cuenta_empieza_en_14(): void
+    {
+        // Solo el aporte que va a la cuenta 14 (por aplicar) se reclasifica. Las líneas con ID
+        // Cuenta 26 (puente/descuento), 51/52 (gasto), etc. se deben obviar.
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->fromArray([
+            'ID Cuenta', 'Cuenta contable', 'Id. Tercero Mov', 'Razon Social', 'Id. U.N. Mov', 'Fecha',
+            'Descripción UN', 'Descripción Codigo PILA', 'Empleado', 'Nombre del empl',
+            'Aporte del empl', 'Aporte empresa', 'Real Descontado',
+        ], null, 'A1');
+        $sheet->fromArray(['14200569', 'APORTE EPS', '800251440', 'SANITAS', 'ADM00099', '2026-08-31', 'A', 'Aporte EPS', '111', 'X', 0, 50000, 0], null, 'A2');
+        $sheet->fromArray(['26100101', 'CUENTA PUENTE', '800251440', 'SANITAS', 'ADM00099', '2026-08-31', 'A', 'Descuento', '111', 'X', 0, 30000, 0], null, 'A3');
+        $sheet->fromArray(['51050101', 'GASTO ADMON', '800251440', 'SANITAS', 'ADM00099', '2026-08-31', 'A', 'Aporte EPS', '111', 'X', 0, 20000, 0], null, 'A4');
+        $path = tempnam(sys_get_temp_dir(), 'idc').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $archivo = new UploadedFile($path, 'autoliq.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.autoliquidacion.store'), ['archivo' => $archivo])->assertRedirect();
+
+        // Solo la línea de la cuenta 14 (50.000); las de 26 y 51 se obvian.
+        $this->assertSame(1, AutoliquidacionAporte::where('mes', 8)->where('anio', 2026)->count());
+        $this->assertEqualsWithDelta(50000, (float) AutoliquidacionAporte::where('mes', 8)->sum('aporte_empresa'), 0.5);
+        $this->assertSame('14200569', AutoliquidacionAporte::where('mes', 8)->first()->id_cuenta);
     }
 
     #[Test]
