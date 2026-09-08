@@ -66,9 +66,10 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
 
     public function chunkSize(): int
     {
-        // Chunks moderados: equilibran memoria (planillas de miles de filas no deben disparar la
-        // memoria del servidor) y velocidad (cada chunk reabre el archivo).
-        return 1000;
+        // Chunks pequeños (como el importador del cierre) para no disparar la memoria del servidor
+        // en planillas de miles de filas. Corre en un job en segundo plano, así que la velocidad
+        // no bloquea la web.
+        return 500;
     }
 
     public function batchSize(): int

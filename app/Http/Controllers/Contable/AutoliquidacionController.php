@@ -4,10 +4,9 @@ namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
 use App\Imports\Contable\AutoliquidacionImport;
+use App\Jobs\Contable\ProcesarAutoliquidacion;
 use App\Models\AutoliquidacionAporte;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -219,30 +218,23 @@ class AutoliquidacionController extends Controller
         }
         [$mesArchivo, $anioArchivo] = $periodo;
 
-        // Reemplazar la planilla del mismo período (borrar e insertar). Se serializa con un
-        // candado por período: si el archivo es grande y tarda, un doble clic o un reenvío del
-        // navegador NO procesa dos veces a la vez (el segundo espera y, al entrar, vuelve a
-        // borrar antes de insertar). Además el borrado+insert es atómico (transacción).
-        Cache::lock("autoliquidacion:{$mesArchivo}:{$anioArchivo}", 300)->block(45, function () use ($mesArchivo, $anioArchivo, $archivo, $mapa) {
-            DB::transaction(function () use ($mesArchivo, $anioArchivo, $archivo, $mapa) {
-                AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo)->delete();
-                Excel::import(new AutoliquidacionImport($mesArchivo, $anioArchivo, $mapa), $archivo);
-            });
-        });
+        // La importación de miles de filas no cabe bien en la petición web (memoria/tiempo del
+        // servidor o del túnel). Igual que el cierre financiero, se MUEVE el archivo a storage y se
+        // procesa en un JOB en segundo plano (borra el período y reimporta). Así los archivos
+        // grandes ya no tumban la carga. El período y el mapa de columnas ya se resolvieron arriba
+        // con la lectura liviana del encabezado.
+        $dir = storage_path('app/autoliquidacion');
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $nombre = uniqid('pila_').'.xlsx';
+        $archivo->move($dir, $nombre);
 
-        $base     = AutoliquidacionAporte::where('mes', $mesArchivo)->where('anio', $anioArchivo);
-        $filas    = (clone $base)->count();
-        // "Personas" = empleados distintos (la cédula del empleado), no los fondos/EPS (cedula = NIT
-        // del tercero). Si la planilla no trae la columna empleado, cae a la cédula del tercero.
-        $colPersona = Schema::hasColumn('autoliquidacion_aportes', 'empleado')
-            ? DB::raw("COALESCE(NULLIF(empleado, ''), cedula)")
-            : 'cedula';
-        $personas = (clone $base)->distinct()->count($colPersona);
-        $empresa  = (float) (clone $base)->sum('aporte_empresa');
-        $totalFmt = '$'.number_format($empresa, 0, ',', '.');
+        ProcesarAutoliquidacion::dispatch('autoliquidacion/'.$nombre, $mesArchivo, $anioArchivo, $mapa);
 
         return redirect()->route('contable.autoliquidacion.index', ['mes' => $mesArchivo, 'anio' => $anioArchivo])
-            ->with('success', "Planilla {$mesArchivo}/{$anioArchivo}: {$filas} filas, {$personas} personas, aporte empresa {$totalFmt}.");
+            ->with('success', "Planilla de {$mesArchivo}/{$anioArchivo} recibida. Se está procesando en segundo plano; ".
+                'en unos segundos aparecerá aquí — recarga la página.');
     }
 
     /**
