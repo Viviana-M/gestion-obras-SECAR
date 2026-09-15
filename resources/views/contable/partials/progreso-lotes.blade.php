@@ -31,6 +31,23 @@
     }
     function miles(n) { try { return Number(n).toLocaleString('es-CO'); } catch (e) { return n; } }
 
+    // Lee la respuesta SIEMPRE como texto y trata de interpretarla como JSON. Si el servidor
+    // devolvió HTML (una página de error), no revienta con "Unexpected token '<'": arma un
+    // mensaje claro con el código y un fragmento del contenido.
+    function leerRespuesta(r) {
+        return r.text().then(function (t) {
+            var data;
+            try {
+                data = t ? JSON.parse(t) : {};
+            } catch (e) {
+                var plano = String(t).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                data = { error: 'El servidor respondió con un error (' + r.status + ').' +
+                    (plano ? ' ' + plano.slice(0, 300) : '') };
+            }
+            return { ok: r.ok, status: r.status, data: data };
+        });
+    }
+
     function terminar(msg, warning, redirigir) {
         bar.style.width = '100%';
         bar.style.background = '#15803D';
@@ -56,10 +73,10 @@
 
         var fd = new FormData(form);
         fetch(PREP, { method: 'POST', headers: H, body: fd, credentials: 'same-origin' })
-            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(leerRespuesta)
             .then(function (res) {
-                if (!res.ok) throw new Error(res.d.error || 'No se pudo preparar el archivo.');
-                var d = res.d;
+                if (!res.ok) throw new Error(res.data.error || 'No se pudo preparar el archivo.');
+                var d = res.data;
                 if (d.done || (d.total || 0) === 0) {
                     terminar(d.mensaje || 'Archivo procesado.', d.warning, d.redirigir);
                     return;
@@ -75,10 +92,10 @@
         var fd = new FormData();
         fd.append('carga_id', id);
         fetch(PROC, { method: 'POST', headers: H, body: fd, credentials: 'same-origin' })
-            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(leerRespuesta)
             .then(function (res) {
-                if (!res.ok) throw new Error(res.d.error || 'Error procesando el archivo.');
-                var d = res.d;
+                if (!res.ok) throw new Error(res.data.error || 'Error procesando el archivo.');
+                var d = res.data;
                 var t = d.total || total || 1;
                 var pct = Math.max(6, Math.min(100, Math.round((d.procesadas || 0) * 100 / Math.max(1, t))));
                 bar.style.width = pct + '%';

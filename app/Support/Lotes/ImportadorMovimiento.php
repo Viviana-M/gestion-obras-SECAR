@@ -16,6 +16,8 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  */
 class ImportadorMovimiento implements ImportadorLotes
 {
+    use InsertaLotes;
+
     private const HOJA = 'Comercial_Mvto';
     private const LOTE_INSERT = 500;
 
@@ -109,69 +111,76 @@ class ImportadorMovimiento implements ImportadorLotes
             ->keyBy(fn ($l) => $l->tipo_inventario.'|'.$l->codigo_movimiento);
 
         $ahora     = now();
-        $registros = [];
+        $base      = (int) ($meta['fila_base'] ?? 0);
+        $registros = [];   $regFilas = [];
         $insertadas = 0;
         $saltadas  = 0;
         $traslados = 0;
         $sinLlave  = [];
 
-        foreach ($filas as $r) {
-            $obra = $this->codigoObra($r[$col['codigo_obra']] ?? null);
-            [$mesFila, $anioFila] = $this->periodo($r[$col['periodo']] ?? null);
-            $tipoInv = $this->texto($r[$col['tipo_inventario']] ?? null);
-            $codMov  = $this->texto($r[$col['codigo_movimiento']] ?? null);
-            if ($obra === null || $mesFila === null || $tipoInv === null || $codMov === null) {
-                // Fila realmente vacía (relleno del final de la ventana) no cuenta como saltada.
-                if ($this->filaVacia($r)) {
+        foreach ($filas as $i => $r) {
+            $num = $base + $i;
+            try {
+                $obra = $this->codigoObra($r[$col['codigo_obra']] ?? null);
+                [$mesFila, $anioFila] = $this->periodo($r[$col['periodo']] ?? null);
+                $tipoInv = $this->texto($r[$col['tipo_inventario']] ?? null);
+                $codMov  = $this->texto($r[$col['codigo_movimiento']] ?? null);
+                if ($obra === null || $mesFila === null || $tipoInv === null || $codMov === null) {
+                    // Fila realmente vacía (relleno del final de la ventana) no cuenta como saltada.
+                    if ($this->filaVacia($r)) {
+                        continue;
+                    }
+                    $saltadas++;
                     continue;
                 }
-                $saltadas++;
-                continue;
+
+                $desc = $col['tipo_movimiento'] !== null ? $this->texto($r[$col['tipo_movimiento']] ?? null) : null;
+                if ($this->esTraslado($desc)) {
+                    $traslados++;
+                    continue;
+                }
+
+                $llave = $llaves[$tipoInv.'|'.$codMov] ?? null;
+                if ($llave === null) {
+                    $k = $tipoInv.'|'.$codMov;
+                    $sinLlave[$k] ??= ['tipo' => $tipoInv, 'codigo' => $codMov, 'n' => 0];
+                    $sinLlave[$k]['n']++;
+                }
+
+                $naturaleza = $this->naturalezaPorDescripcion($desc) ?? ($llave->naturaleza ?? null);
+
+                $registros[] = [
+                    'codigo_obra'       => $obra,
+                    'mes'               => $mesFila,
+                    'anio'              => $anioFila,
+                    'cuenta'            => $llave->cuenta ?? '',
+                    'item'              => $this->texto($r[$col['item']] ?? null) ?? '',
+                    'tipo_inventario'   => $tipoInv,
+                    'codigo_movimiento' => $codMov,
+                    'tipo_movimiento'   => $desc,
+                    'naturaleza'        => $naturaleza,
+                    'tercero'           => $col['tercero'] !== null ? $this->texto($r[$col['tercero']] ?? null) : null,
+                    'cantidad'          => $col['cantidad'] !== null ? abs($this->num($r[$col['cantidad']] ?? null)) : null,
+                    'fecha'             => $col['fecha'] !== null ? $this->fecha($r[$col['fecha']] ?? null) : null,
+                    'numero_documento'  => $col['numero_documento'] !== null ? $this->texto($r[$col['numero_documento']] ?? null) : null,
+                    'costo'             => abs($this->num($r[$col['costo']] ?? null)),
+                    'created_at'        => $ahora,
+                    'updated_at'        => $ahora,
+                ];
+                $regFilas[] = $num;
+            } catch (\Throwable $e) {
+                $this->fallaDeFila($num, $r, $e);
             }
-
-            $desc = $col['tipo_movimiento'] !== null ? $this->texto($r[$col['tipo_movimiento']] ?? null) : null;
-            if ($this->esTraslado($desc)) {
-                $traslados++;
-                continue;
-            }
-
-            $llave = $llaves[$tipoInv.'|'.$codMov] ?? null;
-            if ($llave === null) {
-                $k = $tipoInv.'|'.$codMov;
-                $sinLlave[$k] ??= ['tipo' => $tipoInv, 'codigo' => $codMov, 'n' => 0];
-                $sinLlave[$k]['n']++;
-            }
-
-            $naturaleza = $this->naturalezaPorDescripcion($desc) ?? ($llave->naturaleza ?? null);
-
-            $registros[] = [
-                'codigo_obra'       => $obra,
-                'mes'               => $mesFila,
-                'anio'              => $anioFila,
-                'cuenta'            => $llave->cuenta ?? '',
-                'item'              => $this->texto($r[$col['item']] ?? null) ?? '',
-                'tipo_inventario'   => $tipoInv,
-                'codigo_movimiento' => $codMov,
-                'tipo_movimiento'   => $desc,
-                'naturaleza'        => $naturaleza,
-                'tercero'           => $col['tercero'] !== null ? $this->texto($r[$col['tercero']] ?? null) : null,
-                'cantidad'          => $col['cantidad'] !== null ? abs($this->num($r[$col['cantidad']] ?? null)) : null,
-                'fecha'             => $col['fecha'] !== null ? $this->fecha($r[$col['fecha']] ?? null) : null,
-                'numero_documento'  => $col['numero_documento'] !== null ? $this->texto($r[$col['numero_documento']] ?? null) : null,
-                'costo'             => abs($this->num($r[$col['costo']] ?? null)),
-                'created_at'        => $ahora,
-                'updated_at'        => $ahora,
-            ];
 
             if (count($registros) >= self::LOTE_INSERT) {
-                DB::table('items_distribucion')->insert($registros);
+                $this->insertarLoteSeguro('items_distribucion', $registros, $regFilas);
                 $insertadas += count($registros);
-                $registros = [];
+                $registros = []; $regFilas = [];
             }
         }
 
         if ($registros) {
-            DB::table('items_distribucion')->insert($registros);
+            $this->insertarLoteSeguro('items_distribucion', $registros, $regFilas);
             $insertadas += count($registros);
         }
 

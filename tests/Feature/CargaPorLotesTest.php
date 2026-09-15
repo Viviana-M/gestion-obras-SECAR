@@ -195,4 +195,71 @@ class CargaPorLotesTest extends TestCase
             ->postJson(route('contable.autoliquidacion.preparar'), [])
             ->assertForbidden();
     }
+
+    #[Test]
+    public function un_error_al_procesar_responde_json_no_html(): void
+    {
+        // Carga cuyo archivo NO existe → al leer la ventana falla; debe responder JSON con el
+        // mensaje real, nunca una página HTML (que rompería el parseo en el navegador).
+        $carga = CargaPorLote::create([
+            'tipo' => 'autoliquidacion', 'mes' => 8, 'anio' => 2026,
+            'ruta_archivo' => 'pruebas/no_existe.xlsx', 'total_filas' => 10, 'filas_procesadas' => 0,
+            'meta_lotes' => [
+                'hoja' => 'Datos', 'fila_encabezado' => 1, 'ultima_columna' => 'M',
+                'ruta' => 'pruebas/no_existe.xlsx',
+                'mapa' => ['empleado' => 8, 'aporte_empresa' => 11, 'fecha' => 5],
+            ],
+            'estado' => 'procesando',
+        ]);
+
+        $resp = $this->actingAs($this->contable())
+            ->postJson(route('contable.autoliquidacion.procesar'), ['carga_id' => $carga->id]);
+
+        $resp->assertStatus(500)->assertJson(['ok' => false]);
+        $this->assertNotEmpty($resp->json('error'));
+        $this->assertStringContainsStringIgnoringCase('json', (string) $resp->headers->get('content-type'));
+        // La carga queda marcada en error.
+        $this->assertSame('error', $carga->refresh()->estado);
+    }
+
+    #[Test]
+    public function preparar_con_un_archivo_invalido_responde_json(): void
+    {
+        $bad = UploadedFile::fake()->createWithContent('planilla.xlsx', 'esto no es un excel');
+
+        $resp = $this->actingAs($this->contable())
+            ->postJson(route('contable.autoliquidacion.preparar'), ['archivo' => $bad]);
+
+        $this->assertContains($resp->status(), [422, 500]);
+        $resp->assertJson(['ok' => false]);
+        $this->assertNotEmpty($resp->json('error'));
+        $this->assertStringContainsStringIgnoringCase('json', (string) $resp->headers->get('content-type'));
+    }
+
+    #[Test]
+    public function la_insercion_segura_ubica_y_reporta_la_fila_culpable(): void
+    {
+        \Illuminate\Support\Facades\Log::spy();
+
+        // Objeto que usa el trait para insertar; la 2ª fila viola NOT NULL (concepto_pila).
+        $insertador = new class {
+            use \App\Support\Lotes\InsertaLotes;
+            public function correr(): void
+            {
+                $ok  = ['cedula' => '1',  'concepto_pila' => 'EPS', 'aporte_empresa' => 100, 'mes' => 8, 'anio' => 2026];
+                $mal = ['cedula' => null, 'concepto_pila' => 'AFP', 'aporte_empresa' => 200, 'mes' => 8, 'anio' => 2026]; // cedula NOT NULL
+                $this->insertarLoteSeguro('autoliquidacion_aportes', [$ok, $mal], [50, 51]);
+            }
+        };
+
+        try {
+            $insertador->correr();
+            $this->fail('Debió lanzar una excepción por la fila inválida.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('fila 51', $e->getMessage());
+        }
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
+            ->withArgs(fn ($msg) => str_contains((string) $msg, 'fila 51'))->atLeast()->once();
+    }
 }

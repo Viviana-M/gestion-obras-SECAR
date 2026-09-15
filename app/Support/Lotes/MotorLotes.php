@@ -3,6 +3,7 @@
 namespace App\Support\Lotes;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Motor genérico de importación POR LOTES. Orquesta, para CUALQUIER importador:
@@ -66,6 +67,10 @@ class MotorLotes
 
         DB::connection()->disableQueryLog();
 
+        // Número de fila (en la hoja) de la primera fila de esta ventana: sirve para señalar
+        // exactamente qué fila falla dentro del lote.
+        $meta['fila_base'] = $desde;
+
         try {
             $filas = $this->lector->leerVentana(
                 $abs, $imp->hoja($meta), $desde, $hasta, $imp->letras($meta), $meta['ultima_columna'] ?? 'A'
@@ -73,7 +78,17 @@ class MotorLotes
             // Cada lote es atómico: si falla a mitad, no deja el bloque a medias.
             $res = DB::transaction(fn () => $imp->procesarFilas($filas, $meta, $carga->getMes(), $carga->getAnio()));
         } catch (\Throwable $e) {
-            report($e);
+            Log::error('Carga por lotes: falló un lote', [
+                'tipo'       => $imp->tipo(),
+                'carga_id'   => method_exists($carga, 'getKey') ? $carga->getKey() : null,
+                'mes'        => $carga->getMes(),
+                'anio'       => $carga->getAnio(),
+                'fila_desde' => $desde,
+                'fila_hasta' => $hasta,
+                'error'      => $e->getMessage(),
+                'archivo'    => $e->getFile(),
+                'linea'      => $e->getLine(),
+            ]);
             $carga->setEstado('error');
             $carga->setError($e->getMessage());
             $carga->guardar();

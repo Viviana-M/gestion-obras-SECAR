@@ -10,6 +10,7 @@ use App\Support\Lotes\ImportadorAutoliquidacion;
 use App\Support\Lotes\MotorLotes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -255,36 +256,39 @@ class AutoliquidacionController extends Controller
         $request->validate(['archivo' => 'required|file|max:102400']);
         $this->elevarLimites();
 
-        $nombre  = $request->file('archivo')->getClientOriginalName();
-        $rutaRel = $this->guardarArchivoLote($request->file('archivo'), 'autoliquidacion');
-        $imp     = new ImportadorAutoliquidacion();
-        $motor   = new MotorLotes();
-
         try {
+            $nombre  = $request->file('archivo')->getClientOriginalName();
+            $rutaRel = $this->guardarArchivoLote($request->file('archivo'), 'autoliquidacion');
+            $imp     = new ImportadorAutoliquidacion();
+            $motor   = new MotorLotes();
+
             $a = $motor->analizar($imp, $rutaRel);
+
+            $carga = CargaPorLote::create([
+                'tipo' => $imp->tipo(), 'mes' => $a['mes'], 'anio' => $a['anio'],
+                'archivo_original' => $nombre,
+                'ruta_archivo' => $rutaRel, 'total_filas' => $a['total'],
+                'meta_lotes' => $a['meta'], 'estado' => $a['total'] > 0 ? 'procesando' : 'completado',
+                'user_id' => $request->user()?->id,
+            ]);
+
+            $payload = ['ok' => true, 'carga_id' => $carga->id, 'total' => $a['total'], 'tam' => $this->loteTam];
+            if ($a['total'] === 0) {
+                $resumen = $imp->resumen($a['mes'], $a['anio'], $carga->getMetaLotes());
+                $payload += ['mensaje' => $resumen['mensaje'], 'done' => true,
+                    'redirigir' => route('contable.autoliquidacion.index', ['mes' => $a['mes'], 'anio' => $a['anio']])];
+            }
+
+            return response()->json($payload);
+        } catch (\RuntimeException $e) {
+            // Archivo con formato/período inválido: es corregible por el usuario.
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
+            return $this->errorLote('autoliquidacion.preparar', $e);
         }
-
-        $carga = CargaPorLote::create([
-            'tipo' => $imp->tipo(), 'mes' => $a['mes'], 'anio' => $a['anio'],
-            'archivo_original' => $nombre,
-            'ruta_archivo' => $rutaRel, 'total_filas' => $a['total'],
-            'meta_lotes' => $a['meta'], 'estado' => $a['total'] > 0 ? 'procesando' : 'completado',
-            'user_id' => $request->user()?->id,
-        ]);
-
-        $payload = ['carga_id' => $carga->id, 'total' => $a['total'], 'tam' => $this->loteTam];
-        if ($a['total'] === 0) {
-            $resumen = $imp->resumen($a['mes'], $a['anio'], $carga->getMetaLotes());
-            $payload += ['mensaje' => $resumen['mensaje'], 'done' => true,
-                'redirigir' => route('contable.autoliquidacion.index', ['mes' => $a['mes'], 'anio' => $a['anio']])];
-        }
-
-        return response()->json($payload);
     }
 
-    /** AJAX: procesa el siguiente lote de la carga y reporta el avance. */
+    /** AJAX: procesa el siguiente lote de la carga y reporta el avance. Siempre responde JSON. */
     public function procesar(Request $request)
     {
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
@@ -292,29 +296,37 @@ class AutoliquidacionController extends Controller
         $request->validate(['carga_id' => 'required|integer']);
         $this->elevarLimites();
 
-        $carga = CargaPorLote::where('tipo', 'autoliquidacion')->findOrFail($request->integer('carga_id'));
-        $imp   = new ImportadorAutoliquidacion();
-        $motor = new MotorLotes();
-
         try {
+            $carga = CargaPorLote::where('tipo', 'autoliquidacion')->findOrFail($request->integer('carga_id'));
+            $imp   = new ImportadorAutoliquidacion();
+            $motor = new MotorLotes();
+
             $motor->procesarSiguiente($imp, $carga, $this->loteTam);
+
+            $done = $carga->getEstado() !== 'procesando';
+            $resp = ['ok' => true, 'procesadas' => $carga->getFilasProcesadas(),
+                'total' => $carga->getTotalFilas(), 'done' => $done];
+            if ($done) {
+                $resumen = $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes());
+                $resp += ['mensaje' => $resumen['mensaje'],
+                    'redirigir' => route('contable.autoliquidacion.index', ['mes' => $carga->getMes(), 'anio' => $carga->getAnio()])];
+            }
+
+            return response()->json($resp);
         } catch (\Throwable $e) {
-            return response()->json(['error' => 'No se pudo procesar el archivo: '.$e->getMessage(), 'estado' => 'error'], 500);
+            return $this->errorLote('autoliquidacion.procesar', $e);
         }
+    }
 
-        $done = $carga->getEstado() !== 'procesando';
-        $resp = [
-            'procesadas' => $carga->getFilasProcesadas(),
-            'total'      => $carga->getTotalFilas(),
-            'done'       => $done,
-        ];
-        if ($done) {
-            $resumen = $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes());
-            $resp += ['mensaje' => $resumen['mensaje'],
-                'redirigir' => route('contable.autoliquidacion.index', ['mes' => $carga->getMes(), 'anio' => $carga->getAnio()])];
-        }
+    /** Registra el error completo y responde SIEMPRE JSON con el mensaje real. */
+    private function errorLote(string $contexto, \Throwable $e)
+    {
+        Log::error("Carga por lotes ({$contexto}) falló", [
+            'error' => $e->getMessage(), 'archivo' => $e->getFile(), 'linea' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
+        ]);
 
-        return response()->json($resp);
+        return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
     }
 
     /**

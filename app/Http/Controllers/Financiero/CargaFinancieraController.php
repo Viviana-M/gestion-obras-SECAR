@@ -10,6 +10,7 @@ use App\Models\SaldoBalance;
 use App\Support\Lotes\ImportadorCierre;
 use App\Support\Lotes\MotorLotes;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CargaFinancieraController extends Controller
 {
@@ -66,32 +67,37 @@ class CargaFinancieraController extends Controller
         ]);
         $this->elevarLimites();
 
-        $carga = $this->crearCarga($request);
-        $imp   = new ImportadorCierre();
-        $motor = new MotorLotes();
-
+        $carga = null;
         try {
+            $carga = $this->crearCarga($request);
+            $imp   = new ImportadorCierre();
+            $motor = new MotorLotes();
+
             $this->analizarEn($motor, $imp, $carga);
+
+            if ($carga->getTotalFilas() === 0) {
+                $carga->update(['estado' => 'completado']);
+
+                return response()->json([
+                    'ok' => true, 'carga_id' => $carga->id, 'total' => 0, 'tam' => $this->loteTam, 'done' => true,
+                    'mensaje' => $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes())['mensaje'],
+                    'redirigir' => route('contable.carga'),
+                ]);
+            }
+
+            return response()->json(['ok' => true, 'carga_id' => $carga->id, 'total' => $carga->getTotalFilas(), 'tam' => $this->loteTam]);
+        } catch (\RuntimeException $e) {
+            $carga?->update(['estado' => 'error', 'error' => $e->getMessage()]);
+
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
-            $carga->update(['estado' => 'error', 'error' => $e->getMessage()]);
+            $carga?->update(['estado' => 'error', 'error' => $e->getMessage()]);
 
-            return response()->json(['error' => $e->getMessage()], 422);
+            return $this->errorLote('cierre.preparar', $e);
         }
-
-        if ($carga->getTotalFilas() === 0) {
-            $carga->update(['estado' => 'completado']);
-
-            return response()->json([
-                'carga_id' => $carga->id, 'total' => 0, 'tam' => $this->loteTam, 'done' => true,
-                'mensaje' => $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes())['mensaje'],
-                'redirigir' => route('contable.carga'),
-            ]);
-        }
-
-        return response()->json(['carga_id' => $carga->id, 'total' => $carga->getTotalFilas(), 'tam' => $this->loteTam]);
     }
 
-    /** AJAX: procesa el siguiente lote y reporta el avance. */
+    /** AJAX: procesa el siguiente lote y reporta el avance. Siempre responde JSON. */
     public function procesar(Request $request)
     {
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
@@ -99,28 +105,36 @@ class CargaFinancieraController extends Controller
         $request->validate(['carga_id' => 'required|integer']);
         $this->elevarLimites();
 
-        $carga = CargaFinanciera::findOrFail($request->integer('carga_id'));
-        $imp   = new ImportadorCierre();
-        $motor = new MotorLotes();
-
         try {
+            $carga = CargaFinanciera::findOrFail($request->integer('carga_id'));
+            $imp   = new ImportadorCierre();
+            $motor = new MotorLotes();
+
             $motor->procesarSiguiente($imp, $carga, $this->loteTam);
+
+            $done = $carga->getEstado() !== 'procesando';
+            $resp = ['ok' => true, 'procesadas' => $carga->getFilasProcesadas(),
+                'total' => $carga->getTotalFilas(), 'done' => $done];
+            if ($done) {
+                $resp += ['mensaje' => $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes())['mensaje'],
+                    'redirigir' => route('contable.carga')];
+            }
+
+            return response()->json($resp);
         } catch (\Throwable $e) {
-            return response()->json(['error' => 'No se pudo procesar el archivo: '.$e->getMessage(), 'estado' => 'error'], 500);
+            return $this->errorLote('cierre.procesar', $e);
         }
+    }
 
-        $done = $carga->getEstado() !== 'procesando';
-        $resp = [
-            'procesadas' => $carga->getFilasProcesadas(),
-            'total'      => $carga->getTotalFilas(),
-            'done'       => $done,
-        ];
-        if ($done) {
-            $resp += ['mensaje' => $imp->resumen($carga->getMes(), $carga->getAnio(), $carga->getMetaLotes())['mensaje'],
-                'redirigir' => route('contable.carga')];
-        }
+    /** Registra el error completo y responde SIEMPRE JSON con el mensaje real. */
+    private function errorLote(string $contexto, \Throwable $e)
+    {
+        Log::error("Carga por lotes ({$contexto}) falló", [
+            'error' => $e->getMessage(), 'archivo' => $e->getFile(), 'linea' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
+        ]);
 
-        return response()->json($resp);
+        return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
     }
 
     public function destroy($id)

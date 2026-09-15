@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Schema;
  */
 class ImportadorAutoliquidacion implements ImportadorLotes
 {
+    use InsertaLotes;
+
     private const LOTE_INSERT = 500;
 
     public function tipo(): string
@@ -61,26 +63,35 @@ class ImportadorAutoliquidacion implements ImportadorLotes
         $mapa = array_map('intval', $meta['mapa'] ?? []);
         $imp  = new AutoliquidacionImport($mes, $anio, $mapa);
         $ahora = now();
+        $base  = (int) ($meta['fila_base'] ?? 0);
 
         $buffer = [];
+        $bufferFilas = [];
         $insertadas = 0;
-        foreach ($filas as $row) {
-            $datos = $imp->aFila(array_values($row));
+        foreach ($filas as $i => $row) {
+            $num = $base + $i;
+            try {
+                $datos = $imp->aFila(array_values($row));
+            } catch (\Throwable $e) {
+                $this->fallaDeFila($num, $row, $e);
+            }
             if ($datos === null) {
                 continue;
             }
             $datos['created_at'] = $ahora;
             $datos['updated_at'] = $ahora;
             $buffer[] = $datos;
+            $bufferFilas[] = $num;
 
             if (count($buffer) >= self::LOTE_INSERT) {
-                DB::table('autoliquidacion_aportes')->insert($buffer);
+                $this->insertarLoteSeguro('autoliquidacion_aportes', $buffer, $bufferFilas);
                 $insertadas += count($buffer);
                 $buffer = [];
+                $bufferFilas = [];
             }
         }
         if ($buffer) {
-            DB::table('autoliquidacion_aportes')->insert($buffer);
+            $this->insertarLoteSeguro('autoliquidacion_aportes', $buffer, $bufferFilas);
             $insertadas += count($buffer);
         }
 

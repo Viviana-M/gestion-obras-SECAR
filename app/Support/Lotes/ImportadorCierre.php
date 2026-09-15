@@ -15,6 +15,8 @@ use Illuminate\Support\Str;
  */
 class ImportadorCierre implements ImportadorLotes
 {
+    use InsertaLotes;
+
     private const LOTE_INSERT = 500;
 
     public function tipo(): string
@@ -62,42 +64,46 @@ class ImportadorCierre implements ImportadorLotes
         $mapaSlug = array_map('intval', $meta['mapa_slug'] ?? []);
         $imp      = new MovimientoBiableImport($mes, $anio);
         $ahora    = now();
+        $base     = (int) ($meta['fila_base'] ?? 0);
 
-        $registros = [];
-        $saldos    = [];
+        $registros = [];      $regFilas = [];
+        $saldos    = [];      $salFilas = [];
         $insertados = 0;
 
-        foreach ($filas as $row) {
+        foreach ($filas as $i => $row) {
+            $num = $base + $i;
             // Fila cruda (por offset) → fila asociativa por slug de encabezado.
             $assoc = [];
             foreach ($mapaSlug as $slug => $offset) {
                 $assoc[$slug] = $row[$offset] ?? null;
             }
 
-            if ($r = $imp->paraRegistro($assoc, $ahora)) {
-                $registros[] = $r;
+            try {
+                $r = $imp->paraRegistro($assoc, $ahora);
+                $s = $imp->paraSaldo($assoc);
+            } catch (\Throwable $e) {
+                $this->fallaDeFila($num, $row, $e);
             }
-            if ($s = $imp->paraSaldo($assoc)) {
-                $saldos[] = $s;
-            }
+            if ($r) { $registros[] = $r; $regFilas[] = $num; }
+            if ($s) { $saldos[] = $s;    $salFilas[] = $num; }
 
             if (count($registros) >= self::LOTE_INSERT) {
-                DB::table('registro_financieros')->insert($registros);
+                $this->insertarLoteSeguro('registro_financieros', $registros, $regFilas);
                 $insertados += count($registros);
-                $registros = [];
+                $registros = []; $regFilas = [];
             }
             if (count($saldos) >= self::LOTE_INSERT) {
-                DB::table('saldos_balance')->insert($saldos);
-                $saldos = [];
+                $this->insertarLoteSeguro('saldos_balance', $saldos, $salFilas);
+                $saldos = []; $salFilas = [];
             }
         }
 
         if ($registros) {
-            DB::table('registro_financieros')->insert($registros);
+            $this->insertarLoteSeguro('registro_financieros', $registros, $regFilas);
             $insertados += count($registros);
         }
         if ($saldos) {
-            DB::table('saldos_balance')->insert($saldos);
+            $this->insertarLoteSeguro('saldos_balance', $saldos, $salFilas);
         }
 
         return ['insertadas' => $insertados];
