@@ -22,7 +22,7 @@
 
 {{-- Formulario nueva persona (oculto por defecto) --}}
 <div id="form-nueva" style="display:{{ $errors->any() ? 'block' : 'none' }};background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:1rem">
-    <form method="POST" action="{{ route('admin.mano-obra-directa.store') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <form method="POST" action="{{ route('contable.mano-obra-directa.store') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div>
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Cédula</label>
@@ -58,7 +58,7 @@
     </div>
     <button type="submit" style="padding:7px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Buscar</button>
     @if($q !== '' || $estado !== 'activos')
-    <a href="{{ route('admin.mano-obra-directa.index') }}" style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:inline-flex;align-items:center">Limpiar</a>
+    <a href="{{ route('contable.mano-obra-directa.index') }}" style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:inline-flex;align-items:center">Limpiar</a>
     @endif
 </form>
 
@@ -77,7 +77,7 @@
             <tr style="border-bottom:1px solid #E5E7EB;{{ $p->activo ? '' : 'opacity:.5' }}">
                 <td style="padding:10px 14px;font-family:monospace;font-weight:600;color:#1B3F6E">{{ $p->cedula }}</td>
                 <td style="padding:10px 14px">
-                    <form method="POST" action="{{ route('admin.mano-obra-directa.update', $p->id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <form method="POST" action="{{ route('contable.mano-obra-directa.update', $p->id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                         @csrf @method('PUT')
                         <input type="text" name="nombre" value="{{ $p->nombre }}" style="flex:1;min-width:240px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-transform:uppercase">
                         <button type="submit" style="font-size:11px;padding:5px 10px;border:1px solid #1B3F6E;border-radius:6px;color:#1B3F6E;background:white;cursor:pointer">Guardar</button>
@@ -87,7 +87,7 @@
                     <span style="font-size:11px;color:{{ $p->activo ? '#15803D' : '#9CA3AF' }}">{{ $p->activo ? 'Activo' : 'Inactivo' }}</span>
                 </td>
                 <td style="padding:10px 14px;text-align:center">
-                    <form method="POST" action="{{ route('admin.mano-obra-directa.toggle', $p->id) }}" style="display:inline">
+                    <form method="POST" action="{{ route('contable.mano-obra-directa.toggle', $p->id) }}" style="display:inline">
                         @csrf @method('PUT')
                         <button type="submit" style="font-size:11px;padding:5px 12px;border:1px solid {{ $p->activo ? '#DC2626' : '#15803D' }};border-radius:6px;color:{{ $p->activo ? '#DC2626' : '#15803D' }};background:white;cursor:pointer">
                             {{ $p->activo ? 'Desactivar' : 'Activar' }}

@@ -83,6 +83,16 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get   ('/contable/reclasificaciones/{homologacion}',     [PlanoReclasificacionController::class, 'detalle'])  ->name('contable.reclasificaciones.detalle');
         Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
         Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
+
+        // Maestros de mano de obra (acceso Contabilidad y admin).
+        Route::get('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'index'])->name('contable.terceros-mano-obra.index');
+        Route::post('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('contable.terceros-mano-obra.store');
+        Route::put('/contable/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('contable.terceros-mano-obra.update');
+        Route::put('/contable/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('contable.terceros-mano-obra.toggle');
+        Route::get('/contable/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'index'])->name('contable.mano-obra-directa.index');
+        Route::post('/contable/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'store'])->name('contable.mano-obra-directa.store');
+        Route::put('/contable/mano-obra-directa/{manoObraDirecta}', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'update'])->name('contable.mano-obra-directa.update');
+        Route::put('/contable/mano-obra-directa/{manoObraDirecta}/toggle', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'toggle'])->name('contable.mano-obra-directa.toggle');
     });
 
     // ══════════════════════ FINANCIERO ══════════════════════
@@ -161,14 +171,6 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/admin/un-bolsas', [\App\Http\Controllers\Admin\UnBolsaController::class, 'store'])->name('admin.un-bolsas.store');
     Route::put('/admin/un-bolsas/{unBolsa}', [\App\Http\Controllers\Admin\UnBolsaController::class, 'update'])->name('admin.un-bolsas.update');
     Route::put('/admin/un-bolsas/{unBolsa}/toggle', [\App\Http\Controllers\Admin\UnBolsaController::class, 'toggle'])->name('admin.un-bolsas.toggle');
-    Route::get('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'index'])->name('admin.terceros-mano-obra.index');
-    Route::post('/admin/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('admin.terceros-mano-obra.store');
-    Route::put('/admin/terceros-mano-obra/{terceroManoObra}', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'update'])->name('admin.terceros-mano-obra.update');
-    Route::put('/admin/terceros-mano-obra/{terceroManoObra}/toggle', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'toggle'])->name('admin.terceros-mano-obra.toggle');
-    Route::get('/admin/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'index'])->name('admin.mano-obra-directa.index');
-    Route::post('/admin/mano-obra-directa', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'store'])->name('admin.mano-obra-directa.store');
-    Route::put('/admin/mano-obra-directa/{manoObraDirecta}', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'update'])->name('admin.mano-obra-directa.update');
-    Route::put('/admin/mano-obra-directa/{manoObraDirecta}/toggle', [\App\Http\Controllers\Admin\ManoObraDirectaController::class, 'toggle'])->name('admin.mano-obra-directa.toggle');
     Route::get('/admin/llave-items', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'index'])->name('admin.llave-items.index');
     Route::post('/admin/llave-items', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'store'])->name('admin.llave-items.store');
     Route::post('/admin/llave-items/importar', [\App\Http\Controllers\Admin\LlaveItemCuentaController::class, 'importar'])->name('admin.llave-items.importar');

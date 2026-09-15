@@ -8,14 +8,21 @@ use Illuminate\Http\Request;
 
 class ManoObraDirectaController extends Controller
 {
-    private function soloAdmin(): void
+    /** Ver el maestro: Contabilidad (o admin). */
+    private function puedeVer(): void
     {
-        abort_unless(auth()->user()?->esAdmin(), 403, 'Solo un administrador puede gestionar la mano de obra directa.');
+        abort_unless(auth()->user()?->puedeVerModulo('contabilidad'), 403, 'No tienes acceso a la mano de obra directa.');
+    }
+
+    /** Modificar el maestro: Contabilidad con permiso de edición (o admin). */
+    private function puedeEditar(): void
+    {
+        abort_unless(auth()->user()?->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para modificar la mano de obra directa.');
     }
 
     public function index(Request $request)
     {
-        $this->soloAdmin();
+        $this->puedeVer();
 
         $q      = trim((string) $request->get('q', ''));
         $estado = in_array($request->get('estado'), ['inactivos', 'todos'], true)
@@ -36,7 +43,7 @@ class ManoObraDirectaController extends Controller
 
     public function store(Request $request)
     {
-        $this->soloAdmin();
+        $this->puedeEditar();
 
         $datos = $this->validar($request, true);
         $datos['cedula'] = trim($datos['cedula']);
@@ -50,7 +57,7 @@ class ManoObraDirectaController extends Controller
 
     public function update(Request $request, ManoObraDirecta $manoObraDirecta)
     {
-        $this->soloAdmin();
+        $this->puedeEditar();
 
         $datos = $this->validar($request, false);
         $datos['nombre'] = trim($datos['nombre']);
@@ -62,7 +69,7 @@ class ManoObraDirectaController extends Controller
 
     public function toggle(ManoObraDirecta $manoObraDirecta)
     {
-        $this->soloAdmin();
+        $this->puedeEditar();
 
         $manoObraDirecta->activo = ! $manoObraDirecta->activo;
         $manoObraDirecta->save();

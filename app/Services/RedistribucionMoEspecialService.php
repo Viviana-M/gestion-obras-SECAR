@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\AutoliquidacionAporte;
 use App\Models\Homologacion;
 use App\Models\ManoObraDirecta;
-use App\Models\ManoObraEspecial;
+
 use App\Models\MontoDistribuirMoEspecial;
 use App\Models\RedistribucionMoEspecial;
 use App\Models\RegistroFinanciero;
@@ -292,7 +292,7 @@ class RedistribucionMoEspecialService
         $pct = $this->porcentajesGuardados($mes, $anio);
         $heredados = [];
 
-        $maestro = ManoObraEspecial::where('activo', true)->pluck('cedula')->all();
+        $maestro = ManoObraDirecta::where('activo', true)->pluck('cedula')->all();
         $faltan = array_values(array_diff($maestro, array_keys($pct)));
         if (! empty($faltan)) {
             $periodoActual = $anio * 100 + $mes;

@@ -21,7 +21,7 @@ class ManoObraDirectaTest extends TestCase
     public function el_admin_crea_una_persona(): void
     {
         // Ya no se piden porcentajes: la distribución por UN la trae Nómina en el cierre.
-        $this->actingAs($this->admin())->post(route('admin.mano-obra-directa.store'), [
+        $this->actingAs($this->admin())->post(route('contable.mano-obra-directa.store'), [
             'cedula' => '111', 'nombre' => 'perez juan',
         ])->assertRedirect();
 
@@ -35,7 +35,7 @@ class ManoObraDirectaTest extends TestCase
     {
         ManoObraDirecta::create(['cedula' => '333', 'nombre' => 'X']);
 
-        $this->actingAs($this->admin())->post(route('admin.mano-obra-directa.store'), [
+        $this->actingAs($this->admin())->post(route('contable.mano-obra-directa.store'), [
             'cedula' => '333', 'nombre' => 'Otro',
         ])->assertSessionHasErrors('cedula');
 
@@ -48,25 +48,54 @@ class ManoObraDirectaTest extends TestCase
         $p = ManoObraDirecta::create(['cedula' => '444', 'nombre' => 'Vieja', 'activo' => true]);
         $admin = $this->admin();
 
-        $this->actingAs($admin)->put(route('admin.mano-obra-directa.update', $p->id), [
+        $this->actingAs($admin)->put(route('contable.mano-obra-directa.update', $p->id), [
             'nombre' => 'Nueva',
         ])->assertRedirect();
         $this->assertSame('Nueva', $p->refresh()->nombre);
 
-        $this->actingAs($admin)->put(route('admin.mano-obra-directa.toggle', $p->id))->assertRedirect();
+        $this->actingAs($admin)->put(route('contable.mano-obra-directa.toggle', $p->id))->assertRedirect();
         $this->assertFalse($p->refresh()->activo);
     }
 
     #[Test]
-    public function un_no_admin_no_puede_entrar(): void
+    public function contabilidad_puede_gestionar_el_maestro(): void
     {
-        $noAdmin = User::factory()->create([
+        // El maestro vive ahora bajo Contabilidad: una persona con ese módulo (editar) entra y crea.
+        $contable = User::factory()->create([
             'rol' => 'contadora', 'activo' => true, 'permisos_modulos' => ['contabilidad' => 'editar'],
         ]);
 
-        $this->actingAs($noAdmin)->get(route('admin.mano-obra-directa.index'))->assertForbidden();
-        $this->actingAs($noAdmin)->post(route('admin.mano-obra-directa.store'), [
+        $this->actingAs($contable)->get(route('contable.mano-obra-directa.index'))->assertOk();
+        $this->actingAs($contable)->post(route('contable.mano-obra-directa.store'), [
+            'cedula' => '777', 'nombre' => 'CONTABLE CREA',
+        ])->assertRedirect();
+        $this->assertDatabaseHas('mano_obra_directa', ['cedula' => '777']);
+    }
+
+    #[Test]
+    public function contabilidad_solo_lectura_no_puede_modificar(): void
+    {
+        // Con permiso de solo ver: puede abrir la lista pero no crear ni cambiar.
+        $soloVer = User::factory()->create([
+            'rol' => 'contadora', 'activo' => true, 'permisos_modulos' => ['contabilidad' => 'ver'],
+        ]);
+
+        $this->actingAs($soloVer)->get(route('contable.mano-obra-directa.index'))->assertOk();
+        $this->actingAs($soloVer)->post(route('contable.mano-obra-directa.store'), [
             'cedula' => '999', 'nombre' => 'X',
+        ])->assertForbidden();
+    }
+
+    #[Test]
+    public function sin_el_modulo_de_contabilidad_no_puede_entrar(): void
+    {
+        $ajeno = User::factory()->create([
+            'rol' => 'operario', 'activo' => true, 'permisos_modulos' => ['operacion' => 'editar'],
+        ]);
+
+        $this->actingAs($ajeno)->get(route('contable.mano-obra-directa.index'))->assertForbidden();
+        $this->actingAs($ajeno)->post(route('contable.mano-obra-directa.store'), [
+            'cedula' => '888', 'nombre' => 'X',
         ])->assertForbidden();
     }
 
@@ -79,31 +108,31 @@ class ManoObraDirectaTest extends TestCase
         $admin = $this->admin();
 
         // Por defecto: solo activos y ordenados por nombre.
-        $r = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index'));
+        $r = $this->actingAs($admin)->get(route('contable.mano-obra-directa.index'));
         $r->assertOk();
         $this->assertSame(['AGUIRRE LUIS', 'ZULETA ANA'], $r->viewData('personas')->pluck('nombre')->all());
 
         // estado=todos incluye inactivos.
-        $todos = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['estado' => 'todos']));
+        $todos = $this->actingAs($admin)->get(route('contable.mano-obra-directa.index', ['estado' => 'todos']));
         $this->assertContains('BORRADO PEDRO', $todos->viewData('personas')->pluck('nombre')->all());
 
         // estado=inactivos solo inactivos.
-        $inact = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['estado' => 'inactivos']));
+        $inact = $this->actingAs($admin)->get(route('contable.mano-obra-directa.index', ['estado' => 'inactivos']));
         $this->assertSame(['BORRADO PEDRO'], $inact->viewData('personas')->pluck('nombre')->all());
 
         // Buscador por nombre parcial.
-        $porNom = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['q' => 'aguirre']));
+        $porNom = $this->actingAs($admin)->get(route('contable.mano-obra-directa.index', ['q' => 'aguirre']));
         $this->assertSame(['AGUIRRE LUIS'], $porNom->viewData('personas')->pluck('nombre')->all());
 
         // Buscador por cédula.
-        $porCed = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['q' => '1']));
+        $porCed = $this->actingAs($admin)->get(route('contable.mano-obra-directa.index', ['q' => '1']));
         $this->assertSame(['ZULETA ANA'], $porCed->viewData('personas')->pluck('nombre')->all());
     }
 
     #[Test]
     public function el_texto_de_ayuda_es_en_lenguaje_sencillo(): void
     {
-        $r = $this->actingAs($this->admin())->get(route('admin.mano-obra-directa.index'));
+        $r = $this->actingAs($this->admin())->get(route('contable.mano-obra-directa.index'));
         $r->assertOk();
         $r->assertSee('se reparte entre las áreas', false);
         // El texto técnico anterior ya no está.

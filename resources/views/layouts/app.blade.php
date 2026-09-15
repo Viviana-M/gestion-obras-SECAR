@@ -188,6 +188,9 @@
                 <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano Saldos contrarios</a>
                 <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">MO Apoyo administrativo y operativo</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Habilitar edición del mes</a>
+                <div class="submenu-group-label">Maestros</div>
+                <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
+                <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Terceros mano de obra</a>
             </div>
         </div>
         @endif
@@ -207,8 +210,6 @@
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
                 <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
-                <a href="{{ route('admin.terceros-mano-obra.index') }}">Terceros mano de obra</a>
-                <a href="{{ route('admin.mano-obra-directa.index') }}" class="{{ request()->is('admin/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="{{ route('admin.llave-items.index') }}" class="{{ request()->is('admin/llave-items') ? 'active' : '' }}">Llave de cuentas por ítem</a>
                 <div class="submenu-group-label">Contabilidad avanzada</div>
                 <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación de cuentas</a>
