@@ -4,7 +4,7 @@
 
 @section('content')
 <x-page-banner title="Mano de obra directa" icon="🧰">
-    Personal directo cuya mano de obra se reclasifica de la cuenta 14 a costo real. La <b>cédula</b> (o el nombre) cruza con el cierre y con la planilla PILA. La distribución por unidad de negocio la trae <b>Nómina</b> en el archivo; aquí no se asignan porcentajes.
+    Lista de personas de apoyo cuyo costo (sueldo y seguridad social) se reparte entre las áreas y no se carga a una obra específica. El sistema las identifica por su <b>cédula</b> o <b>nombre</b> para tomar su costo automáticamente. El reparto entre áreas ya viene definido por <b>Nómina</b>; aquí solo agregas o quitas personas de la lista.
     <x-slot:actions>
         <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
             style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
@@ -40,6 +40,28 @@
     </form>
 </div>
 
+{{-- Buscador y filtro de estado --}}
+<form method="GET" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+    <div style="flex:1;min-width:220px">
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Buscar</label>
+        <input type="text" name="q" value="{{ $q }}" placeholder="Cédula o nombre…"
+            style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Estado</label>
+        <select name="estado" onchange="this.form.submit()"
+            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+            <option value="activos" {{ $estado === 'activos' ? 'selected' : '' }}>Activos</option>
+            <option value="inactivos" {{ $estado === 'inactivos' ? 'selected' : '' }}>Inactivos</option>
+            <option value="todos" {{ $estado === 'todos' ? 'selected' : '' }}>Todos</option>
+        </select>
+    </div>
+    <button type="submit" style="padding:7px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Buscar</button>
+    @if($q !== '' || $estado !== 'activos')
+    <a href="{{ route('admin.mano-obra-directa.index') }}" style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:inline-flex;align-items:center">Limpiar</a>
+    @endif
+</form>
+
 <div class="card" style="padding:0;overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px">
         <thead>
@@ -74,7 +96,9 @@
                 </td>
             </tr>
             @empty
-            <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">Aún no hay personal de mano de obra directa.</td></tr>
+            <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">
+                {{ ($q !== '' || $estado !== 'activos') ? 'No hay personas que coincidan con la búsqueda.' : 'Aún no hay personas en la lista.' }}
+            </td></tr>
             @endforelse
         </tbody>
     </table>

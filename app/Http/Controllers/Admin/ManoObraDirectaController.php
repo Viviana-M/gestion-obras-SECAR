@@ -13,11 +13,25 @@ class ManoObraDirectaController extends Controller
         abort_unless(auth()->user()?->esAdmin(), 403, 'Solo un administrador puede gestionar la mano de obra directa.');
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $this->soloAdmin();
-        $personas = ManoObraDirecta::orderBy('nombre')->get();
-        return view('admin.mano-obra-directa.index', ['personas' => $personas]);
+
+        $q      = trim((string) $request->get('q', ''));
+        $estado = in_array($request->get('estado'), ['inactivos', 'todos'], true)
+            ? $request->get('estado')
+            : 'activos'; // por defecto solo activos
+
+        $personas = ManoObraDirecta::query()
+            ->when($estado === 'activos', fn ($x) => $x->where('activo', true))
+            ->when($estado === 'inactivos', fn ($x) => $x->where('activo', false))
+            ->when($q !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('nombre', 'like', "%{$q}%")
+                ->orWhere('cedula', 'like', "%{$q}%")))
+            ->orderBy('nombre')
+            ->get();
+
+        return view('admin.mano-obra-directa.index', compact('personas', 'q', 'estado'));
     }
 
     public function store(Request $request)

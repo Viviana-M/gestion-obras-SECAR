@@ -71,6 +71,47 @@ class ManoObraDirectaTest extends TestCase
     }
 
     #[Test]
+    public function el_index_ordena_por_nombre_filtra_por_estado_y_busca(): void
+    {
+        ManoObraDirecta::create(['cedula' => '1', 'nombre' => 'ZULETA ANA', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '2', 'nombre' => 'AGUIRRE LUIS', 'activo' => true]);
+        ManoObraDirecta::create(['cedula' => '3', 'nombre' => 'BORRADO PEDRO', 'activo' => false]);
+        $admin = $this->admin();
+
+        // Por defecto: solo activos y ordenados por nombre.
+        $r = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index'));
+        $r->assertOk();
+        $this->assertSame(['AGUIRRE LUIS', 'ZULETA ANA'], $r->viewData('personas')->pluck('nombre')->all());
+
+        // estado=todos incluye inactivos.
+        $todos = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['estado' => 'todos']));
+        $this->assertContains('BORRADO PEDRO', $todos->viewData('personas')->pluck('nombre')->all());
+
+        // estado=inactivos solo inactivos.
+        $inact = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['estado' => 'inactivos']));
+        $this->assertSame(['BORRADO PEDRO'], $inact->viewData('personas')->pluck('nombre')->all());
+
+        // Buscador por nombre parcial.
+        $porNom = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['q' => 'aguirre']));
+        $this->assertSame(['AGUIRRE LUIS'], $porNom->viewData('personas')->pluck('nombre')->all());
+
+        // Buscador por cédula.
+        $porCed = $this->actingAs($admin)->get(route('admin.mano-obra-directa.index', ['q' => '1']));
+        $this->assertSame(['ZULETA ANA'], $porCed->viewData('personas')->pluck('nombre')->all());
+    }
+
+    #[Test]
+    public function el_texto_de_ayuda_es_en_lenguaje_sencillo(): void
+    {
+        $r = $this->actingAs($this->admin())->get(route('admin.mano-obra-directa.index'));
+        $r->assertOk();
+        $r->assertSee('se reparte entre las áreas', false);
+        // El texto técnico anterior ya no está.
+        $r->assertDontSee('se reclasifica de la cuenta 14', false);
+        $r->assertDontSee('planilla PILA', false);
+    }
+
+    #[Test]
     public function el_scope_activos_filtra(): void
     {
         ManoObraDirecta::create(['cedula' => 'a', 'nombre' => 'A', 'activo' => true]);
