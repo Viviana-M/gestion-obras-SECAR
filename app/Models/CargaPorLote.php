@@ -5,39 +5,29 @@ namespace App\Models;
 use App\Support\Lotes\ProgresoCarga;
 use Illuminate\Database\Eloquent\Model;
 
-class CargaFinanciera extends Model implements ProgresoCarga
+/**
+ * Progreso de una carga procesada por lotes (autoliquidación PILA y movimiento de almacén).
+ * El cierre contable usa CargaFinanciera (que implementa el mismo contrato ProgresoCarga).
+ */
+class CargaPorLote extends Model implements ProgresoCarga
 {
+    protected $table = 'cargas_por_lotes';
+
     protected $fillable = [
-        'mes',
-        'anio',
-        'archivo_original',
-        'ruta_archivo',
-        'estado',
-        'registros',
-        'error',
-        'user_id',
-        'total_filas',
-        'filas_procesadas',
-        'meta_lotes',
+        'tipo', 'mes', 'anio', 'archivo_original', 'ruta_archivo',
+        'total_filas', 'filas_procesadas', 'filas_insertadas',
+        'meta_lotes', 'estado', 'error', 'user_id',
     ];
 
     protected function casts(): array
     {
         return [
             'meta_lotes'       => 'array',
-            'registros'        => 'integer',
             'total_filas'      => 'integer',
             'filas_procesadas' => 'integer',
+            'filas_insertadas' => 'integer',
         ];
     }
-
-    public function usuario()
-    {
-        return $this->belongsTo(\App\Models\User::class, 'user_id');
-    }
-
-    // ─────────────── Contrato ProgresoCarga (procesamiento por lotes) ───────────────
-    // 'registros' hace de "filas insertadas" (ya era el total de registros del cierre).
 
     public function getMes(): int
     {
@@ -71,12 +61,12 @@ class CargaFinanciera extends Model implements ProgresoCarga
 
     public function getFilasInsertadas(): int
     {
-        return (int) $this->registros;
+        return (int) $this->filas_insertadas;
     }
 
     public function setFilasInsertadas(int $n): void
     {
-        $this->registros = $n;
+        $this->filas_insertadas = $n;
     }
 
     public function getMetaLotes(): array

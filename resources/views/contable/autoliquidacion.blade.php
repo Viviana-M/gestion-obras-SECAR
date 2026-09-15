@@ -48,7 +48,7 @@
 @if($puedeEditar)
 <div class="card" style="padding:16px;margin-bottom:1.25rem">
     <h2 style="font-size:14px;font-weight:700;color:#1B3F6E;margin-bottom:10px">Cargar planilla</h2>
-    <form method="POST" action="{{ route('contable.autoliquidacion.store') }}" enctype="multipart/form-data"
+    <form id="form-autoliq" method="POST" action="{{ route('contable.autoliquidacion.store') }}" enctype="multipart/form-data"
         style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div>
@@ -58,7 +58,12 @@
         </div>
         <button type="submit" style="padding:8px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Cargar</button>
     </form>
-    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma de la columna <b>Fecha</b> del archivo (ej. <code>2026-04-30</code> → abril 2026). Al recargar el mismo mes se reemplaza.</p>
+    @include('contable.partials.progreso-lotes', [
+        'pid' => 'autoliq', 'formId' => 'form-autoliq',
+        'prepararUrl' => route('contable.autoliquidacion.preparar'),
+        'procesarUrl' => route('contable.autoliquidacion.procesar'),
+    ])
+    <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El período (mes/año) se toma de la columna <b>Fecha</b> del archivo (ej. <code>2026-04-30</code> → abril 2026). Al recargar el mismo mes se reemplaza. El archivo se procesa por partes, con barra de progreso, para que no se corte aunque sea grande.</p>
 
     {{-- Columnas que reconoce el módulo (por su NOMBRE, sin importar el orden ni columnas extra) --}}
     <x-columnas-plano

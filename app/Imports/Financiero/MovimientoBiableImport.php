@@ -91,7 +91,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     // ═══════════════════ Destino 1: registro_financieros ═══════════════════
 
-    private function paraRegistro(array $row, $ahora): ?array
+    public function paraRegistro(array $row, $ahora): ?array
     {
         $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
         if ($movto == 0) {
@@ -157,7 +157,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     // ═══════════════════ Destino 2: saldos_balance ═══════════════════
 
-    private function paraSaldo(array $row): ?array
+    public function paraSaldo(array $row): ?array
     {
         $cuenta = trim((string) ($row['cuenta'] ?? ''));
         if ($cuenta === '') return null;

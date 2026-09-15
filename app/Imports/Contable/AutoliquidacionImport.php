@@ -79,11 +79,27 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
 
     public function model(array $row)
     {
-        // Este módulo trata del APORTE EMPRESA que va a la CUENTA 14 (por aplicar) y se reclasifica
-        // a la 61. Solo se importan las líneas de aporte de una persona que:
-        //  - traen Empleado y aporte empresa distinto de cero (descarta totales al pie y puentes), y
-        //  - su "ID Cuenta" empieza en 14. Las demás (26, 23, 51, 52…) son gasto directo o pasivo,
-        //    NO "por aplicar", así que se obvian (no se reclasifican).
+        $datos = $this->aFila($row);
+
+        return $datos === null ? null : new AutoliquidacionAporte($datos);
+    }
+
+    /**
+     * Convierte una fila cruda (indexada por offset de columna) en el arreglo de datos a
+     * insertar, o null si la fila no aplica. Fuente ÚNICA del mapeo: la usa tanto el flujo
+     * síncrono (model()) como la importación por lotes (ImportadorAutoliquidacion).
+     *
+     * Este módulo trata del APORTE EMPRESA que va a la CUENTA 14 (por aplicar) y se reclasifica
+     * a la 61. Solo se importan las líneas de aporte de una persona que:
+     *  - traen Empleado y aporte empresa distinto de cero (descarta totales al pie y puentes), y
+     *  - su "ID Cuenta" empieza en 14. Las demás (26, 23, 51, 52…) son gasto directo o pasivo,
+     *    NO "por aplicar", así que se obvian (no se reclasifican).
+     *
+     * @param  array<int, mixed>  $row
+     * @return array<string, mixed>|null
+     */
+    public function aFila(array $row): ?array
+    {
         $empleado = $this->celda($row, 'empleado');
         $aporteEmpresa = $this->num($this->valor($row, 'aporte_empresa'));
         if ($empleado === null || abs($aporteEmpresa) < 0.005) {
@@ -95,7 +111,7 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
             return null;
         }
 
-        return new AutoliquidacionAporte([
+        return [
             'id_cuenta'        => $this->celda($row, 'id_cuenta'),
             'cuenta_contable'  => $this->celda($row, 'cuenta_contable'),
             'cedula'           => $this->celda($row, 'cedula'),          // NIT del fondo/EPS
@@ -110,8 +126,8 @@ class AutoliquidacionImport implements ToModel, WithChunkReading, WithBatchInser
             'aporte_empresa'   => $aporteEmpresa,
             'real_descontado'  => $this->num($this->valor($row, 'real_descontado')),
             'mes'              => $this->mes,
-            'anio'            => $this->anio,
-        ]);
+            'anio'             => $this->anio,
+        ];
     }
 
     /**

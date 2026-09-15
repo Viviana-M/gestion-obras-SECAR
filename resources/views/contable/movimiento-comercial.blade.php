@@ -24,7 +24,7 @@
 
 @if($puedeEditar)
 <div class="card" style="margin-bottom:1.25rem;background:#F9FAFB">
-    <form method="POST" action="{{ route('contable.movimiento-comercial.store') }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <form id="form-movimiento" method="POST" action="{{ route('contable.movimiento-comercial.store') }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div style="flex:1;min-width:260px">
             <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Excel BIABLE (hoja Comercial_Mvto)</label>
@@ -33,8 +33,13 @@
         </div>
         <button type="submit" style="padding:9px 20px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:38px">⬆ Cargar</button>
     </form>
+    @include('contable.partials.progreso-lotes', [
+        'pid' => 'movimiento', 'formId' => 'form-movimiento',
+        'prepararUrl' => route('contable.movimiento-comercial.preparar'),
+        'procesarUrl' => route('contable.movimiento-comercial.procesar'),
+    ])
     <p style="font-size:11px;color:#9CA3AF;margin-top:8px">
-        El período (mes/año) se toma de la columna <b>Periodo</b> (YYYYMM) de cada fila. Los ítems que no crucen con la llave se reportan.
+        El período (mes/año) se toma de la columna <b>Periodo</b> (YYYYMM) de cada fila. Los ítems que no crucen con la llave se reportan. El archivo se procesa por partes, con barra de progreso, para que no se corte aunque sea grande.
     </p>
     @php
         $columnasMovimiento = [

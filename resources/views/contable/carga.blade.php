@@ -21,7 +21,7 @@
 
     <div class="card">
         <h3>Período a cargar</h3>
-        <form method="POST" action="{{ route('contable.carga.store') }}" enctype="multipart/form-data">
+        <form id="form-cierre" method="POST" action="{{ route('contable.carga.store') }}" enctype="multipart/form-data">
             @csrf
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem">
                 <div>
@@ -79,6 +79,12 @@
                 Cargar archivo
             </button>
         </form>
+        @include('contable.partials.progreso-lotes', [
+            'pid' => 'cierre', 'formId' => 'form-cierre',
+            'prepararUrl' => route('contable.carga.preparar'),
+            'procesarUrl' => route('contable.carga.procesar'),
+        ])
+        <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El archivo se procesa por partes, con barra de progreso, para que no se corte aunque tenga miles de filas.</p>
     </div>
 
     @if($historial->count() > 0)

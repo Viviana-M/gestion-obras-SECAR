@@ -47,6 +47,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Cargas y cierres
         Route::get('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'index'])->name('contable.carga');
         Route::post('/contable/carga', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'store'])->name('contable.carga.store');
+        Route::post('/contable/carga/preparar', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'preparar'])->name('contable.carga.preparar');
+        Route::post('/contable/carga/procesar', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'procesar'])->name('contable.carga.procesar');
         Route::delete('/contable/carga/{id}', [\App\Http\Controllers\Financiero\CargaFinancieraController::class, 'destroy'])->name('contable.carga.eliminar');
         Route::get('/contable/cierre-obras', [\App\Http\Controllers\Contable\CierreObrasController::class, 'index'])->name('contable.cierre-obras');
         Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
@@ -67,6 +69,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Autoliquidación de aportes (PILA) — carga y resumen (fase 1).
         Route::get('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'index'])->name('contable.autoliquidacion.index');
         Route::post('/contable/autoliquidacion', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'store'])->name('contable.autoliquidacion.store');
+        Route::post('/contable/autoliquidacion/preparar', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'preparar'])->name('contable.autoliquidacion.preparar');
+        Route::post('/contable/autoliquidacion/procesar', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'procesar'])->name('contable.autoliquidacion.procesar');
         // Vaciar (borrar) los aportes de un período, para recargar limpio.
         Route::post('/contable/autoliquidacion/vaciar', [\App\Http\Controllers\Contable\AutoliquidacionController::class, 'vaciar'])->name('contable.autoliquidacion.vaciar');
         // Descarga a Excel del costo de seguridad social por persona (pestaña del módulo).
@@ -74,6 +78,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Cargue del movimiento comercial (ítems → items_distribucion)
         Route::get('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'index'])->name('contable.movimiento-comercial.index');
         Route::post('/contable/movimiento-comercial', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'store'])->name('contable.movimiento-comercial.store');
+        Route::post('/contable/movimiento-comercial/preparar', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'preparar'])->name('contable.movimiento-comercial.preparar');
+        Route::post('/contable/movimiento-comercial/procesar', [\App\Http\Controllers\Contable\MovimientoComercialController::class, 'procesar'])->name('contable.movimiento-comercial.procesar');
 
         // Plano contable (distribución 14 → 61)
         Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');
