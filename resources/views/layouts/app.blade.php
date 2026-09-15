@@ -57,7 +57,8 @@
         /* ===== Banner de título de página (componente page-banner) ===== */
         .page-banner { background: #1B3F6E; background: linear-gradient(120deg, #1B3F6E, #2C5FA0); border-radius: 14px; padding: 16px 22px; margin-bottom: 1.25rem; color: #fff; box-shadow: 0 6px 18px rgba(27,63,110,.18); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
         .page-banner-main { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; min-width: 0; }
-        .page-banner-ico { flex: 0 0 auto; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; background: rgba(255,255,255,.14); border-radius: 10px; }
+        .page-banner-ico { flex: 0 0 auto; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; line-height: 1; color: #fff; background: rgba(255,255,255,.15); border-radius: 12px; }
+        .page-banner-ico svg { width: 24px; height: 24px; display: block; }
         .page-banner-title { font-size: 21px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .page-banner-badge { font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; }
         .page-banner-sub { font-size: 12.5px; color: #DCE6F5; margin-top: 3px; max-width: 78ch; line-height: 1.5; }

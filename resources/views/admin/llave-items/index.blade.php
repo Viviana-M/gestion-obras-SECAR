@@ -3,7 +3,10 @@
 @section('title', 'Llave de cuentas por ítem')
 
 @section('content')
-<x-page-banner title="Llave de cuentas por ítem" icon="🔑">
+<x-page-banner title="Llave de cuentas por ítem">
+    <x-slot:iconSvg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2"/><path d="M15.5 7.5L19 4l3 3-3.5 3.5"/><path d="M11.39 11.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78z"/><path d="M11.39 11.61L15.5 7.5"/></svg>
+    </x-slot:iconSvg>
     Mapea <b>tipo de inventario + código de movimiento</b> → <b>cuenta</b> con su <b>naturaleza</b> (Débito suma / Crédito resta); se cruza por código y la usa el cargue de ítems.
     <x-slot:actions>
         <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva llave</button>

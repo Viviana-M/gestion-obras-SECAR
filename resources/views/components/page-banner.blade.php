@@ -1,12 +1,18 @@
 @props([
     'title',            // Título de la pantalla (obligatorio)
-    'icon' => null,     // Emoji opcional a la izquierda
+    'icon' => null,     // Emoji opcional a la izquierda (respaldo si no se pasa iconSvg)
     'badge' => null,    // Pill opcional junto al título (ej. departamento)
 ])
-{{-- Banner de título reutilizable. El slot por defecto es el subtítulo (admite <b>). --}}
+{{-- Banner de título reutilizable. El slot por defecto es el subtítulo (admite <b>).
+     Para un ícono nítido en blanco usa el slot <x-slot:iconSvg> con un <svg> (stroke=currentColor);
+     si no, se usa el emoji del prop icon. --}}
 <div class="page-banner">
     <div class="page-banner-main">
-        @if($icon)<span class="page-banner-ico">{{ $icon }}</span>@endif
+        @isset($iconSvg)
+            <span class="page-banner-ico">{{ $iconSvg }}</span>
+        @elseif($icon)
+            <span class="page-banner-ico">{{ $icon }}</span>
+        @endisset
         <div>
             <div class="page-banner-title">
                 {{ $title }}

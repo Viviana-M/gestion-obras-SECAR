@@ -3,7 +3,10 @@
 @section('title', 'Unidades de negocio (bolsas)')
 
 @section('content')
-<x-page-banner title="Unidades de negocio · bolsas de área" icon="🎒">
+<x-page-banner title="Unidades de negocio · bolsas de área">
+    <x-slot:iconSvg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+    </x-slot:iconSvg>
     Unidades de Negocio “bolsa” cuyo costo operaciones reparte entre los proyectos; el sistema las trata aparte de los proyectos reales.
     <x-slot:actions>
         <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva bolsa</button>

@@ -3,7 +3,10 @@
 @section('title', 'Terceros de mano de obra')
 
 @section('content')
-<x-page-banner title="Terceros de mano de obra" icon="👷">
+<x-page-banner title="Terceros de mano de obra">
+    <x-slot:iconSvg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </x-slot:iconSvg>
     Lista de personas cuyo costo de mano de obra se reparte entre los proyectos. El sistema las identifica por su <b>cédula</b> o <b>nombre</b>. El reparto entre proyectos lo define el área de operaciones al distribuir; aquí solo agregas o quitas personas de la lista.
     <x-slot:actions>
         <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva persona</button>
