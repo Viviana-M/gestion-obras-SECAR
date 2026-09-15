@@ -6,8 +6,7 @@
 <x-page-banner title="Llave de cuentas por ítem" icon="🔑">
     Mapea <b>tipo de inventario + código de movimiento</b> → <b>cuenta</b> con su <b>naturaleza</b> (Débito suma / Crédito resta); se cruza por código y la usa el cargue de ítems.
     <x-slot:actions>
-        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva llave</button>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva llave</button>
     </x-slot:actions>
 </x-page-banner>
 

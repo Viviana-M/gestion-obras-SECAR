@@ -6,8 +6,7 @@
 <x-page-banner title="Terceros de mano de obra" icon="👷">
     Lista de personas cuyo costo de mano de obra se reparte entre los proyectos. El sistema las identifica por su <b>cédula</b> o <b>nombre</b>. El reparto entre proyectos lo define el área de operaciones al distribuir; aquí solo agregas o quitas personas de la lista.
     <x-slot:actions>
-        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva persona</button>
     </x-slot:actions>
 </x-page-banner>
 

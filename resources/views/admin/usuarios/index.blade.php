@@ -6,10 +6,7 @@
 <x-page-banner title="Administración de usuarios" icon="👥">
     Gestiona las cuentas del sistema, sus roles y los módulos a los que acceden.
     <x-slot:actions>
-        <a href="{{ route('admin.usuarios.create') }}"
-            style="padding:8px 18px;background:#1B3F6E;color:white;text-decoration:none;border-radius:8px;font-size:13px">
-            + Crear usuario
-        </a>
+        <a href="{{ route('admin.usuarios.create') }}" class="btn-banner">+ Crear usuario</a>
     </x-slot:actions>
 </x-page-banner>
 

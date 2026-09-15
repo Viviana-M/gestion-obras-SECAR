@@ -3,11 +3,10 @@
 @section('title', 'Mano de obra directa')
 
 @section('content')
-<x-page-banner title="Mano de obra directa" icon="🧰">
+<x-page-banner title="Mano de obra directa" icon="👥">
     Lista de personas de apoyo cuyo costo (sueldo y seguridad social) se reparte entre las áreas y no se carga a una obra específica. El sistema las identifica por su <b>cédula</b> o <b>nombre</b> para tomar su costo automáticamente. El reparto entre áreas ya viene definido por <b>Nómina</b>; aquí solo agregas o quitas personas de la lista.
     <x-slot:actions>
-        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva persona</button>
     </x-slot:actions>
 </x-page-banner>
 

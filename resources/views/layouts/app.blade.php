@@ -55,14 +55,17 @@
         .card h3 { font-size: 14px; font-weight: 600; color: #3D3D3D; margin-bottom: 10px; }
 
         /* ===== Banner de título de página (componente page-banner) ===== */
-        .page-banner { background: #1B3F6E; background: linear-gradient(120deg, #1B3F6E, #2C5FA0); border-radius: 14px; padding: 20px 24px; margin-bottom: 1.25rem; color: #fff; box-shadow: 0 6px 18px rgba(27,63,110,.18); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-        .page-banner-main { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-        .page-banner-ico { font-size: 28px; line-height: 1; }
+        .page-banner { background: #1B3F6E; background: linear-gradient(120deg, #1B3F6E, #2C5FA0); border-radius: 14px; padding: 16px 22px; margin-bottom: 1.25rem; color: #fff; box-shadow: 0 6px 18px rgba(27,63,110,.18); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .page-banner-main { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; min-width: 0; }
+        .page-banner-ico { flex: 0 0 auto; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; background: rgba(255,255,255,.14); border-radius: 10px; }
         .page-banner-title { font-size: 21px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .page-banner-badge { font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; }
         .page-banner-sub { font-size: 12.5px; color: #DCE6F5; margin-top: 3px; max-width: 78ch; line-height: 1.5; }
         .page-banner-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .page-banner-actions a, .page-banner-actions button { font-size: 12.5px; font-weight: 600; text-decoration: none; }
+        /* Botón de acción sobre el banner azul: alto contraste (fondo claro, texto azul). */
+        .btn-banner { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 16px; background: #fff; color: #1B3F6E; border: 1px solid rgba(255,255,255,.9); border-radius: 8px; cursor: pointer; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.08); transition: background .15s ease, color .15s ease; }
+        .btn-banner:hover { background: #EAF1FB; color: #14315a; }
 
         /* ===== Panel de filtros (componente filtros-panel) ===== */
         .filtros-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }

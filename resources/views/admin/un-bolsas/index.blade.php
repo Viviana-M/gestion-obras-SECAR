@@ -6,8 +6,7 @@
 <x-page-banner title="Unidades de negocio · bolsas de área" icon="🎒">
     Unidades de Negocio “bolsa” cuyo costo operaciones reparte entre los proyectos; el sistema las trata aparte de los proyectos reales.
     <x-slot:actions>
-        <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-            style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva bolsa</button>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva bolsa</button>
     </x-slot:actions>
 </x-page-banner>
 
