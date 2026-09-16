@@ -165,6 +165,7 @@
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Mis distribuciones</a>
                 <div class="submenu-group-label">Consultas</div>
                 <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Obras en revisión</a>
+                <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Inactivas con saldo</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturado por tipo</a>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
             </div>
@@ -192,6 +193,7 @@
                 <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano Saldos contrarios</a>
                 <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">MO Apoyo administrativo y operativo</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Habilitar edición del mes</a>
+                <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Obras inactivas con saldo</a>
                 <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Terceros mano de obra</a>

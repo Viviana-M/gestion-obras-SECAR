@@ -142,6 +142,16 @@
 </div>
 @endif
 
+@if(!empty($inactivasConSaldo))
+<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 14px;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="font-size:13px;color:#92400E">
+        ⚠️ Hay <b>{{ count($inactivasConSaldo) }}</b> obra(s) marcada(s) como <b>inactivas</b> que todavía tienen <b>saldo en cuenta 14</b>: no se cerraron. Revísalas antes de cerrarlas.
+    </div>
+    <a href="{{ route('operativo.obras-inactivas.index', ['mes' => $mes, 'anio' => $anio]) }}"
+        style="font-size:12px;font-weight:600;padding:7px 14px;background:#B45309;color:#fff;border-radius:8px;text-decoration:none;white-space:nowrap">Ver listado</a>
+</div>
+@endif
+
 @if($kpiObras > 0 || !empty($bolsas))
 {{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones.
      Se muestra aunque no haya obras, para que el panel de bolsas siempre esté visible. --}}

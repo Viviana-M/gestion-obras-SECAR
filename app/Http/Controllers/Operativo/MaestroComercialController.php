@@ -74,6 +74,7 @@ class MaestroComercialController extends Controller
                     'UTILIDAD ESTIMADA'  => $map['utilidad']    = $idx,
                     'COSTO ESTIMADO'     => $map['costo']       = $idx,
                     'RESPONSABLE'        => $map['responsable'] = $idx,
+                    'ACTIVA'             => $map['activa']      = $idx,
                     default              => null,
                 };
             }
@@ -101,6 +102,12 @@ class MaestroComercialController extends Controller
                     'origen'            => 'excel',
                     'user_id'           => $request->user()?->id,
                 ];
+
+                // La columna "Activa" solo se aplica SI viene en el archivo (Si/1/true → true;
+                // No/0/false → false). Si no viene, se conserva el valor actual de la ficha.
+                if (isset($map['activa'])) {
+                    $datos['activa'] = $this->bool($r[$map['activa']] ?? null);
+                }
 
                 // No tocamos responsable_comercial: se llena aparte y se conserva
                 $ficha = FichaProyecto::where('codigo_proyecto', $ot)->first();
@@ -184,6 +191,17 @@ class MaestroComercialController extends Controller
 
         $ficha->delete();
         return back()->with('success', 'Proyecto eliminado.');
+    }
+
+    /** Interpreta la columna "Activa": Si/1/true/x/activa → true; No/0/false/inactiva → false. */
+    private function bool($v): bool
+    {
+        $s = strtolower(trim((string) $v));
+        if ($s === '') return true; // celda vacía = activa (comportamiento por defecto)
+        if (in_array($s, ['no', 'n', '0', 'false', 'inactiva', 'inactivo'], true)) return false;
+        if (in_array($s, ['si', 'sí', 's', '1', 'true', 'x', 'activa', 'activo'], true)) return true;
+
+        return true; // cualquier otro texto: se toma como activa
     }
 
     private function num($v): ?float

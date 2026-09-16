@@ -165,6 +165,11 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     Route::post('/operativo/autorizaciones/{autorizacion}/aprobar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'aprobar'])->name('operativo.autorizaciones.aprobar');
     Route::post('/operativo/autorizaciones/{autorizacion}/rechazar', [\App\Http\Controllers\Operativo\AutorizacionDistribucionController::class, 'rechazar'])->name('operativo.autorizaciones.rechazar');
 
+    // Obras inactivas con saldo en cuenta 14 (revisión antes de cerrar). Fuera de
+    // modulo:operacion: Contabilidad también debe poder verlo (permiso verificado en el controlador).
+    Route::get('/operativo/obras-inactivas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'obrasInactivas'])->name('operativo.obras-inactivas.index');
+    Route::get('/operativo/obras-inactivas/excel', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'obrasInactivasExcel'])->name('operativo.obras-inactivas.excel');
+
     // ══════════════════════ COMERCIAL ══════════════════════
     // ══════════════════════ ADMINISTRACIÓN (solo admin, verificado en el controlador) ══════════════════════
     Route::get('/admin/usuarios', [UsuarioController::class, 'index'])->name('admin.usuarios.index');

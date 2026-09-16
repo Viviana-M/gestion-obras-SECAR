@@ -24,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Exports\ResumenDistribucionExport;
 use App\Exports\FacturadoTipoExport;
+use App\Exports\InactivasConSaldoExport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\DistribucionVersion;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -203,7 +204,7 @@ class DistribucionCostosController extends Controller
 
         // Datos comerciales de la ficha: nombre del proyecto, cliente, valor de oferta
         // y costo presupuestado.
-        $fichas = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+        $fichas = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado', 'activa'])
             ->keyBy('codigo_proyecto');
 
         $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
@@ -344,6 +345,18 @@ class DistribucionCostosController extends Controller
             $o['inventario_obra']    = $saldoInv14 < 0 ? abs($saldoInv14) : 0;
             $o['inventario_almacen'] = 0; // en actualización: pendiente módulo de almacén
 
+            // Cierre por ficha inactiva ("Activa" = No), cuidando el saldo de la cuenta 14:
+            //  - sin saldo pendiente en cuenta 14 → se puede cerrar (estado = cerrada);
+            //  - con saldo en cuenta 14 → NO se cierra; se marca para revisarla aparte.
+            if (! $o['activa'] && $o['estado'] !== 'cerrada') {
+                $tieneSaldo14 = ($o['inventario_obra'] > 0.5) || ((float) $o['total_pendiente'] > 0.5);
+                if ($tieneSaldo14) {
+                    $o['inactiva_con_saldo'] = true;   // queda abierta, para revisión
+                } else {
+                    $o['estado'] = 'cerrada';           // inactiva y sin saldo: cerrar
+                }
+            }
+
             $this->calcularMargenes($o);
             // Departamento de la obra (por prefijo) para el semáforo de márgenes.
             $o['depto_margen'] = \App\Models\User::departamentoDeCodigo($cod);
@@ -388,6 +401,23 @@ class DistribucionCostosController extends Controller
         // Las bolsas de área (UN) son el ORIGEN del costo, no un destino: nunca deben
         // aparecer como una obra en la lista (sí en el panel superior).
         $bolsaCodigos = array_flip(UnBolsa::codigos());
+
+        // Obras marcadas inactivas en el maestro pero que AÚN tienen saldo en cuenta 14:
+        // no se cierran; se listan aparte para revisarlas antes de cerrarlas.
+        $inactivasConSaldo = [];
+        foreach ($obras as $o) {
+            if (empty($o['inactiva_con_saldo']) || isset($bolsaCodigos[$o['codigo']])) {
+                continue;
+            }
+            $inactivasConSaldo[] = [
+                'codigo'          => $o['codigo'],
+                'nombre'          => $o['nombre'],
+                'cliente'         => $o['cliente'],
+                'inventario_obra' => $o['inventario_obra'],
+                'total_pendiente' => $o['total_pendiente'],
+            ];
+        }
+        usort($inactivasConSaldo, fn ($a, $b) => $b['inventario_obra'] <=> $a['inventario_obra']);
 
         $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto, $bolsaCodigos) {
             if (isset($bolsaCodigos[$o['codigo']])) return false;
@@ -480,7 +510,94 @@ class DistribucionCostosController extends Controller
             'kpiPendiente' => array_sum(array_column($obras, 'total_pendiente')),
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
+            'inactivasConSaldo' => $inactivasConSaldo,
         ]);
+    }
+
+    /**
+     * Listado de obras marcadas INACTIVAS en el maestro que TODAVÍA tienen saldo en la
+     * cuenta 14 (no se cierran hasta revisarlas). Visible para Operación y Contabilidad.
+     */
+    public function obrasInactivas(Request $request)
+    {
+        $u = $request->user();
+        abort_unless($u && ($u->puedeVerModulo('operacion') || $u->puedeVerModulo('contabilidad')), 403,
+            'No tienes permiso para ver este listado.');
+
+        [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $mesDef);
+        $anio = (int) $request->get('anio', $anioDef);
+
+        $lista = $this->inactivasConSaldoData($mes, $anio);
+
+        return view('operativo.inactivas-con-saldo', [
+            'lista' => $lista, 'mes' => $mes, 'anio' => $anio,
+            'total' => array_sum(array_column($lista, 'saldo_14')),
+        ]);
+    }
+
+    /** Descarga a Excel del listado de obras inactivas con saldo en cuenta 14. */
+    public function obrasInactivasExcel(Request $request)
+    {
+        $u = $request->user();
+        abort_unless($u && ($u->puedeVerModulo('operacion') || $u->puedeVerModulo('contabilidad')), 403,
+            'No tienes permiso para ver este listado.');
+
+        [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $mesDef);
+        $anio = (int) $request->get('anio', $anioDef);
+
+        $lista = $this->inactivasConSaldoData($mes, $anio);
+
+        $filas = [['Código', 'Obra', 'Cliente', 'Saldo cuenta 14']];
+        foreach ($lista as $f) {
+            $filas[] = [$f['codigo'], $f['nombre'], $f['cliente'], round($f['saldo_14'], 2)];
+        }
+        $filas[] = ['', '', 'TOTAL', round(array_sum(array_column($lista, 'saldo_14')), 2)];
+
+        return Excel::download(new InactivasConSaldoExport($filas), "Obras_inactivas_con_saldo_{$mes}_{$anio}.xlsx");
+    }
+
+    /**
+     * Obras cuya ficha está inactiva (activa = false) y que tienen saldo en la cuenta 14
+     * (|neto| > 0) al corte acumulado del mes/año. Consulta autónoma (no depende del
+     * pipeline de la pantalla de distribución).
+     *
+     * @return array<int, array{codigo:string,nombre:string,cliente:string,saldo_14:float}>
+     */
+    private function inactivasConSaldoData(int $mes, int $anio): array
+    {
+        $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->pluck('neto', 'codigo_proyecto');
+
+        if ($saldos->isEmpty()) {
+            return [];
+        }
+
+        $fichas = FichaProyecto::whereIn('codigo_proyecto', $saldos->keys()->all())
+            ->where('activa', false)
+            ->get(['codigo_proyecto', 'nombre_obra', 'cliente'])
+            ->keyBy('codigo_proyecto');
+
+        $lista = [];
+        foreach ($fichas as $cod => $f) {
+            $lista[] = [
+                'codigo'   => (string) $cod,
+                'nombre'   => (string) $f->nombre_obra,
+                'cliente'  => (string) $f->cliente,
+                'saldo_14' => abs((float) $saldos[$cod]),
+            ];
+        }
+        usort($lista, fn ($a, $b) => $b['saldo_14'] <=> $a['saldo_14']);
+
+        return $lista;
     }
 
     /** Último período (mes, año) con información cargada en RegistroFinanciero (BIABLE). */
@@ -1880,6 +1997,9 @@ class DistribucionCostosController extends Controller
             'costo_presup'   => (float) ($fichas[$cod]->costo_estimado ?? 0),
             'inventario_obra'    => 0,
             'inventario_almacen' => 0,
+            // Columna "Activa" del maestro (si no hay ficha, se asume activa).
+            'activa'             => (bool) ($fichas[$cod]->activa ?? true),
+            'inactiva_con_saldo' => false,
         ];
     }
 
