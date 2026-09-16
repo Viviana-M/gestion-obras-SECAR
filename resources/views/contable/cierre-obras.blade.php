@@ -3,7 +3,9 @@
 @section('title', 'Cierre de obras')
 
 @section('content')
-<h1 class="page-title">Cierre de obras</h1>
+<x-page-banner title="Cierre de obras" icon="🏁">
+    Registra el cierre de proyectos por carga masiva de Excel o de forma manual.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">
@@ -46,7 +48,8 @@
                 <div>
                     <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Código proyecto</label>
                     <input type="text" name="codigo_proyecto" placeholder="Ej: C1101401"
-                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                        value="{{ $prefillCodigo ?? '' }}" @if(!empty($prefillCodigo)) autofocus @endif
+                        style="width:100%;padding:7px 10px;border:1px solid {{ !empty($prefillCodigo) ? '#1B3F6E' : '#E5E7EB' }};border-radius:8px;font-size:13px">
                 </div>
                 <div>
                     <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Fecha de cierre</label>

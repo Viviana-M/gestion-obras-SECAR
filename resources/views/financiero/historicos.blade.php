@@ -3,14 +3,16 @@
 @section('title', 'Históricos de proyectos')
 
 @section('content')
-<h1 class="page-title">Históricos — Proyectos cerrados</h1>
+<x-page-banner title="Históricos — Proyectos cerrados" icon="📁">
+    Consulta el resultado final de las obras ya cerradas y detecta inconsistencias contables.
+</x-page-banner>
 
 {{-- FILTROS --}}
-<div class="card" style="margin-bottom:1rem">
+<x-filtros-panel>
     <form method="GET" action="{{ route('financiero.historicos') }}" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Proyecto</label>
-            <select name="proyecto" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;min-width:240px">
+        <div class="filtro-field" style="flex:2 1 240px">
+            <label class="filtro-label">Proyecto</label>
+            <select name="proyecto" class="filtro-select" style="min-width:240px">
                 <option value="">Todos los proyectos cerrados</option>
                 @foreach($proyectos as $p)
                     <option value="{{ $p->codigo_proyecto }}" {{ $proyecto == $p->codigo_proyecto ? 'selected' : '' }}>
@@ -19,14 +21,12 @@
                 @endforeach
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">
-            Filtrar
-        </button>
+        <button type="submit" class="btn-filtrar">Filtrar</button>
         <a href="{{ route('financiero.historicos') }}" style="padding:7px 16px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:flex;align-items:center">
             Limpiar
         </a>
     </form>
-</div>
+</x-filtros-panel>
 
 {{-- ALERTAS GLOBALES (compacto) --}}
 @php
@@ -93,9 +93,9 @@
         </select>
         <span id="contador-hist" style="font-size:12px;color:#9CA3AF"></span>
     </div>
-    <a href="{{ route('contable.plano.reversion') }}"
-        style="padding:7px 16px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;text-decoration:none;white-space:nowrap">
-        ⬇ Descargar plano de reversión (saldo 14)
+    <a href="{{ route('contable.plano-reversion.index') }}"
+        style="padding:7px 16px;background:white;color:#1B3F6E;border:1px solid #1B3F6E;border-radius:8px;font-size:13px;text-decoration:none;white-space:nowrap">
+        🔁 Cuentas 14 con saldo contrario →
     </a>
 </div>
 

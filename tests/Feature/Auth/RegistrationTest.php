@@ -25,7 +25,13 @@ class RegistrationTest extends TestCase
             'password_confirmation' => 'password',
         ]);
 
-        $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+        // El auto-registro ya no da acceso inmediato: la cuenta queda inactiva y
+        // pendiente de aprobación por un administrador, y se redirige al login.
+        $this->assertGuest();
+        $response->assertRedirect(route('login'));
+        $this->assertDatabaseHas('users', [
+            'email'  => 'test@example.com',
+            'activo' => false,
+        ]);
     }
 }

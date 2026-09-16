@@ -3,15 +3,15 @@
 @section('title', 'Unidades de negocio (bolsas)')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Unidades de negocio · bolsas de área</h1>
-    <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-        style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva bolsa</button>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Estas son las Unidades de Negocio “bolsa” cuyo costo operaciones reparte entre los proyectos. El sistema las trata aparte de los proyectos reales.
-</p>
+<x-page-banner title="Unidades de negocio · bolsas de área">
+    <x-slot:iconSvg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+    </x-slot:iconSvg>
+    Unidades de Negocio “bolsa” cuyo costo operaciones reparte entre los proyectos; el sistema las trata aparte de los proyectos reales.
+    <x-slot:actions>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva bolsa</button>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

@@ -171,6 +171,9 @@ class PlanoReclasificacionController extends Controller
      */
     public function marcar(Request $request, int $id)
     {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $homologacion = $this->buscar($id);
         if (!$homologacion) {
             return redirect()->route('contable.reclasificaciones.index')

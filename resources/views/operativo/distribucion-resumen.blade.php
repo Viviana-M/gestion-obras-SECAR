@@ -16,16 +16,9 @@
 
 @section('content')
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:10px">
-    <h1 class="page-title" style="margin-bottom:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        Resumen de distribución · {{ $periodo }}
-        @if(!empty($departamento))
-        <span style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:10px;background:#EEF2FF;color:#4338CA">
-            {{ ucfirst($departamento) }}
-        </span>
-        @endif
-    </h1>
-    <div style="display:flex;gap:8px">
+<x-page-banner title="Resumen de distribución · {{ $periodo }}" icon="📊" :badge="!empty($departamento) ? ucfirst($departamento) : null">
+    Costo del mes por categoría y su participación sobre el ingreso.
+    <x-slot:actions>
         <a href="{{ route('operativo.distribucion') }}" style="padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none">← Volver</a>
         <form method="POST" action="{{ route('operativo.distribucion.resumen') }}" style="display:inline">
             @csrf
@@ -33,10 +26,23 @@
             <input type="hidden" name="anio" value="{{ $anio }}">
             <input type="hidden" name="departamento" value="{{ $departamento ?? '' }}">
             <input type="hidden" name="descargar" value="1">
+            {{-- Mismo payload que produjo esta pantalla: aplicar + asignaciones de bolsa.
+                 Garantiza que el Excel traiga EXACTAMENTE los mismos totales. --}}
+            @foreach(($aplicar ?? []) as $cod => $cuentas)
+                @foreach((array) $cuentas as $c14 => $m)
+                    <input type="hidden" name="aplicar[{{ $cod }}][{{ $c14 }}]" value="{{ $m }}">
+                @endforeach
+            @endforeach
+            @foreach(($asignBolsa ?? []) as $cod => $porBolsa)
+                @foreach((array) $porBolsa as $bolsa => $m)
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][{{ $loop->parent->index }}_{{ $loop->index }}][bolsa]" value="{{ $bolsa }}">
+                    <input type="hidden" name="asignacion_bolsa[{{ $cod }}][{{ $loop->parent->index }}_{{ $loop->index }}][monto]" value="{{ $m }}">
+                @endforeach
+            @endforeach
             <button type="submit" style="padding:8px 16px;background:white;border:1px solid #15803D;border-radius:8px;font-size:13px;color:#15803D;cursor:pointer">⬇ Descargar Excel</button>
         </form>
-    </div>
-</div>
+    </x-slot:actions>
+</x-page-banner>
 
 <p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
     Costo total del mes por categoría = lo que ya estaba en la cuenta 6 del mes + lo que se aplica ahora de la cuenta 14. Ingreso = facturación del mes.
@@ -120,6 +126,8 @@
                                 <td style="padding:4px 6px">
                                     @if($ln['origen'] === 'aplic')
                                         <span style="font-size:10px;background:#DCFCE7;color:#15803D;padding:1px 7px;border-radius:6px">Aplicado ahora</span>
+                                    @elseif($ln['origen'] === 'bolsa')
+                                        <span style="font-size:10px;background:#FFFBEB;color:#B45309;padding:1px 7px;border-radius:6px">Desde bolsa</span>
                                     @else
                                         <span style="font-size:10px;background:#EFF6FF;color:#1B3F6E;padding:1px 7px;border-radius:6px">Ya en cuenta 6</span>
                                     @endif

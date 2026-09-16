@@ -129,6 +129,9 @@ $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
 
     public function guardar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $mes  = $request->mes;
         $anio = $request->anio;
         $data = $request->movimientos ?? [];
@@ -166,6 +169,9 @@ $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
 
     public function enviar(Request $request)
     {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
         $mes  = $request->mes;
         $anio = $request->anio;
 

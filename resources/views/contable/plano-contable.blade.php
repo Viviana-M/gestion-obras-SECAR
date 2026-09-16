@@ -9,29 +9,31 @@
     $fmt = fn($n) => '$'.number_format($n, 0, ',', '.');
 @endphp
 
-<h1 class="page-title">Plano contable — Versiones enviadas</h1>
+<x-page-banner title="Plano contable — Versiones enviadas" icon="📄">
+    Revisa las versiones de costos enviadas a contabilidad por período y genera el plano para SIESA.
+</x-page-banner>
 
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('contable.plano-contable') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+<x-filtros-panel>
+    <form method="GET" action="{{ route('contable.plano-contable') }}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach($nombresMes as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">Filtrar</button>
     </form>
-</div>
+</x-filtros-panel>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>

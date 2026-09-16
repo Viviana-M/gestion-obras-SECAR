@@ -157,13 +157,19 @@ class DashboardController extends Controller
         $modo        = $request->get('modo', 'acumulado');
 
         $query = RegistroFinanciero::where('codigo_proyecto', $codigo)
-            ->where('cuenta_mayor', $cuentaMayor)
-            ->where('anio', $anio);
+            ->where('cuenta_mayor', $cuentaMayor);
 
         if ($modo === 'mes') {
-            $query->where('mes', $mes);
+            $query->where('anio', $anio)->where('mes', $mes);
         } else {
-            $query->where('mes', '<=', $mes);
+            // Acumulado histórico hasta el período filtrado: mismo criterio que la
+            // tarjeta del dashboard (index), para que el detalle reconcilie con ella.
+            $query->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            });
         }
 
         $detalle = $query->selectRaw('
@@ -193,13 +199,19 @@ class DashboardController extends Controller
         $modo    = $request->get('modo', 'acumulado');
 
         $query = RegistroFinanciero::where('codigo_proyecto', $codigo)
-            ->where('cuenta_contable', $cuenta)
-            ->where('anio', $anio);
+            ->where('cuenta_contable', $cuenta);
 
         if ($modo === 'mes') {
-            $query->where('mes', $mes);
+            $query->where('anio', $anio)->where('mes', $mes);
         } else {
-            $query->where('mes', '<=', $mes);
+            // Acumulado histórico hasta el período filtrado: mismo criterio que la
+            // tarjeta del dashboard (index), para que el detalle reconcilie con ella.
+            $query->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            });
         }
 
         $periodos = $query->selectRaw('

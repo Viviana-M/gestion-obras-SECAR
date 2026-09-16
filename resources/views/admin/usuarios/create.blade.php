@@ -3,7 +3,9 @@
 @section('title', 'Crear usuario')
 
 @section('content')
-<h1 class="page-title">Crear usuario</h1>
+<x-page-banner title="Nuevo usuario" icon="👤">
+    Crea una cuenta y asigna su rol y los módulos que podrá usar.
+</x-page-banner>
 
 @if($errors->any())
 <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">

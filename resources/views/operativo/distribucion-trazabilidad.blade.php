@@ -15,14 +15,12 @@
 @endphp
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem">
-    <h1 class="page-title" style="margin:0">Trazabilidad · {{ $periodo }} · plano #{{ $distribucion->id }}</h1>
-    <a href="{{ route('operativo.distribucion.consultas') }}" style="font-size:13px;padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;color:#6B7280;text-decoration:none">← Volver</a>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
-    Historial de todas las modificaciones de este plano. Cada versión guarda la foto de sus números en ese momento.
-</p>
+<x-page-banner title="Trazabilidad · {{ $periodo }} · plano #{{ $distribucion->id }}" icon="🧭">
+    Historial de todas las modificaciones de este plano; cada versión guarda la foto de sus números.
+    <x-slot:actions>
+        <a href="{{ route('operativo.distribucion.consultas') }}" style="font-size:13px;padding:8px 16px;background:white;border:1px solid #E5E7EB;border-radius:8px;color:#6B7280;text-decoration:none">← Volver</a>
+    </x-slot:actions>
+</x-page-banner>
 
 <div class="card" style="padding:0;overflow:hidden">
     @if($versiones->count() == 0)

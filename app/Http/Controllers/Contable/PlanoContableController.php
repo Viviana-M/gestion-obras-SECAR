@@ -6,15 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\AplicacionCosto;
 use App\Models\ObraEstado;
 use App\Models\Distribucion;
+use App\Models\ReasignacionItem;
 use App\Models\User;
 use App\Services\RepartoFifoTerceros;
+use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 class PlanoContableController extends Controller
 {
+    use GeneraPlanoSiesa;
+
     /** NIT de SECAR: es el tercero de la cabecera del documento. */
     private const NIT_SECAR = '890319324';
 
@@ -28,7 +29,7 @@ class PlanoContableController extends Controller
     ];
 
     /** Contrapartida de las provisiones (costo en transito). */
-    private const CUENTA_PROVISION = '26050604';
+    public const CUENTA_PROVISION = '26050604';
 
     private const MESES = [
         1 => 'ENERO', 2 => 'FEBRERO', 3 => 'MARZO', 4 => 'ABRIL', 5 => 'MAYO', 6 => 'JUNIO',
@@ -45,12 +46,16 @@ class PlanoContableController extends Controller
 
         $versiones = Distribucion::where('mes', $mes)->where('anio', $anio)
             ->where('estado', 'enviado')
+            ->where('reemplazada', false) // solo la versión vigente (no las reemplazadas por reenvío)
             ->orderBy('departamento')->orderByDesc('version')->get();
 
         $data = $versiones->map(function ($d) use ($aplican, $usuarios) {
             $lineas = AplicacionCosto::where('distribucion_id', $d->id)
-                ->whereIn('codigo_proyecto', $aplican)
                 ->where('monto_aplicar', '>', 0)
+                ->where(function ($q) use ($aplican) {
+                    $q->whereIn('codigo_proyecto', $aplican)
+                      ->orWhereNotNull('origen_bolsa');
+                })
                 ->orderBy('codigo_proyecto')->get();
             return [
                 'id'           => $d->id,
@@ -92,11 +97,22 @@ class PlanoContableController extends Controller
             return back()->with('error', "No se que centro de costos usar para el departamento '{$depto}'.");
         }
 
-        $aplican = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
+        if ($distribucion->reemplazada) {
+            return back()->with('error', 'Esta version fue reemplazada por un reenvio posterior. Exporta la version vigente.');
+        }
 
+        $aplican    = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
+        $aplicanSet = array_flip($aplican->all());
+
+        // Las líneas normales solo se exportan para obras cerradas/parciales. Las de
+        // bolsa (origen_bolsa) se exportan SIEMPRE: si la obra está abierta se reclasifica
+        // 14→14 (cambia la UN); si está cerrada/parcial se aplica 14→61.
         $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)
-            ->whereIn('codigo_proyecto', $aplican)
             ->where('monto_aplicar', '>', 0)
+            ->where(function ($q) use ($aplican) {
+                $q->whereIn('codigo_proyecto', $aplican)
+                  ->orWhereNotNull('origen_bolsa');
+            })
             ->orderBy('codigo_proyecto')
             ->orderBy('cuenta_14')
             ->get();
@@ -108,7 +124,18 @@ class PlanoContableController extends Controller
         $obras   = $lineas->pluck('codigo_proyecto')->unique()->values()->all();
         $reparto = new RepartoFifoTerceros($obras);
 
-        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos);
+        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
+
+        // Reasignaciones de ítems del período (Fase D): reclasificación de UN — misma
+        // cuenta contable, cambia el codigo_proyecto (origen → destino).
+        foreach ($this->movimientosReasignaciones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
+
+        // Provisiones del período (costo en tránsito): registro (D 14 / C 26) y reversas (D 26 / C 14).
+        foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
 
         // Control de cuadre: si no cuadra, no se exporta.
         $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
@@ -139,7 +166,8 @@ class PlanoContableController extends Controller
      *   Provision    -> CR 26050604 (sin tercero) / DB cuenta 61 (tercero SECAR).
      * El centro de costos va SOLO en las lineas de cuenta 6.
      */
-    private function construirMovimientos($lineas, RepartoFifoTerceros $reparto, int $numeroDoc, string $centroCostos): array
+    /** Público para poder probar el armado del movimiento (14→61 vs 14→14 de bolsa). */
+    public function construirMovimientos($lineas, RepartoFifoTerceros $reparto, int $numeroDoc, string $centroCostos, array $cerradasParciales = []): array
     {
         $porObra = $lineas->groupBy('codigo_proyecto');
         $mov = [];
@@ -152,6 +180,25 @@ class PlanoContableController extends Controller
                 $monto = round((float) $l->monto_aplicar, 2);
                 $c14   = (string) $l->cuenta_14;
                 $c61   = (string) $l->cuenta_61;
+
+                // Costo que viene de una bolsa de área. El tercero es SECAR (bolsa interna)
+                // y el crédito de la cuenta 14 va en la OT de la bolsa (origen).
+                //   - Obra cerrada/parcial: 14 → 61 (débito 61 en la OT destino, con centro).
+                //   - Obra abierta:         14 → 14 misma cuenta, reclasificando la UN
+                //                           (de la bolsa a la obra destino).
+                if (!empty($l->origen_bolsa)) {
+                    if (isset($cerradasParciales[(string) $obra])) {
+                        if ($c61 === 'SIN HOMOLOGAR' || $c61 === '') {
+                            continue; // sin cuenta 61 no se puede aplicar a la 6
+                        }
+                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
+                        $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
+                    } else {
+                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
+                        $debitos[]  = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $obra, null, $monto, 0);
+                    }
+                    continue;
+                }
 
                 if ($c61 === 'SIN HOMOLOGAR' || $c61 === '') {
                     continue;   // no se puede mandar a SIESA sin cuenta destino
@@ -177,6 +224,66 @@ class PlanoContableController extends Controller
         return $mov;
     }
 
+    /**
+     * Movimientos de PROVISIONES del período (costo en tránsito, persistentes):
+     *   - Registrada este mes  → Débito cuenta 14 / Crédito cuenta 26 (se contabiliza una vez).
+     *   - Reversada este mes    → Débito cuenta 26 / Crédito cuenta 14 (asiento inverso).
+     * Las provisiones activas de meses anteriores NO generan movimiento (ya se registraron).
+     */
+    public function movimientosProvisiones(int $mes, int $anio, string $depto, int $numeroDoc): array
+    {
+        $prefijos = User::prefijosDeDepartamento($depto);
+        $mov = [];
+        foreach (\App\Models\Provision::all() as $p) {
+            if (! $this->empiezaPor((string) $p->codigo_proyecto, $prefijos)) continue;
+            $monto = round((float) $p->monto, 2);
+            if ($monto <= 0.005) continue;
+            $obra = (string) $p->codigo_proyecto;
+            $c14  = (string) $p->cuenta_14;
+            $c26  = (string) $p->cuenta_26;
+
+            // Registrada este mes: Débito 14 / Crédito 26.
+            if ((int) $p->mes === $mes && (int) $p->anio === $anio) {
+                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, $monto, 0);
+                $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, 0, $monto);
+            }
+            // Reversada este mes: Débito 26 / Crédito 14.
+            if ($p->estado === 'reversada' && (int) $p->reversada_mes === $mes && (int) $p->reversada_anio === $anio) {
+                $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, $monto, 0);
+                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, 0, $monto);
+            }
+        }
+        return $mov;
+    }
+
+    /**
+     * Movimientos 14→14 de las reasignaciones de ítems del período cuyo DESTINO pertenece
+     * al departamento (así cada reasignación aparece una sola vez): crédito de la cuenta en
+     * la OT origen, débito de la misma cuenta en la OT destino. Público para poder probarlo.
+     */
+    public function movimientosReasignaciones(int $mes, int $anio, string $depto, int $numeroDoc): array
+    {
+        $prefijos = User::prefijosDeDepartamento($depto);
+        $mov = [];
+        foreach (ReasignacionItem::where('mes', $mes)->where('anio', $anio)->get() as $r) {
+            if (!$this->empiezaPor((string) $r->codigo_obra_destino, $prefijos)) continue;
+            $monto = round((float) $r->costo, 2);
+            if ($monto <= 0.005 || $r->cuenta === '' || $r->cuenta === null) continue;
+            $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_origen, null, 0, $monto);
+            $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_destino, null, $monto, 0);
+        }
+        return $mov;
+    }
+
+    private function empiezaPor(string $cod, array $prefijos): bool
+    {
+        $c = strtoupper($cod);
+        foreach ($prefijos as $p) {
+            if (str_starts_with($c, strtoupper($p))) return true;
+        }
+        return false;
+    }
+
     private function fila(int $numeroDoc, string $cuenta, ?string $tercero, string $obra, ?string $centroCostos, float $debito, float $credito): array
     {
         return [
@@ -195,103 +302,10 @@ class PlanoContableController extends Controller
         ];
     }
 
-    /** Construye el xlsx de 4 hojas que espera SIESA. */
+    /** Construye el xlsx de 4 hojas que espera SIESA (formato compartido con la reversión). */
     private function generarExcel(array $movimientos, int $numeroDoc, string $fecha, string $observacion): string
     {
-        $ss = new Spreadsheet();
-        $ss->removeSheetByIndex(0);
-
-        // Hoja 1: Documentocontable (cabecera del asiento)
-        $h1 = $ss->createSheet();
-        $h1->setTitle('Documentocontable');
-        $this->escribirEncabezados($h1, [
-            'Tipo de documento',
-            'Numero de documento',
-            'Fecha del documento - El formato debe ser AAAAMMDD',
-            'Tercero del documento',
-            'Observaciones del documento',
-        ]);
-        $h1->fromArray([[self::TIPO_DOC, $numeroDoc, $fecha, self::NIT_SECAR, $observacion]], null, 'A2');
-
-        // Hoja 2: Movimientocontable (las 12 columnas del detalle)
-        $h2 = $ss->createSheet();
-        $h2->setTitle('Movimientocontable');
-        $fmt = ' - el formato debe ser (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)';
-        $this->escribirEncabezados($h2, [
-            'Tipo de documento',
-            'Numero de documento',
-            'Auxiliar de cuenta contable',
-            'Tercero',
-            'Unidad de negocio',
-            'Auxiliar de centro de costos',
-            'Auxiliar de concepto de fuljo de efectivo',
-            'Valor debito' . $fmt,
-            'Valor credito' . $fmt,
-            'Valor base gravable' . $fmt,
-            'Tipo de documento de banco',
-            'Numero de documento de banco',
-        ]);
-
-        $filas = [];
-        foreach ($movimientos as $m) {
-            $filas[] = [
-                $m['tipo_doc'], $m['numero_doc'], $m['cuenta'], $m['tercero'], $m['unidad'],
-                $m['centro_costos'], $m['flujo'], $m['debito'], $m['credito'],
-                $m['base_gravable'], $m['tipo_doc_banco'], $m['num_doc_banco'],
-            ];
-        }
-        $h2->fromArray($filas, null, 'A2');
-
-        // Hojas 3 y 4: van vacias, pero SIESA las exige con sus encabezados
-        $h3 = $ss->createSheet();
-        $h3->setTitle('MovimientoCxC');
-        $this->escribirEncabezados($h3, [
-            'Tipo de documento', 'Numero de documento', 'Auxiliar de cuenta contable', 'Tercero',
-            'Unidad de negocio',
-            'Valor debito  -  (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Valor crédito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Sucursal cliente', 'Tipo de documento de cruce', 'Numero de documento de cruce',
-            'Fecha de vencimiento del documento - el formato debe ser AAAAMMDD',
-            'Fecha de pronto pago del documento - el formato debe ser AAAAMMDD',
-            'Tercero vendedor', 'Observaciones del movimiento de saldo abierto',
-        ]);
-
-        $h4 = $ss->createSheet();
-        $h4->setTitle('MovimientoCxP');
-        $this->escribirEncabezados($h4, [
-            'Tipo de documento', 'Numero de documento', 'Auxiliar de cuenta contable', 'Tercero',
-            'Unidad de negocio',
-            'Valor debito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Valor crédito - (signo + 15 enteros + punto + 4 decimales) (+000000000000000.0000)',
-            'Sucursal proveedor',
-            'Prefijo de documento de cruce - Es el prefijo del documento del proveedor, no se valida contra nada y puede dejarse vacío.',
-            'Numero de documento de cruce', 'Auxiliar de concepto de fuljo de efectivo',
-            'Fecha de vencimiento del documento - el formato debe ser AAAAMMDD.',
-            'Fecha de pronto pago del documento - el formato debe ser AAAAMMDD',
-            'Fecha del documento de cruce - el formato debe ser AAAAMMDD',
-            'Observaciones del movimiento de saldo abierto',
-        ]);
-
-        $ss->setActiveSheetIndex(1);
-
-        $tmp = storage_path('app/plano_' . uniqid() . '.xlsx');
-        (new Xlsx($ss))->save($tmp);
-
-        return $tmp;
-    }
-
-    private function escribirEncabezados($hoja, array $encabezados): void
-    {
-        $col = 1;
-        foreach ($encabezados as $e) {
-            $hoja->setCellValue([$col, 1], $e);
-            $hoja->getColumnDimensionByColumn($col)->setWidth(22);
-            $col++;
-        }
-        $rango = 'A1:' . $hoja->getHighestColumn() . '1';
-        $hoja->getStyle($rango)->getFont()->setBold(true);
-        $hoja->getStyle($rango)->getFill()->setFillType(Fill::FILL_SOLID)
-             ->getStartColor()->setRGB('F3F4F6');
+        return $this->generarPlanoSiesa($movimientos, self::TIPO_DOC, self::NIT_SECAR, $numeroDoc, $fecha, $observacion);
     }
 
     private function ultimoDiaDelMes(int $anio, int $mes): string
@@ -302,6 +316,9 @@ class PlanoContableController extends Controller
 
     public function habilitar(Distribucion $distribucion)
     {
+        abort_unless(auth()->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
         $distribucion->edicion_habilitada = !$distribucion->edicion_habilitada;
         $distribucion->save();
 

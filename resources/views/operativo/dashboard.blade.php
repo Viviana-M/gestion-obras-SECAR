@@ -3,7 +3,7 @@
 @section('title', 'Módulo Operativo')
 
 @section('content')
-    <h1 class="page-title">Proyectos operativos</h1>
+    <x-page-banner title="Proyectos operativos" icon="🏗️">Gestiona la operación de tus proyectos.</x-page-banner>
     <div class="card">
         <h3>Módulo en construcción</h3>
     </div>
