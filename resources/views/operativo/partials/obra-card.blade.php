@@ -161,13 +161,10 @@
             <div style="flex:1.3;min-width:250px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
                 <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:6px">COSTO Y EJECUCIÓN</div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0">
-                    <span style="font-size:10px;color:#6B7280">Inventario en tránsito</span>
-                    <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_inv_obra']) }}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
                     <span style="font-size:10px;color:#374151;font-weight:600">Costo total</span>
                     <span style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
                 </div>
+                <div style="font-size:9px;color:#9CA3AF;text-align:right;margin-top:-2px;margin-bottom:2px">incluye lo aplicado y lo pendiente por aplicar</div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
                     <span style="font-size:10px;color:#6B7280">Costo presupuestado</span>
                     <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</span>
