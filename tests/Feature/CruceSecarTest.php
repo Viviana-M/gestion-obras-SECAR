@@ -21,7 +21,7 @@ class CruceSecarTest extends TestCase
         ]);
     }
 
-    private function rf(string $cod, float $er, string $tercero, string $razon, string $cuentaMayor = 'Costos por aplicar'): void
+    private function rf(string $cod, float $er, string $tercero, ?string $razon, string $cuentaMayor = 'Costos por aplicar'): void
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod,
@@ -32,37 +32,55 @@ class CruceSecarTest extends TestCase
     }
 
     #[Test]
-    public function separa_el_saldo_secar_del_saldo_real_por_obra(): void
+    public function netea_secar_contra_terceros_por_obra(): void
     {
         FichaProyecto::create(['codigo_proyecto' => 'MO008570', 'nombre_obra' => 'Obra grande', 'activa' => false]);
 
-        // SECAR: +853.057.866 ; terceros reales: −953.574.268 ; total = −100.516.402
+        // MO008570: SECAR +853.057.866 ; terceros −953.574.268 ; neto −100.516.402.
         $this->rf('MO008570', 853057866, '890319324', 'SECAR INGENIEROS SA');
         $this->rf('MO008570', -953574268, '800111222', 'PROVEEDOR REAL SAS');
+        // O08523-A: SECAR +1.015.378 ; terceros −46.215.669 ; neto −45.200.291.
+        $this->rf('O08523-A', 1015378, '90319324', 'SECAR INGENIEROS SA');   // NIT con variante
+        $this->rf('O08523-A', -46215669, '800222', 'CONSTRUCTORA X');
 
         $resp = $this->actingAs($this->contable())->get(route('contable.cruce-secar.index'));
         $resp->assertOk();
+        $filas = collect($resp->viewData('filas'));
 
-        $fila = collect($resp->viewData('filas'))->firstWhere('codigo', 'MO008570');
-        $this->assertNotNull($fila);
-        $this->assertEqualsWithDelta(853057866, $fila['saldo_secar'], 1);
-        $this->assertEqualsWithDelta(-100516402, $fila['saldo_total'], 1);
-        $this->assertEqualsWithDelta(-953574268, $fila['saldo_real'], 1);
-        $this->assertSame('Inactiva', $fila['estado']);   // según ficha_proyectos.activa
+        $a = $filas->firstWhere('codigo', 'MO008570');
+        $this->assertEqualsWithDelta(853057866, $a['saldo_secar'], 1);
+        $this->assertEqualsWithDelta(-953574268, $a['saldo_terceros'], 1);
+        $this->assertEqualsWithDelta(-100516402, $a['saldo_neto'], 1);
+        $this->assertSame('Pendiente real', $a['marca']);
+        $this->assertSame('Inactiva', $a['estado']);
+
+        $b = $filas->firstWhere('codigo', 'O08523-A');
+        $this->assertEqualsWithDelta(1015378, $b['saldo_secar'], 1);
+        $this->assertEqualsWithDelta(-46215669, $b['saldo_terceros'], 1);
+        $this->assertEqualsWithDelta(-45200291, $b['saldo_neto'], 1);
+        $this->assertSame('Pendiente real', $b['marca']);
     }
 
     #[Test]
-    public function solo_muestra_obras_con_saldo_secar_relevante_y_ordena_desc(): void
+    public function marca_las_que_se_netean_a_cero_y_ordena_por_saldo_neto(): void
     {
-        // Obra A: saldo SECAR grande. Obra B: saldo SECAR pequeño. Obra C: sin SECAR (excluida).
-        $this->rf('OBA', 900000, '890319324', 'SECAR INGENIEROS SA');
-        $this->rf('OBB', 100000, '90319324', 'SECAR INGENIEROS SA');   // acepta el NIT sin el 8
-        $this->rf('OBC', 500000, '800999', 'OTRO PROVEEDOR');           // sin SECAR → no aparece
+        // OBA: SECAR y terceros se anulan → neto 0 → "Se netea a ~$0".
+        $this->rf('OBA', 5000000, '890319324', 'SECAR INGENIEROS SA');
+        $this->rf('OBA', -5000000, '800111', 'PROVEEDOR');
+        // OBB: solo terceros (razón NULL cuenta como tercero) → neto grande → "Pendiente real".
+        $this->rf('OBB', -8000000, '800222', null);
+        // OBC: sin SECAR y neto 0 → NO aparece.
+        $this->rf('OBC', 3000, '800333', 'OTRO');
+        $this->rf('OBC', -3000, '800333', 'OTRO');
 
         $resp = $this->actingAs($this->contable())->get(route('contable.cruce-secar.index'));
-        $codigos = collect($resp->viewData('filas'))->pluck('codigo')->all();
+        $filas = collect($resp->viewData('filas'));
 
-        $this->assertSame(['OBA', 'OBB'], $codigos);   // ordenadas por |saldo_secar| desc, sin OBC
+        // Orden por |saldo_neto| desc: OBB (8M) antes que OBA (0); OBC excluida.
+        $this->assertSame(['OBB', 'OBA'], $filas->pluck('codigo')->all());
+        $this->assertSame('Se netea a ~$0', $filas->firstWhere('codigo', 'OBA')['marca']);
+        $this->assertSame('Pendiente real', $filas->firstWhere('codigo', 'OBB')['marca']);
+        $this->assertEqualsWithDelta(-8000000, $filas->firstWhere('codigo', 'OBB')['saldo_terceros'], 1);
     }
 
     #[Test]

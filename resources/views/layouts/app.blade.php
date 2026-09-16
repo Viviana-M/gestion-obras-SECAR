@@ -194,7 +194,7 @@
                 <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">MO Apoyo administrativo y operativo</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Habilitar edición del mes</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Obras inactivas con saldo</a>
-                <a href="{{ route('contable.cruce-secar.index') }}" class="{{ request()->is('contable/cruce-secar') ? 'active' : '' }}">Cruce cuenta 14 vs SECAR</a>
+                <a href="{{ route('contable.cruce-secar.index') }}" class="{{ request()->is('contable/cruce-secar') ? 'active' : '' }}">Cruce 14 vs SECAR (neteo)</a>
                 <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Terceros mano de obra</a>

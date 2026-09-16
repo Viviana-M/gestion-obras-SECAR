@@ -11,19 +11,19 @@ use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
 /**
- * Reporte "Cruce cuenta 14 vs tercero SECAR".
+ * Reporte "Cruce cuenta 14 vs SECAR (neteo por UN)".
  *
- * En la cuenta 14 ("Costos por aplicar") muchas obras tienen movimientos reversados contra
- * el propio tercero de SECAR, que distorsionan el saldo real por aplicar. Este reporte separa,
- * por obra, cuánto del saldo es contra SECAR y cuánto es real (contra terceros reales).
+ * En la cuenta 14 ("Costos por aplicar") muchas obras tienen costos reversados contra el propio
+ * tercero de SECAR, que inflan el saldo. Este reporte separa, por obra, el saldo contra SECAR del
+ * saldo contra terceros reales, y los netea para ver el pendiente real.
+ *
+ * SECAR se identifica por RAZÓN SOCIAL que contenga "SECAR" (no por NIT: el NIT aparece con
+ * variantes, p. ej. 890319324 y 90319324), para capturarlas todas.
  */
 class CruceSecarController extends Controller
 {
-    /**
-     * Identificación del tercero SECAR (la propia empresa). Se acepta el NIT con y sin el
-     * dígito inicial, y como respaldo el nombre, para capturar todas las líneas de SECAR.
-     */
-    private const CASE_SECAR = "(tercero_dcto IN ('890319324','90319324') OR razon_social LIKE 'SECAR%')";
+    /** Identificación de SECAR: por nombre (captura todas las variantes de NIT). */
+    private const CASE_SECAR = "razon_social LIKE '%SECAR%'";
 
     public function index(Request $request)
     {
@@ -33,10 +33,10 @@ class CruceSecarController extends Controller
         $filas = $this->datos();
 
         return view('contable.cruce-secar', [
-            'filas'        => $filas,
-            'totalSecar'   => array_sum(array_column($filas, 'saldo_secar')),
-            'totalGeneral' => array_sum(array_column($filas, 'saldo_total')),
-            'totalReal'    => array_sum(array_column($filas, 'saldo_real')),
+            'filas'          => $filas,
+            'totalSecar'     => array_sum(array_column($filas, 'saldo_secar')),
+            'totalTerceros'  => array_sum(array_column($filas, 'saldo_terceros')),
+            'totalNeto'      => array_sum(array_column($filas, 'saldo_neto')),
         ]);
     }
 
@@ -47,28 +47,29 @@ class CruceSecarController extends Controller
 
         $filas = $this->datos();
 
-        $rows = [['Código', 'Obra', 'Estado', 'Saldo SECAR', 'Saldo total', 'Saldo real (terceros)']];
+        $rows = [['Código', 'Obra', 'Estado ficha', 'Saldo SECAR', 'Saldo terceros', 'Saldo neto', 'Marca']];
         foreach ($filas as $f) {
             $rows[] = [
                 $f['codigo'], $f['nombre'], $f['estado'],
-                round($f['saldo_secar'], 2), round($f['saldo_total'], 2), round($f['saldo_real'], 2),
+                round($f['saldo_secar'], 2), round($f['saldo_terceros'], 2), round($f['saldo_neto'], 2), $f['marca'],
             ];
         }
         $rows[] = [
             '', '', 'TOTAL',
             round(array_sum(array_column($filas, 'saldo_secar')), 2),
-            round(array_sum(array_column($filas, 'saldo_total')), 2),
-            round(array_sum(array_column($filas, 'saldo_real')), 2),
+            round(array_sum(array_column($filas, 'saldo_terceros')), 2),
+            round(array_sum(array_column($filas, 'saldo_neto')), 2), '',
         ];
 
         return Excel::download(new CruceSecarExport($rows), 'Cruce_cuenta_14_vs_SECAR_'.date('Ymd').'.xlsx');
     }
 
     /**
-     * Un solo GROUP BY por obra con CASE WHEN para separar el saldo del tercero SECAR del
-     * saldo total. Solo obras con saldo SECAR relevante (|saldo_secar| > 0.5), de mayor a menor.
+     * Un solo GROUP BY por obra con CASE WHEN sobre razon_social LIKE '%SECAR%' para separar el
+     * saldo contra SECAR del saldo contra terceros reales y netearlos. Se muestran las obras con
+     * saldo SECAR ≠ 0 O saldo neto ≠ 0, de mayor a menor por |saldo_neto|.
      *
-     * @return array<int, array{codigo:string,nombre:string,estado:string,saldo_secar:float,saldo_total:float,saldo_real:float}>
+     * @return array<int, array{codigo:string,nombre:string,estado:string,saldo_secar:float,saldo_terceros:float,saldo_neto:float,marca:string}>
      */
     private function datos(): array
     {
@@ -78,10 +79,11 @@ class CruceSecarController extends Controller
             ->selectRaw("codigo_proyecto,
                 MAX(nombre_proyecto) as nombre_proyecto,
                 SUM(CASE WHEN {$secar} THEN estado_er ELSE 0 END) as saldo_secar,
-                SUM(estado_er) as saldo_total")
+                SUM(CASE WHEN {$secar} THEN 0 ELSE estado_er END) as saldo_terceros")
             ->groupBy('codigo_proyecto')
-            ->havingRaw("ABS(SUM(CASE WHEN {$secar} THEN estado_er ELSE 0 END)) > 0.5")
-            ->orderByRaw("ABS(SUM(CASE WHEN {$secar} THEN estado_er ELSE 0 END)) DESC")
+            // saldo_secar ≠ 0  O  saldo_neto (= secar + terceros = SUM(estado_er)) ≠ 0
+            ->havingRaw("ABS(SUM(CASE WHEN {$secar} THEN estado_er ELSE 0 END)) > 0.5 OR ABS(SUM(estado_er)) > 0.5")
+            ->orderByRaw("ABS(SUM(estado_er)) DESC")
             ->get();
 
         // Nombre y estado (activa/inactiva) desde el maestro de proyectos, si existen.
@@ -99,7 +101,8 @@ class CruceSecarController extends Controller
         foreach ($rows as $r) {
             $ficha    = $fichas[$r->codigo_proyecto] ?? null;
             $secarSal = (float) $r->saldo_secar;
-            $total    = (float) $r->saldo_total;
+            $terceros = (float) $r->saldo_terceros;
+            $neto     = $secarSal + $terceros;
 
             $estado = '—';
             if ($ficha && $tieneActiva) {
@@ -107,12 +110,14 @@ class CruceSecarController extends Controller
             }
 
             $filas[] = [
-                'codigo'      => (string) $r->codigo_proyecto,
-                'nombre'      => (string) (($ficha->nombre_obra ?? null) ?: $r->nombre_proyecto),
-                'estado'      => $estado,
-                'saldo_secar' => $secarSal,
-                'saldo_total' => $total,
-                'saldo_real'  => $total - $secarSal,
+                'codigo'         => (string) $r->codigo_proyecto,
+                'nombre'         => (string) (($ficha->nombre_obra ?? null) ?: $r->nombre_proyecto),
+                'estado'         => $estado,
+                'saldo_secar'    => $secarSal,
+                'saldo_terceros' => $terceros,
+                'saldo_neto'     => $neto,
+                // Se netea a ~$0 si el pendiente real es insignificante (|neto| <= $1.000).
+                'marca'          => abs($neto) <= 1000 ? 'Se netea a ~$0' : 'Pendiente real',
             ];
         }
 
