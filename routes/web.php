@@ -94,6 +94,12 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/cruce-secar', [\App\Http\Controllers\Contable\CruceSecarController::class, 'index'])->name('contable.cruce-secar.index');
         Route::get('/contable/cruce-secar/excel', [\App\Http\Controllers\Contable\CruceSecarController::class, 'excel'])->name('contable.cruce-secar.excel');
 
+        // Reconciliación cuenta 14: sistema vs archivo del ERP.
+        Route::get('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'index'])->name('contable.recon14.index');
+        Route::post('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'store'])->name('contable.recon14.store');
+        Route::get('/contable/recon14/excel', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'excel'])->name('contable.recon14.excel');
+        Route::post('/contable/recon14/limpiar', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'limpiar'])->name('contable.recon14.limpiar');
+
         // Maestros de mano de obra (acceso Contabilidad y admin).
         Route::get('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'index'])->name('contable.terceros-mano-obra.index');
         Route::post('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('contable.terceros-mano-obra.store');
