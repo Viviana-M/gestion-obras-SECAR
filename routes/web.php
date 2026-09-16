@@ -90,6 +90,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
         Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
 
+        // Cruce cuenta 14 vs tercero SECAR (saldo real por aplicar contra terceros reales).
+        Route::get('/contable/cruce-secar', [\App\Http\Controllers\Contable\CruceSecarController::class, 'index'])->name('contable.cruce-secar.index');
+        Route::get('/contable/cruce-secar/excel', [\App\Http\Controllers\Contable\CruceSecarController::class, 'excel'])->name('contable.cruce-secar.excel');
+
         // Maestros de mano de obra (acceso Contabilidad y admin).
         Route::get('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'index'])->name('contable.terceros-mano-obra.index');
         Route::post('/contable/terceros-mano-obra', [\App\Http\Controllers\Admin\TerceroManoObraController::class, 'store'])->name('contable.terceros-mano-obra.store');
