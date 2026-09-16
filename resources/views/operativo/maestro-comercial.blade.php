@@ -18,6 +18,35 @@
 </div>
 @endif
 
+{{-- Resultado del import: obras marcadas inactivas que aún tienen saldo en cuenta 14 (no se cerraron) --}}
+@if(!empty(session('inactivasImport')))
+@php($inact = session('inactivasImport'))
+<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 14px;margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div style="font-size:13px;color:#92400E;font-weight:600">
+            ⚠️ {{ count($inact) }} obra(s) marcada(s) inactivas que <b>aún tienen saldo en cuenta 14</b>: no se cerraron, revísalas antes de cerrarlas.
+        </div>
+        <a href="{{ route('operativo.obras-inactivas.excel') }}" style="font-size:12px;font-weight:600;padding:6px 12px;background:#B45309;color:#fff;border-radius:8px;text-decoration:none;white-space:nowrap">⬇ Descargar Excel</a>
+    </div>
+    <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="color:#92400E;text-align:left">
+                <th style="padding:4px 8px">Código</th><th style="padding:4px 8px">Obra</th><th style="padding:4px 8px;text-align:right">Saldo cuenta 14</th>
+            </tr></thead>
+            <tbody>
+                @foreach($inact as $o)
+                <tr style="border-top:1px solid #FDE68A">
+                    <td style="padding:4px 8px;font-family:monospace;font-weight:600;color:#92400E">{{ $o['codigo'] }}</td>
+                    <td style="padding:4px 8px;color:#78350F">{{ $o['nombre'] ?: '—' }}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:600;color:#B45309">${{ number_format($o['saldo'], 0, ',', '.') }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+</div>
+@endif
+
 {{-- SUBIR EXCEL --}}
 <div class="card" style="margin-bottom:1rem">
     <div style="font-size:14px;font-weight:600;color:#1B3F6E;margin-bottom:4px">Cargar Excel del maestro</div>
@@ -34,12 +63,27 @@
     </form>
 </div>
 
-{{-- ACCIONES --}}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
-    <span style="font-size:12px;color:#9CA3AF">{{ $fichas->count() }} proyectos en el maestro</span>
-    <button onclick="abrirNuevo()" style="padding:7px 16px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">
-        + Agregar proyecto
-    </button>
+{{-- ACCIONES: buscador + contador + agregar --}}
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+    <form method="GET" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Buscar</label>
+            <input type="text" name="q" value="{{ $q }}" placeholder="Código, obra o cliente…"
+                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;min-width:240px">
+        </div>
+        <button type="submit" style="padding:7px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Buscar</button>
+        @if($q !== '')
+        <a href="{{ route('operativo.maestro.index') }}" style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:inline-flex;align-items:center">Limpiar</a>
+        @endif
+    </form>
+    <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;color:#9CA3AF">
+            {{ $q !== '' ? $fichas->total().' resultado(s)' : $total.' proyectos en el maestro' }}
+        </span>
+        <button onclick="abrirNuevo()" style="padding:7px 16px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">
+            + Agregar proyecto
+        </button>
+    </div>
 </div>
 
 {{-- TABLA --}}
@@ -86,6 +130,24 @@
         </tbody>
     </table>
 </div>
+
+@if($fichas->hasPages())
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:#6B7280;flex-wrap:wrap">
+    <span>Página {{ $fichas->currentPage() }} de {{ $fichas->lastPage() }}</span>
+    <div style="display:flex;gap:8px">
+        @if($fichas->onFirstPage())
+        <span style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;color:#D1D5DB">← Anterior</span>
+        @else
+        <a href="{{ $fichas->previousPageUrl() }}" style="padding:6px 12px;border:1px solid #1B3F6E;border-radius:8px;color:#1B3F6E;text-decoration:none">← Anterior</a>
+        @endif
+        @if($fichas->hasMorePages())
+        <a href="{{ $fichas->nextPageUrl() }}" style="padding:6px 12px;border:1px solid #1B3F6E;border-radius:8px;color:#1B3F6E;text-decoration:none">Siguiente →</a>
+        @else
+        <span style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;color:#D1D5DB">Siguiente →</span>
+        @endif
+    </div>
+</div>
+@endif
 
 {{-- MODAL CREAR / EDITAR --}}
 <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)cerrar()">

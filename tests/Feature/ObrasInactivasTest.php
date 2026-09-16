@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\FichaProyecto;
+use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -125,6 +126,72 @@ class ObrasInactivasTest extends TestCase
         $f = FichaProyecto::where('codigo_proyecto', 'MOB09020')->first();
         $this->assertFalse((bool) $f->activa);                       // se conservó
         $this->assertSame('Obra X actualizada', $f->nombre_obra);    // sí se actualizó lo demás
+    }
+
+    #[Test]
+    public function el_importador_cierra_las_inactivas_sin_saldo_y_no_las_que_tienen_saldo(): void
+    {
+        // MOB09030: inactiva CON saldo en cuenta 14 → no se cierra, va a la lista de revisión.
+        // MOB09031: inactiva SIN saldo → se cierra (ProyectoCerrado origen excel).
+        $this->rf('MOB09030', 'Costos por aplicar', -120000, 8, 2024, '14350105');
+
+        $resp = $this->actingAs($this->operador())->post(route('operativo.maestro.importar'), [
+            'archivo' => $this->hoja([
+                ['ORDEN DE TRABAJO', 'OBRA', 'ACTIVA'],
+                ['MOB09030', 'Con saldo', 'No'],
+                ['MOB09031', 'Sin saldo', 'No'],
+            ]),
+        ]);
+        $resp->assertRedirect();
+
+        // La sin saldo queda cerrada; la con saldo NO.
+        $this->assertDatabaseHas('proyectos_cerrados', ['codigo_proyecto' => 'MOB09031', 'origen' => 'excel']);
+        $this->assertDatabaseMissing('proyectos_cerrados', ['codigo_proyecto' => 'MOB09030']);
+
+        // La con saldo sale en la lista de revisión (flash) y el mensaje trae los conteos.
+        $inact = collect(session('inactivasImport'))->pluck('codigo')->all();
+        $this->assertContains('MOB09030', $inact);
+        $this->assertStringContainsString('1 obras cerradas', session('success'));
+        $this->assertStringContainsString('1 inactivas con saldo', session('success'));
+    }
+
+    #[Test]
+    public function el_importador_reabre_las_activas_cerradas_por_excel_pero_no_las_manuales(): void
+    {
+        $uid = $this->operador()->id;
+        ProyectoCerrado::create(['codigo_proyecto' => 'MOB09040', 'tipo_cierre' => 'total', 'origen' => 'excel', 'user_id' => $uid]);
+        ProyectoCerrado::create(['codigo_proyecto' => 'MOB09041', 'tipo_cierre' => 'total', 'origen' => 'manual', 'user_id' => $uid]);
+
+        $this->actingAs($this->operador())->post(route('operativo.maestro.importar'), [
+            'archivo' => $this->hoja([
+                ['ORDEN DE TRABAJO', 'OBRA', 'ACTIVA'],
+                ['MOB09040', 'Reabrir', 'Si'],
+                ['MOB09041', 'Cerrada a mano', 'Si'],
+            ]),
+        ])->assertRedirect();
+
+        // La cerrada por Excel se reabre; la cerrada a mano se conserva.
+        $this->assertDatabaseMissing('proyectos_cerrados', ['codigo_proyecto' => 'MOB09040']);
+        $this->assertDatabaseHas('proyectos_cerrados', ['codigo_proyecto' => 'MOB09041']);
+    }
+
+    #[Test]
+    public function el_maestro_busca_y_pagina(): void
+    {
+        for ($i = 1; $i <= 60; $i++) {
+            FichaProyecto::create(['codigo_proyecto' => sprintf('MOB%05d', $i), 'nombre_obra' => 'Obra '.$i, 'area' => 'Mantenimiento']);
+        }
+
+        $resp = $this->actingAs($this->operador())->get(route('operativo.maestro.index'));
+        $resp->assertOk();
+        $fichas = $resp->viewData('fichas');
+        $this->assertSame(60, $fichas->total());
+        $this->assertSame(50, $fichas->count());      // una página = 50
+        $this->assertTrue($fichas->hasPages());
+
+        // Buscador por código.
+        $r2 = $this->actingAs($this->operador())->get(route('operativo.maestro.index', ['q' => 'MOB00007']));
+        $this->assertSame(1, $r2->viewData('fichas')->total());
     }
 
     /** Genera un xlsx (hoja MANTENIMIENTO) con las filas dadas. */
