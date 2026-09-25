@@ -76,6 +76,8 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             // Tercero del MOVIMIENTO (el empleado en nómina), no el del documento (SECAR).
             'tercero_dcto'     => (trim($row['tercero'] ?? '') ?: trim($row['tercero_docto'] ?? '')) ?: null,
             'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
+            // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
+            'documento'        => (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null),
             'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
             'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
             'movto_libro2'     => $movto,

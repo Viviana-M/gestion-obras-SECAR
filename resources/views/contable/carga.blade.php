@@ -66,6 +66,7 @@
                         ['pos' => 'F', 'nombre' => 'Movto libro 2'],
                         ['pos' => 'G', 'nombre' => 'Tercero Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
                         ['pos' => 'H', 'nombre' => 'Razon social Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
+                        ['pos' => 'I', 'nombre' => 'Docto.', 'nota' => 'Número de documento; se guarda para reconciliar contra el ERP.'],
                     ];
                 @endphp
                 <x-columnas-plano titulo="El archivo BIABLE debe traer estas columnas, en este orden:" :columnas="$columnasBiable">

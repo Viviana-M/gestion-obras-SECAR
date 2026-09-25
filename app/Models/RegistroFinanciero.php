@@ -13,6 +13,7 @@ protected $fillable = [
     'descripcion',
     'tercero_dcto',      // ← agregar
     'razon_social',      // ← agregar
+    'documento',         // Docto. del BIABLE (para reconciliar contra el ERP)
     'valor_debito',
     'valor_credito',
     'movto_libro2',

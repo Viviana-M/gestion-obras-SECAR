@@ -139,6 +139,8 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             // trae tercero, cae al del documento.
             'tercero_dcto'     => (trim((string) ($row['tercero'] ?? '')) ?: trim((string) ($row['tercero_docto'] ?? ''))) ?: null,
             'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
+            // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
+            'documento'        => (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null),
             'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
             'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
             'movto_libro2'     => $movto,
