@@ -13,8 +13,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
     protected $mes;
     protected $anio;
 
-    private $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM', 'MTO', 'INS'];
-
     public function __construct($mes, $anio)
     {
         $this->mes  = $mes;
@@ -44,8 +42,10 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $periodo = trim($row['periodo'] ?? '');
         if (str_ends_with((string)$periodo, '13')) return null;
 
+        // Cualquier obra con código no vacío (sin lista blanca de prefijos, que botaba obras
+        // reales). Solo se descartan filas sin código o de totales/encabezado.
         $unidad = trim($row['unidad_de_negocio'] ?? '');
-        if (!$this->tienePrefijosValido($unidad)) return null;
+        if ($unidad === '' || str_contains(strtoupper($unidad), 'TOTAL')) return null;
 
         $nombreUnidad = trim($row['nombre_unidad_de_negocio'] ?? '');
         $unidadUnificada = $unidad && $nombreUnidad
@@ -92,13 +92,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         ]);
     }
 
-    private function tienePrefijosValido($unidad): bool
-    {
-        foreach ($this->prefijosValidos as $prefijo) {
-            if (str_starts_with($unidad, $prefijo)) return true;
-        }
-        return false;
-    }
 
     private function clasificarCuenta($cuenta): string
     {

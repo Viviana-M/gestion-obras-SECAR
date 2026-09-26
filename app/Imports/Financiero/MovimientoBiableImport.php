@@ -35,9 +35,6 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     /** Filas por INSERT. 500 × ~19 columnas queda muy por debajo del límite de MySQL. */
     private const LOTE = 500;
 
-    /** Prefijos de obra válidos (mismos que RegistroFinancieroImport). */
-    private array $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM', 'MTO', 'INS'];
-
     private array $bufferRegistros = [];
     private array $bufferSaldos    = [];
 
@@ -104,8 +101,11 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         $periodo = trim((string) ($row['periodo'] ?? ''));
         if (str_ends_with($periodo, '13')) return null;
 
+        // Se acepta CUALQUIER obra con código (unidad de negocio) no vacío: antes había una lista
+        // blanca de prefijos que botaba obras reales con saldo (ADM, LOG, FAD, FIL, VTD, G0…) y
+        // descuadraba contra el ERP. Solo se descartan filas sin código o de totales/encabezado.
         $unidad = trim((string) ($row['unidad_de_negocio'] ?? ''));
-        if (!$this->tienePrefijoValido($unidad)) return null;
+        if ($unidad === '' || str_contains(strtoupper($unidad), 'TOTAL')) return null;
 
         $nombreUnidad = trim((string) ($row['nombre_unidad_de_negocio'] ?? ''));
         $unidadUnificada = $unidad && $nombreUnidad
@@ -218,14 +218,6 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     }
 
     // ═══════════════════ Helpers (idénticos a los originales) ═══════════════════
-
-    private function tienePrefijoValido(string $unidad): bool
-    {
-        foreach ($this->prefijosValidos as $prefijo) {
-            if (str_starts_with($unidad, $prefijo)) return true;
-        }
-        return false;
-    }
 
     private function clasificarCuenta(string $cuenta): string
     {
