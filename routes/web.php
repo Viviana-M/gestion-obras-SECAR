@@ -94,6 +94,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/cruce-secar', [\App\Http\Controllers\Contable\CruceSecarController::class, 'index'])->name('contable.cruce-secar.index');
         Route::get('/contable/cruce-secar/excel', [\App\Http\Controllers\Contable\CruceSecarController::class, 'excel'])->name('contable.cruce-secar.excel');
 
+        // Posibles duplicados en registro_financieros (solo lectura, para revisar).
+        Route::get('/contable/duplicados', [\App\Http\Controllers\Contable\DuplicadosController::class, 'index'])->name('contable.duplicados.index');
+
         // Reconciliación cuenta 14: sistema vs archivo del ERP.
         Route::get('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'index'])->name('contable.recon14.index');
         Route::post('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'store'])->name('contable.recon14.store');

@@ -29,6 +29,8 @@ use Maatwebsite\Excel\Concerns\WithChunkReading;
  */
 class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkReading
 {
+    use \App\Support\Lotes\DeduplicaRegistros;
+
     protected int $mes;
     protected int $anio;
 
@@ -42,6 +44,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     public int $filasLeidas     = 0;
     public int $insertRegistros = 0;
     public int $insertSaldos    = 0;
+    public int $omitidasDuplicadas = 0;
 
     public function __construct($mes, $anio)
     {
@@ -128,6 +131,11 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             ? $movto * -1
             : $movto;
 
+        $tercero  = (trim((string) ($row['tercero'] ?? '')) ?: trim((string) ($row['tercero_docto'] ?? ''))) ?: null;
+        $documento = (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null);
+        $debito   = $this->limpiarNumero($row['debitos']  ?? 0);
+        $credito  = $this->limpiarNumero($row['creditos'] ?? 0);
+
         return [
             'codigo_proyecto'  => $unidad,
             'nombre_proyecto'  => $nombreUnidad,
@@ -137,12 +145,13 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             // el EMPLEADO. NO el "Tercero Docto" (tercero del documento), que en nómina es SECAR y
             // hacía que el cruce por cédula de MO Apoyo no encontrara a nadie. Si el movimiento no
             // trae tercero, cae al del documento.
-            'tercero_dcto'     => (trim((string) ($row['tercero'] ?? '')) ?: trim((string) ($row['tercero_docto'] ?? ''))) ?: null,
+            'tercero_dcto'     => $tercero,
             'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
-            'documento'        => (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null),
-            'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
-            'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
+            'documento'        => $documento,
+            'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
+            'valor_debito'     => $debito,
+            'valor_credito'    => $credito,
             'movto_libro2'     => $movto,
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
@@ -155,6 +164,18 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             'created_at'       => $ahora,
             'updated_at'       => $ahora,
         ];
+    }
+
+    /**
+     * Huella de la combinación que identifica un duplicado dentro de una carga:
+     * codigo_proyecto + cuenta_contable + tercero + documento + valor_debito + valor_credito + periodo.
+     */
+    public static function dedupHash(string $unidad, string $cuenta, ?string $tercero, ?string $documento, float $debito, float $credito, string $periodo): string
+    {
+        return md5(implode('|', [
+            $unidad, $cuenta, (string) $tercero, (string) $documento,
+            number_format($debito, 2, '.', ''), number_format($credito, 2, '.', ''), $periodo,
+        ]));
     }
 
     // ═══════════════════ Destino 2: saldos_balance ═══════════════════
@@ -203,8 +224,14 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     {
         if (empty($this->bufferRegistros)) return;
 
-        DB::table('registro_financieros')->insert($this->bufferRegistros);
-        $this->insertRegistros += count($this->bufferRegistros);
+        // Candado anti-duplicados dentro de la misma carga (el mes se reemplazó al inicio).
+        $filtro = $this->filtrarDuplicados($this->bufferRegistros, $this->mes, $this->anio);
+        $this->omitidasDuplicadas += $filtro['omitidas'];
+
+        if (! empty($filtro['rows'])) {
+            DB::table('registro_financieros')->insert($filtro['rows']);
+            $this->insertRegistros += count($filtro['rows']);
+        }
         $this->bufferRegistros = [];
     }
 

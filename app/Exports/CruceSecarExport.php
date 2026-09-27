@@ -23,9 +23,10 @@ class CruceSecarExport implements FromArray, WithTitle, WithColumnFormatting
         return $this->filas;
     }
 
-    /** Miles para las tres columnas de saldo (D, E, F). */
+    /** Moneda con 2 decimales para Débito/Crédito/Saldo (D,E,F) y el cruce SECAR (G,H,I). */
     public function columnFormats(): array
     {
-        return ['D' => '#,##0', 'E' => '#,##0', 'F' => '#,##0'];
+        $money = '"$" #,##0.00';
+        return ['D' => $money, 'E' => $money, 'F' => $money, 'G' => $money, 'H' => $money, 'I' => $money];
     }
 }

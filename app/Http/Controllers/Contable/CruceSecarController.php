@@ -34,6 +34,9 @@ class CruceSecarController extends Controller
 
         return view('contable.cruce-secar', [
             'filas'          => $filas,
+            'totalDebito'    => array_sum(array_column($filas, 'debito')),
+            'totalCredito'   => array_sum(array_column($filas, 'credito')),
+            'totalSaldo'     => array_sum(array_column($filas, 'saldo')),
             'totalSecar'     => array_sum(array_column($filas, 'saldo_secar')),
             'totalTerceros'  => array_sum(array_column($filas, 'saldo_terceros')),
             'totalNeto'      => array_sum(array_column($filas, 'saldo_neto')),
@@ -47,15 +50,20 @@ class CruceSecarController extends Controller
 
         $filas = $this->datos();
 
-        $rows = [['Código', 'Obra', 'Estado ficha', 'Saldo SECAR', 'Saldo terceros', 'Saldo neto', 'Marca']];
+        $rows = [['Código', 'Obra', 'Estado ficha', 'Débito', 'Crédito', 'Saldo',
+            'Saldo SECAR', 'Saldo terceros', 'Saldo neto', 'Marca']];
         foreach ($filas as $f) {
             $rows[] = [
                 $f['codigo'], $f['nombre'], $f['estado'],
+                round($f['debito'], 2), round($f['credito'], 2), round($f['saldo'], 2),
                 round($f['saldo_secar'], 2), round($f['saldo_terceros'], 2), round($f['saldo_neto'], 2), $f['marca'],
             ];
         }
         $rows[] = [
             '', '', 'TOTAL',
+            round(array_sum(array_column($filas, 'debito')), 2),
+            round(array_sum(array_column($filas, 'credito')), 2),
+            round(array_sum(array_column($filas, 'saldo')), 2),
             round(array_sum(array_column($filas, 'saldo_secar')), 2),
             round(array_sum(array_column($filas, 'saldo_terceros')), 2),
             round(array_sum(array_column($filas, 'saldo_neto')), 2), '',
@@ -78,6 +86,8 @@ class CruceSecarController extends Controller
         $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->selectRaw("codigo_proyecto,
                 MAX(nombre_proyecto) as nombre_proyecto,
+                SUM(valor_debito)  as debito14,
+                SUM(valor_credito) as credito14,
                 SUM(CASE WHEN {$secar} THEN estado_er ELSE 0 END) as saldo_secar,
                 SUM(CASE WHEN {$secar} THEN 0 ELSE estado_er END) as saldo_terceros")
             ->groupBy('codigo_proyecto')
@@ -100,6 +110,8 @@ class CruceSecarController extends Controller
         $filas = [];
         foreach ($rows as $r) {
             $ficha    = $fichas[$r->codigo_proyecto] ?? null;
+            $debito   = (float) $r->debito14;
+            $credito  = (float) $r->credito14;
             $secarSal = (float) $r->saldo_secar;
             $terceros = (float) $r->saldo_terceros;
             $neto     = $secarSal + $terceros;
@@ -113,6 +125,11 @@ class CruceSecarController extends Controller
                 'codigo'         => (string) $r->codigo_proyecto,
                 'nombre'         => (string) (($ficha->nombre_obra ?? null) ?: $r->nombre_proyecto),
                 'estado'         => $estado,
+                // Columnas principales: la propia cuenta 14 (no el cruce con SECAR).
+                'debito'         => $debito,
+                'credito'        => $credito,
+                'saldo'          => $debito - $credito,
+                // Columnas secundarias: el cruce/neteo con SECAR.
                 'saldo_secar'    => $secarSal,
                 'saldo_terceros' => $terceros,
                 'saldo_neto'     => $neto,

@@ -68,18 +68,24 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             ? $movto * -1
             : $movto;
 
+        $tercero   = (trim($row['tercero'] ?? '') ?: trim($row['tercero_docto'] ?? '')) ?: null;
+        $documento = (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null);
+        $debito    = $this->limpiarNumero($row['debitos']  ?? 0);
+        $credito   = $this->limpiarNumero($row['creditos'] ?? 0);
+
         return new RegistroFinanciero([
             'codigo_proyecto'  => $unidad,
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
             'descripcion'      => trim($row['nombre_auxiliar'] ?? ''),
             // Tercero del MOVIMIENTO (el empleado en nómina), no el del documento (SECAR).
-            'tercero_dcto'     => (trim($row['tercero'] ?? '') ?: trim($row['tercero_docto'] ?? '')) ?: null,
+            'tercero_dcto'     => $tercero,
             'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
-            'documento'        => (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null),
-            'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
-            'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
+            'documento'        => $documento,
+            'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
+            'valor_debito'     => $debito,
+            'valor_credito'    => $credito,
             'movto_libro2'     => $movto,
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
