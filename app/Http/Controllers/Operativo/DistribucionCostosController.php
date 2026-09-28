@@ -494,26 +494,38 @@ class DistribucionCostosController extends Controller
             ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
             ->values();
 
-        // ─── Mano de obra directa por PERSONA: datos para el grid de bolsas (integrado en esta vista) ───
-        // El costo completo por persona (maestro Mano de obra directa) ya viene en $bolsas[*]['mo_personas'].
-        // Aquí se pasa lo necesario para asignar por obra y para el panel "Cómo queda el proyecto".
-        $moUns = UnBolsa::where('activo', true)
-            ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
-            ->pluck('codigo')->all();
+        // ─── Mano de obra directa por PERSONA: ahora se asigna DENTRO de cada obra destino ───
+        // Costo completo por persona (maestro Mano de obra directa), agrupado por departamento, y las
+        // asignaciones ya guardadas por obra (para pre-cargar las líneas dentro de cada tarjeta).
+        $moDeptos = $depEfectivo ? [$depEfectivo] : array_keys(DistribucionService::DEPARTAMENTOS);
+        $moPersonasDep = [];   // [depto => [cedula => {nom,doc,total}]]
+        $moUns = [];
+        foreach ($moDeptos as $d) {
+            $codigosD = UnBolsa::where('activo', true)->where('departamento', $d)->pluck('codigo')->all();
+            $moUns = array_merge($moUns, $codigosD);
+            $porCed = [];
+            foreach ($this->svc->manoObraDirectaPorPersona($codigosD, $anio, $mes) as $ced => $p) {
+                $porCed[(string) $ced] = ['nom' => $p['nombre'], 'doc' => $p['doc'], 'total' => $p['total']];
+            }
+            $moPersonasDep[$d] = $porCed;
+        }
 
-        // Asignaciones guardadas del período por PERSONA (cédula) → [obra => monto] (prefill).
-        $moGuardadas = [];
+        // Asignaciones guardadas del período POR OBRA → [{ced,nom,monto}] (prefill de las líneas).
+        $moAsigPorObra = [];
         foreach (ManoObraAsignacion::whereIn('bolsa_un', $moUns)->where('mes', $mes)->where('anio', $anio)->get() as $a) {
             $ced = (string) ($a->persona ?: $a->tercero);
-            $moGuardadas[$ced][$a->obra_destino] = ($moGuardadas[$ced][$a->obra_destino] ?? 0) + (float) $a->monto;
+            $obra = (string) $a->obra_destino;
+            $moAsigPorObra[$obra][$ced]['ced'] = $ced;
+            $moAsigPorObra[$obra][$ced]['nom'] = (string) $a->tercero_nombre;
+            $moAsigPorObra[$obra][$ced]['monto'] = ($moAsigPorObra[$obra][$ced]['monto'] ?? 0) + (float) $a->monto;
         }
+        $moAsigPorObra = array_map('array_values', $moAsigPorObra);
+
         [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
         $moHayMesAnterior = ! empty($moUns) && ManoObraAsignacion::whereIn('bolsa_un', $moUns)
             ->where('mes', $moMesAnt)->where('anio', $moAnioAnt)->exists();
 
-        // Obras destino (para el selector) e info por obra (para el panel "Cómo queda el proyecto").
-        $moObras = FichaProyecto::where('activa', true)->whereNotIn('codigo_proyecto', UnBolsa::codigos())
-            ->orderBy('codigo_proyecto')->get(['codigo_proyecto', 'nombre_obra']);
+        // Info por obra (ingreso, costo aplicado, inventario) para recalcular costo real/margen en vivo.
         $moObrasInfo = [];
         foreach ($fichas as $cod => $f) {
             if (! $f->activa || isset($bolsaCodigos[$cod])) continue;
@@ -547,8 +559,8 @@ class DistribucionCostosController extends Controller
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
             'inactivasConSaldo' => $inactivasConSaldo,
-            // Datos para la asignación de mano de obra por tercero (grid) y su panel por proyecto.
-            'moGuardadas' => $moGuardadas, 'moObras' => $moObras, 'moObrasInfo' => $moObrasInfo,
+            // Datos para asignar mano de obra directa DENTRO de cada obra destino (línea por línea).
+            'moPersonasDep' => $moPersonasDep, 'moAsigPorObra' => $moAsigPorObra, 'moObrasInfo' => $moObrasInfo,
             'moHayMesAnterior' => $moHayMesAnterior, 'moMesAnt' => $moMesAnt, 'moAnioAnt' => $moAnioAnt,
         ]);
     }
@@ -855,6 +867,46 @@ class DistribucionCostosController extends Controller
     }
 
     /**
+     * Persiste la mano de obra directa asignada dentro de las obras (líneas mano_obra[obra][]),
+     * reemplazando la del período del departamento. El costo por persona se toma del mismo cálculo
+     * que el resto (manoObraDirectaPorPersona) y el total aplicado se capa en silencio a su costo.
+     *
+     * @param  array  $manoObra  [ obra => [ {cedula,nombre,monto}, … ] ]
+     */
+    private function guardarManoObra(string $departamento, int $mes, int $anio, array $manoObra, ?int $userId): void
+    {
+        $codigos  = UnBolsa::where('activo', true)->where('departamento', $departamento)->pluck('codigo')->all();
+        $personas = $this->svc->manoObraDirectaPorPersona($codigos, $anio, $mes);
+
+        // Agrupa por cédula → [obra => monto], limpiando el separador de miles.
+        $mapa = [];
+        foreach ($manoObra as $obra => $lineas) {
+            foreach ((array) $lineas as $l) {
+                $ced   = trim((string) ($l['cedula'] ?? ''));
+                $monto = (float) preg_replace('/[^\d]/', '', (string) ($l['monto'] ?? 0));
+                if ($ced === '' || $monto <= 0.005) continue;
+                $mapa[$ced][(string) $obra]['monto'] = ($mapa[$ced][(string) $obra]['monto'] ?? 0) + $monto;
+                $mapa[$ced][(string) $obra]['obs']   = null;
+            }
+        }
+        // Tope por persona: si lo asignado supera su costo total, se reparte a prorrata (cap en silencio).
+        foreach ($mapa as $ced => $obras) {
+            $total = (float) ($personas[$ced]['total'] ?? 0);
+            $suma  = array_sum(array_column($obras, 'monto'));
+            if ($suma > $total && $suma > 0) {
+                $f = $total / $suma;
+                foreach ($obras as $o => $x) $mapa[$ced][$o]['monto'] = round($x['monto'] * $f, 2);
+            }
+        }
+
+        DB::transaction(function () use ($codigos, $mes, $anio, $personas, $mapa, $userId) {
+            ManoObraAsignacion::whereIn('bolsa_un', $codigos)->where('mes', $mes)->where('anio', $anio)->delete();
+            $filas = $this->svc->filasAsignacionMo($personas, $mapa, $mes, $anio, 'manual', $userId);
+            if (! empty($filas)) ManoObraAsignacion::insert($filas);
+        });
+    }
+
+    /**
      * Crear una provisión (costo en tránsito) para una obra. Se registra UNA vez en el
      * período abierto y se arrastra activa cada mes hasta que la reversen. Contablemente:
      * Débito cuenta 14 elegida / Crédito cuenta 26 (contrapartida de provisión).
@@ -990,6 +1042,13 @@ class DistribucionCostosController extends Controller
             return $esAuto
                 ? response()->json(['ok' => false, 'error' => 'Falta el departamento del plano.'], 422)
                 : back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
+        }
+
+        // ── Mano de obra directa asignada DENTRO de cada obra (líneas mano_obra[obra][]) ──
+        // Se persiste junto con la distribución (reemplaza lo del período del departamento). El tope
+        // por persona se capa en silencio a su costo total (el front ya lo controla).
+        if ($request->has('mano_obra_activa') && in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
+            $this->guardarManoObra($departamento, $mes, $anio, (array) $request->input('mano_obra', []), $request->user()?->id);
         }
 
         // La aplicación directa 14→61 reconoce costo contra la facturación, así que solo

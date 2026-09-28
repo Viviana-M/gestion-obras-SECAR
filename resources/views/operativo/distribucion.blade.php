@@ -173,11 +173,6 @@
                     <div style="font-weight:700;color:#854D0E;font-size:14px">🎒 {{ $b['nombre'] }}</div>
                     <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
                 </div>
-                <div style="display:flex;gap:10px;font-size:10.5px;color:#92400E;margin-top:2px">
-                    <span>Resto de la bolsa: <b>${{ number_format($b['total_sinmo'] ?? 0, 0, ',', '.') }}</b></span>
-                    <span>·</span>
-                    <span>Mano de obra directa a distribuir: <b>${{ number_format($b['total_mo'] ?? 0, 0, ',', '.') }}</b></span>
-                </div>
                 {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
                     <span style="color:#6B7280">Disponible por distribuir</span>
@@ -268,7 +263,6 @@
                 </div>
                 @endunless
             </form>
-            @include('operativo.partials.mo-bolsa', ['b' => $b])
         </div>
         @endforeach
     </div>
@@ -347,8 +341,56 @@
 <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito pendiente para este período / filtro.</div>
 @endif
 
+{{-- ══════════ MANO DE OBRA DIRECTA — resumen global "por aplicar" + acciones ══════════ --}}
+{{-- La asignación ya NO está en la bolsa: se hace dentro de cada obra destino (abajo). Aquí solo el
+     saldo restante por persona (en vivo) y las acciones del plano 14→61 por departamento. --}}
+@php $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
+@foreach(($moPersonasDep ?? []) as $moDep => $moPers)
+    @if(!empty($moPers))
+    <div class="mo-global card" data-dep="{{ $moDep }}" style="padding:12px 14px;margin-bottom:1rem;border:1px solid #FDE68A;background:#FFFDF5">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <div style="font-size:12px;font-weight:700;color:#92400E">🧑‍🔧 Mano de obra directa — {{ ucfirst($moDep) }} · MO por aplicar</div>
+            @if($puedeEditar)
+            <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                @if($moHayMesAnterior)
+                <form method="POST" action="{{ route('operativo.mano-obra.precargar') }}" style="margin:0"
+                      onsubmit="return confirm('¿Precargar la distribución de {{ $mesAnteriorNombre }}? Reparte el costo actual de cada persona en las mismas obras/proporciones del mes anterior. Reemplaza lo cargado este período.');">
+                    @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                    <button type="submit" style="padding:5px 10px;background:#EFF6FF;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">⤵ Precargar mes anterior</button>
+                </form>
+                @endif
+                <form method="GET" action="{{ route('operativo.mano-obra.plano') }}" style="display:flex;gap:4px;align-items:center;margin:0">
+                    <input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                    <input type="number" name="documento" min="1" value="1" title="N° documento" style="width:64px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
+                    <button type="submit" style="padding:5px 10px;background:#16A34A;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">⬇ Plano</button>
+                </form>
+                <form method="POST" action="{{ route('operativo.mano-obra.aplicar') }}" style="margin:0"
+                      onsubmit="return confirm('¿Aplicar en el sistema la MO guardada de esta área? Partida doble 14→61 (origen distribucion_plano), idempotente por bolsa+período. Guarda primero la distribución.');">
+                    @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                    <button type="submit" style="padding:5px 10px;background:#15803D;color:white;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">✓ Aplicar</button>
+                </form>
+                <a href="{{ route('operativo.mano-obra.resumen', ['departamento'=>$moDep,'mes'=>$mes,'anio'=>$anio]) }}" style="padding:5px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;text-decoration:none">📊 Resumen</a>
+            </div>
+            @endif
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+            @foreach($moPers as $ced => $p)
+            <div class="mo-persona" data-dep="{{ $moDep }}" data-ced="{{ $ced }}" data-nom="{{ $p['nom'] }}" data-doc="{{ $p['doc'] }}" data-total="{{ $p['total'] }}"
+                 style="border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;background:#fff;font-size:11px;display:flex;gap:8px;align-items:center">
+                <span style="color:#1B3F6E;font-weight:600">{{ $p['nom'] ?: $ced }}</span>
+                <span style="color:#9CA3AF;font-family:monospace">{{ $p['doc'] ?: $ced }}</span>
+                <span style="color:#374151">Por aplicar <b data-mo-rest style="color:#15803D">{{ $moFmtG($p['total']) }}</b></span>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+@endforeach
+
 <form method="POST" action="{{ route('operativo.distribucion.guardar') }}" id="form-dist">
 @csrf
+<input type="hidden" name="mano_obra_activa" value="1">
+<script>window.MO_OBRAS = @json($moObrasInfo ?? new stdClass); window.MO_PERSONAS_DEP = @json($moPersonasDep ?? new stdClass); window.MO_EDIT = @json($puedeEditar ?? false);</script>
 <input type="hidden" name="mes" value="{{ $mes }}">
 <input type="hidden" name="anio" value="{{ $anio }}">
 <input type="hidden" name="dist" value="{{ $distId }}">
@@ -775,6 +817,7 @@ function recalc(cod){
     card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
     const prov = Number(d.prov||0);          // provisiones activas (costo sin aplicar, 14→26)
+    const moC  = sumMoObra(cod);              // mano de obra directa aplicada a esta obra (14→61)
     const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
     const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
@@ -784,7 +827,8 @@ function recalc(cod){
     evaluarCerrable(cod);
 
     // La provisión (14→26) es "costo sin aplicar" pero igual cuenta como costo del mes.
-    const costoMesTotal = (d.costoMes||0) + aplicado14a6 + prov;
+    // La mano de obra directa aplicada (moC) también suma al costo real de la obra.
+    const costoMesTotal = (d.costoMes||0) + aplicado14a6 + prov + moC;
     const mcMesPesos = (d.ingMes||0) - costoMesTotal;
     const mcEl=document.getElementById('mcmes-'+cod);
     if(mcEl){ mcEl.textContent=fmt(mcMesPesos); mcEl.style.color = mcMesPesos>=0 ? '#15803D' : '#DC2626'; }
@@ -792,8 +836,8 @@ function recalc(cod){
     const pctEl=document.getElementById('mcpct-'+cod);
     if(pctEl){ pctEl.textContent = pctMes===null ? '—' : (pctMes.toFixed(1)+'%'); pintarSemaforo(pctEl, pctMes===null?null:Number(pctMes.toFixed(1)), d.dep); }
 
-    // Acumulado de cierre: hasta este mes INCLUYENDO la distribución (14→6) y la provisión.
-    const costoAcumCierre = (d.costoAcum||0) + aplicado14a6 + prov;
+    // Acumulado de cierre: hasta este mes INCLUYENDO la distribución (14→6), la provisión y la MO.
+    const costoAcumCierre = (d.costoAcum||0) + aplicado14a6 + prov + moC;
     const mcAcumPesos = (d.ingAcum||0) - costoAcumCierre;
     const caEl=document.getElementById('costoacum-'+cod); if(caEl) caEl.textContent=fmt(costoAcumCierre);
     const maEl=document.getElementById('mcacum-'+cod);
@@ -1147,8 +1191,101 @@ function bloquearForm(){
     f.querySelectorAll('input, select, button, textarea').forEach(e=>{ e.disabled=true; });
 }
 
+/* ═══════════ Mano de obra directa: asignación DENTRO de cada obra destino ═══════════ */
+let moSeqG = 500000;
+const escMo = (s) => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cssEsc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&');
+window.MO_PERSONAS_DEP = window.MO_PERSONAS_DEP || {};
+
+// Suma de la MO directa aplicada a una obra (líneas ocultas, en dígitos limpios).
+function sumMoObra(cod){
+    const card = document.getElementById('card-'+cod); if(!card) return 0;
+    let s = 0; card.querySelectorAll('.mo-obra-sec [data-mo-monto]').forEach(i => s += soloDigitos(i.value));
+    return s;
+}
+// Aplicado de un tercero en TODAS las obras (para el tope "por aplicar").
+function moAplicadoDe(ced){
+    let s = 0;
+    document.querySelectorAll('#form-dist .mo-obra-sec [data-mo-monto][data-mo-ced="'+cssEsc(ced)+'"]').forEach(i => s += soloDigitos(i.value));
+    return s;
+}
+// Formatea el campo Monto del control con separador de miles (sin recalcular).
+function moFmtMonto(el){ const n = soloDigitos(el.value); el.value = n ? n.toLocaleString('es-CO') : ''; }
+
+// Refresca el resumen global "MO por aplicar" y los desplegables (solo terceros con saldo).
+function moRecalcGlobal(){
+    const aplic = {};
+    document.querySelectorAll('#form-dist .mo-obra-sec [data-mo-monto]').forEach(i => {
+        const c = i.dataset.moCed; aplic[c] = (aplic[c]||0) + soloDigitos(i.value);
+    });
+    document.querySelectorAll('.mo-persona').forEach(p => {
+        const rest = Math.round((parseFloat(p.dataset.total)||0) - (aplic[p.dataset.ced]||0));
+        const el = p.querySelector('[data-mo-rest]');
+        if (el) { el.textContent = fmt(rest); el.style.color = rest < -0.5 ? '#DC2626' : '#15803D'; }
+    });
+    document.querySelectorAll('.mo-obra-sec').forEach(sec => {
+        const sel = sec.querySelector('[data-mo-sel]'); if(!sel) return;
+        const pers = (window.MO_PERSONAS_DEP[sec.dataset.dep]) || {};
+        let opts = '<option value="">— Elegir tercero —</option>';
+        Object.keys(pers).forEach(ced => {
+            const rest = Math.round((pers[ced].total||0) - (aplic[ced]||0));
+            if (rest <= 0) return;
+            opts += '<option value="'+escMo(ced)+'">'+escMo(pers[ced].nom||ced)+' (queda '+fmt(rest)+')</option>';
+        });
+        sel.innerHTML = opts;
+    });
+}
+
+function crearMoLine(cod, ced, nom, monto){
+    const j = moSeqG++;
+    const d = document.createElement('div');
+    d.className = 'mo-line'; d.dataset.moCed = ced;
+    d.style.cssText = 'font-size:11px;padding:5px 8px;background:#ECFEFF;border:1px solid #A5F3FC;border-radius:6px;margin-top:4px;display:flex;align-items:center;gap:8px';
+    d.innerHTML =
+        '<span style="flex:1;color:#155E75">🡒 <b>'+escMo(nom)+'</b></span>'+
+        '<b data-mo-val style="color:#155E75">'+fmt(monto)+'</b>'+
+        '<a href="#" onclick="quitarMo(this,\''+escMo(cod)+'\');return false" style="color:#DC2626;text-decoration:none">✕</a>'+
+        '<input type="hidden" name="mano_obra['+escMo(cod)+'][j'+j+'][cedula]" value="'+escMo(ced)+'">'+
+        '<input type="hidden" name="mano_obra['+escMo(cod)+'][j'+j+'][nombre]" value="'+escMo(nom)+'">'+
+        '<input type="hidden" name="mano_obra['+escMo(cod)+'][j'+j+'][monto]" value="'+Math.round(monto)+'" data-mo-monto data-mo-ced="'+escMo(ced)+'">';
+    return d;
+}
+
+function moDirty(){ const f = document.getElementById('form-dist'); if(f) f.dispatchEvent(new Event('input', {bubbles:true})); }
+
+window.asignarMo = function(cod){
+    const sec = document.querySelector('.mo-obra-sec[data-cod="'+cssEsc(cod)+'"]'); if(!sec) return;
+    const dep = sec.dataset.dep;
+    const sel = sec.querySelector('[data-mo-sel]'); const ced = sel.value;
+    if(!ced){ alert('Elige un tercero con saldo por aplicar.'); return; }
+    const montoEl = sec.querySelector('[data-mo-monto-in]');
+    let v = soloDigitos(montoEl.value);
+    if(v <= 0){ alert('Escribe el monto a aplicar.'); return; }
+    const pers = ((window.MO_PERSONAS_DEP[dep])||{})[ced] || {total:0, nom:ced};
+    const rest = Math.round((pers.total||0) - moAplicadoDe(ced));
+    if(rest <= 0){ alert('Ese tercero ya no tiene saldo por aplicar.'); return; }
+    if(v > rest) v = rest;   // tope = su saldo por aplicar
+    const cont = sec.querySelector('[data-mo-lineas]');
+    const linea = [...cont.querySelectorAll('.mo-line')].find(l => l.dataset.moCed === ced);
+    if(linea){
+        const mi = linea.querySelector('[data-mo-monto]'); const nv = soloDigitos(mi.value) + v;
+        mi.value = String(nv); linea.querySelector('[data-mo-val]').textContent = fmt(nv);
+    } else {
+        cont.appendChild(crearMoLine(cod, ced, pers.nom||ced, v));
+    }
+    sel.value = ''; montoEl.value = '';
+    recalc(cod); moRecalcGlobal(); moDirty();
+};
+
+window.quitarMo = function(a, cod){
+    a.closest('.mo-line').remove();
+    recalc(cod); moRecalcGlobal(); moDirty();
+};
+
 document.addEventListener('DOMContentLoaded', function(){
     for (const cod in DATOS) { evaluarCerrable(cod); }
+    document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
+    moRecalcGlobal();
     refrescarDispObras();   // disponible por bolsa dentro de cada obra
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 

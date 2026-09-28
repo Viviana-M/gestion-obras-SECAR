@@ -441,6 +441,46 @@
         </div>
         @endif
 
+        {{-- MANO DE OBRA DIRECTA (por tercero) — se asigna aquí, dentro de la obra destino --}}
+        @php
+            $moDep = \App\Models\User::departamentoDeCodigo($cod);
+            $moPersObra  = $moPersonasDep[$moDep] ?? [];
+            $moLineasObra = $moAsigPorObra[$cod] ?? [];
+        @endphp
+        @if(!empty($moPersObra) || !empty($moLineasObra))
+        <div class="mo-obra-sec" data-cod="{{ $cod }}" data-dep="{{ $moDep }}" style="margin-top:14px;border-top:1px dashed #A5F3FC;padding-top:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="width:9px;height:9px;border-radius:2px;background:#0E7490;display:inline-block"></span>
+                <span style="font-size:12px;font-weight:600;color:#155E75">Mano de obra directa</span>
+            </div>
+            <div class="mo-lineas" data-mo-lineas>
+                @foreach($moLineasObra as $li => $ln)
+                <div class="mo-line" data-mo-ced="{{ $ln['ced'] }}" style="font-size:11px;padding:5px 8px;background:#ECFEFF;border:1px solid #A5F3FC;border-radius:6px;margin-top:4px;display:flex;align-items:center;gap:8px">
+                    <span style="flex:1;color:#155E75">🡒 <b>{{ $ln['nom'] ?: $ln['ced'] }}</b></span>
+                    <b data-mo-val style="color:#155E75">{{ $fmt($ln['monto']) }}</b>
+                    @if($puedeEditar)<a href="#" onclick="quitarMo(this,'{{ $cod }}');return false" style="color:#DC2626;text-decoration:none">✕</a>@endif
+                    <input type="hidden" name="mano_obra[{{ $cod }}][s{{ $li }}][cedula]" value="{{ $ln['ced'] }}">
+                    <input type="hidden" name="mano_obra[{{ $cod }}][s{{ $li }}][nombre]" value="{{ $ln['nom'] }}">
+                    <input type="hidden" name="mano_obra[{{ $cod }}][s{{ $li }}][monto]" value="{{ round($ln['monto']) }}" data-mo-monto data-mo-ced="{{ $ln['ced'] }}">
+                </div>
+                @endforeach
+            </div>
+            @if($puedeEditar)
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+                <div style="flex:2;min-width:200px">
+                    <label style="font-size:10px;color:#6B7280;display:block">Tercero</label>
+                    <select data-mo-sel style="width:100%;padding:6px;border:1px solid #A5F3FC;border-radius:6px;font-size:11px"><option value="">— Elegir tercero —</option></select>
+                </div>
+                <div style="flex:1;min-width:110px">
+                    <label style="font-size:10px;color:#6B7280;display:block">Monto</label>
+                    <input type="text" inputmode="numeric" data-mo-monto-in placeholder="0" oninput="moFmtMonto(this)" style="width:100%;padding:6px;border:1px solid #A5F3FC;border-radius:6px;font-size:11px;text-align:right">
+                </div>
+                <button type="button" onclick="asignarMo('{{ $cod }}')" style="padding:7px 14px;background:#0E7490;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Asignar</button>
+            </div>
+            @endif
+        </div>
+        @endif
+
         @if($o['total_reversado'] > 0)
         <div style="margin-top:12px;background:#FEF2F2;border-radius:8px;padding:8px 12px;font-size:11px;color:#DC2626">
             ⚠ Reversado de más (alerta, no editable): {{ $fmt($o['total_reversado']) }}

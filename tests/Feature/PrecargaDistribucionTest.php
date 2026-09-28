@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\AplicacionCosto;
+use App\Models\ManoObraAsignacion;
 use App\Models\RegistroFinanciero;
+use App\Models\TerceroManoObra;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
@@ -123,6 +125,48 @@ class PrecargaDistribucionTest extends TestCase
         ])->assertRedirect();
 
         $this->assertEqualsWithDelta(2779139, (float) AplicacionCosto::where('cuenta_14', '14200506')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
+    public function guardar_persiste_la_mano_de_obra_asignada_dentro_de_la_obra(): void
+    {
+        // Juan (maestro Mano de obra directa) con salario 500k en la bolsa MTO00099 (mantenimiento).
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '111', 'razon_social' => 'Juan Perez',
+            'estado_er' => -500000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026, 'origen' => 'biable',
+        ]);
+
+        // Asigna MO a la obra OB1 desde la propia obra; el monto llega con separador de miles.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'mano_obra_activa' => '1',
+            'mano_obra' => ['OB1' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'monto' => '300.000']]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(300000, (float) ManoObraAsignacion::where('obra_destino', 'OB1')->sum('monto'), 1);
+        $this->assertSame('111', ManoObraAsignacion::where('obra_destino', 'OB1')->first()->persona);
+    }
+
+    #[Test]
+    public function guardar_capa_la_mano_de_obra_al_costo_de_la_persona(): void
+    {
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '111', 'razon_social' => 'Juan Perez',
+            'estado_er' => -500000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026, 'origen' => 'biable',
+        ]);
+
+        // Pide 700k pero su costo es 500k: se capa en silencio a 500k.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'mano_obra_activa' => '1',
+            'mano_obra' => ['OB1' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'monto' => '700000']]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(500000, (float) ManoObraAsignacion::where('persona', '111')->sum('monto'), 1);
     }
 
     #[Test]
