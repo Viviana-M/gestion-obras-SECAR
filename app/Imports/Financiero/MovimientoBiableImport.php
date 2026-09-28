@@ -111,7 +111,6 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         $unidadUnificada = $unidad && $nombreUnidad
             ? $unidad . ' - ' . $nombreUnidad
             : ($unidad ?: $nombreUnidad);
-        if (str_contains($unidadUnificada, 'COM00099')) return null;
 
         $cuenta      = trim((string) ($row['cuenta'] ?? ''));
         $cuentaMayor = $this->clasificarCuenta($cuenta);

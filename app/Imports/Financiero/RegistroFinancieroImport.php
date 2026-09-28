@@ -51,7 +51,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $unidadUnificada = $unidad && $nombreUnidad
             ? $unidad . ' - ' . $nombreUnidad
             : ($unidad ?: $nombreUnidad);
-        if (str_contains($unidadUnificada, 'COM00099')) return null;
 
         $cuenta = trim($row['cuenta'] ?? '');
         $cuentaMayor = $this->clasificarCuenta($cuenta);

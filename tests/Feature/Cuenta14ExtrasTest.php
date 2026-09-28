@@ -90,6 +90,23 @@ class Cuenta14ExtrasTest extends TestCase
         $this->assertStringNotContainsString('omitidas', session('success'));
     }
 
+    // ─────────── COM00099 es una obra real con saldo: debe entrar ───────────
+
+    #[Test]
+    public function el_importador_incluye_la_obra_com00099(): void
+    {
+        // Antes se botaba COM00099 en el importador, lo que descuadraba el cierre (p. ej. el $37.000).
+        $archivo = $this->biable([
+            ['COM00099', 'COMERCIAL', '14200105', 'AUX', 37000, 0, 37000, '202408', '900', 'PROV', '890', 'SECAR', 'FAC-1'],
+        ]);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.carga.store'), ['archivo' => $archivo, 'mes' => 8, 'anio' => 2024])
+            ->assertRedirect()->assertSessionHas('success');
+
+        $this->assertSame(1, RegistroFinanciero::where('codigo_proyecto', 'COM00099')->count());
+    }
+
     // ─────────── Item 3: reporte "Posibles duplicados" ───────────
 
     #[Test]
