@@ -354,19 +354,26 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function el_por_repartir_de_la_bolsa_es_el_lado_negativo_no_el_positivo(): void
+    public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
     {
         $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // -41M por repartir
-        $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');     // +500K reversado
+        $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');     // +500K a favor (contrario)
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 7);
         $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 7))->first();
 
-        $this->assertEqualsWithDelta(41000000, $mant['total'], 0.5);
-        $cuentas = collect($mant['lineas'])->pluck('cuenta_14')->all();
-        $this->assertContains('14200530', $cuentas);
-        $this->assertNotContains('14200536', $cuentas); // el reversado no cuenta
+        // Total neto (ambos signos) = 41M − 0.5M.
+        $this->assertEqualsWithDelta(40500000, $mant['total'], 0.5);
+
+        $lineas = collect($mant['lineas'])->keyBy('cuenta_14');
+        $this->assertTrue($lineas->has('14200530'));
+        $this->assertTrue($lineas->has('14200536'));                    // el contrario ahora SÍ aparece
+        $this->assertEqualsWithDelta(41000000, $lineas['14200530']['pendiente'], 0.5);  // por repartir (positivo)
+        $this->assertEqualsWithDelta(-500000, $lineas['14200536']['pendiente'], 0.5);   // a favor (signo real, negativo)
+
+        // La suma de las líneas cuadra con el saldo real de cuenta 14 de la bolsa (−SUM(estado_er)).
+        $this->assertEqualsWithDelta(40500000, collect($mant['lineas'])->sum('pendiente'), 0.5);
     }
 
     #[Test]

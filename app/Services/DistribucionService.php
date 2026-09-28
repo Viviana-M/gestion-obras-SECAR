@@ -395,10 +395,11 @@ class DistribucionService
 
     /**
      * Saldo de varias bolsas desglosado por cuenta 14 (con su cuenta 61 destino y
-     * estructura), en un solo barrido. Igual que en los proyectos: el costo por aplicar
-     * se guarda con estado_er NEGATIVO (el importador pone signo -1 a las cuentas 1420),
-     * así que el "por repartir" es el lado NEGATIVO (pendiente = abs(saldo)); el positivo
-     * sería un reversado de más y no cuenta como por repartir.
+     * estructura), en un solo barrido. El costo por aplicar se guarda con estado_er
+     * NEGATIVO (el importador pone signo -1 a las cuentas 1420). Se incluye CUALQUIER saldo
+     * distinto de cero (ambos signos): `pendiente = -saldo`, de modo que el costo por
+     * repartir queda POSITIVO y un saldo contrario (a favor) queda NEGATIVO con su signo
+     * real. Así la suma de las líneas de una bolsa cuadra con su saldo real de cuenta 14.
      *
      * El saldo es el ACUMULADO AL MES FILTRADO (mismo corte que sumaAcum): se suman
      * los movimientos hasta (anio, mes), no todos los períodos. Así un movimiento de la
@@ -426,14 +427,14 @@ class DistribucionService
             ->where($corteAcum)
             ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
-            ->havingRaw('SUM(estado_er) < -0.5') // lado negativo = costo por repartir
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5') // cualquier saldo distinto de cero (ambos signos)
             ->get();
 
         $out = [];
         foreach ($filas as $f) {
             $saldo = round((float) $f->saldo, 2);
-            if ($saldo >= -0.5) {
-                continue; // solo el lado negativo (por repartir)
+            if (abs($saldo) <= 0.5) {
+                continue; // sin saldo material
             }
             $h = $homol[(string) $f->cuenta_contable] ?? null;
             $estructura = $h->estructura ?? 'OTROS COSTO';
@@ -446,7 +447,8 @@ class DistribucionService
                 'nombre'     => $h->nombre ?? $f->descripcion,
                 'estructura' => $estructura,
                 'periodo'    => 0,
-                'pendiente'  => abs($saldo), // el saldo viene negativo
+                // Costo por repartir (estado_er < 0) → positivo; saldo contrario (a favor) → negativo.
+                'pendiente'  => round(-1 * $saldo, 2),
             ];
         }
 
@@ -478,7 +480,7 @@ class DistribucionService
             foreach ($out as $cod => &$lineas) {
                 foreach ($lineas as $i => &$l) {
                     $r = (float) ($retiro[$cod.'|'.$l['cuenta_14']] ?? 0);
-                    if ($r <= 0.005) continue;
+                    if ($r <= 0.005 || $l['pendiente'] <= 0.5) continue; // solo el costo por repartir (positivo)
                     $l['pendiente'] = max(0.0, round($l['pendiente'] - $r, 2));
                     if ($l['pendiente'] <= 0.5) unset($lineas[$i]);
                 }
