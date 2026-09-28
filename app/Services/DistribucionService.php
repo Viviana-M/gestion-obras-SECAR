@@ -198,7 +198,17 @@ class DistribucionService
         return $result;
     }
 
-    /** Tercero (razón social) representativo por (UN, cuenta 14), del período acumulado. */
+    /**
+     * Tercero (razón social) REPRESENTATIVO por (UN, cuenta 14), del período acumulado. Sirve solo
+     * como etiqueta en el panel de bolsas para cuentas NO laborales (materiales/otros), donde un
+     * tercero representativo basta.
+     *
+     * OJO — mano de obra: NO uses este método para MO. Colapsa todos los terceros de una cuenta en
+     * uno solo (MAX(razon_social)), lo que ocultaba el saldo por persona. La MO se desglosa por
+     * tercero real (tercero_dcto, o razon_social si viene vacío) en
+     * DistribucionManoObraService::saldosPorTercero, que es lo que usa la sección de "Mano de obra
+     * por tercero" de la pantalla de Distribución.
+     */
     public function tercerosPorCuenta(array $codigos, int $anio, int $mes): array
     {
         if (empty($codigos)) {

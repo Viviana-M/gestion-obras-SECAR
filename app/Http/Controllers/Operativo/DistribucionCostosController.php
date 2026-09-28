@@ -19,7 +19,9 @@ use App\Models\CierrePeriodo;
 use App\Models\BolsaMonto;
 use App\Models\UnBolsa;
 use App\Models\User;
+use App\Models\ManoObraAsignacion;
 use App\Services\DistribucionService;
+use App\Services\DistribucionManoObraService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Exports\ResumenDistribucionExport;
@@ -490,6 +492,37 @@ class DistribucionCostosController extends Controller
             ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
             ->values();
 
+        // ─── Mano de obra por tercero (sección integrada en esta misma vista) ───
+        // Reemplaza al módulo aparte: la MO se reparte por PERSONA (tercero) de una bolsa a las
+        // obras destino, con su saldo real por tercero (NO colapsado por MAX(razon_social)).
+        $moSvc    = new DistribucionManoObraService();
+        $moBolsasQ = UnBolsa::where('activo', true)
+            ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
+            ->orderBy('codigo');
+        $moBolsas = $moBolsasQ->get();
+        $moBolsa  = (string) ($request->get('mo_bolsa') ?: ($moBolsas->first()->codigo ?? ''));
+        $moSaldos   = $moBolsa ? $moSvc->saldosPorTercero($moBolsa, $mes, $anio) : [];
+        $moAsignado = $moBolsa ? $moSvc->asignadoPorTercero($moBolsa, $mes, $anio) : [];
+        $moGuardadas = $moBolsa
+            ? ManoObraAsignacion::where('bolsa_un', $moBolsa)->where('mes', $mes)->where('anio', $anio)
+                ->orderBy('tercero')->get()->groupBy('tercero')
+            : collect();
+        [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
+        $moHayMesAnterior = $moBolsa && ManoObraAsignacion::where('bolsa_un', $moBolsa)
+            ->where('mes', $moMesAnt)->where('anio', $moAnioAnt)->exists();
+        // Info de obras destino (para el panel "Cómo queda el proyecto", en vivo).
+        $moObrasInfo = [];
+        foreach ($fichas as $cod => $f) {
+            if (! $f->activa || isset($bolsaCodigos[$cod])) continue;
+            $inv = (float) ($inventario14[$cod] ?? 0);
+            $moObrasInfo[(string) $cod] = [
+                'nombre'     => (string) $f->nombre_obra,
+                'ingreso'    => round((float) ($ingresoAcum[$cod] ?? 0), 2),
+                'costo_apl'  => round(abs((float) ($costoAplAcum[$cod] ?? 0)), 2),
+                'inventario' => $inv < 0 ? round(abs($inv), 2) : 0.0,
+            ];
+        }
+
         return view('operativo.distribucion', [
             'obras'        => $obras,
             'bolsas'       => $bolsas,
@@ -511,6 +544,10 @@ class DistribucionCostosController extends Controller
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
             'inactivasConSaldo' => $inactivasConSaldo,
+            // Sección de mano de obra por tercero (integrada).
+            'moBolsas' => $moBolsas, 'moBolsa' => $moBolsa, 'moSaldos' => $moSaldos,
+            'moAsignado' => $moAsignado, 'moGuardadas' => $moGuardadas, 'moObrasInfo' => $moObrasInfo,
+            'moHayMesAnterior' => $moHayMesAnterior, 'moMesAnt' => $moMesAnt, 'moAnioAnt' => $moAnioAnt,
         ]);
     }
 

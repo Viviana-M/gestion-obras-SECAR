@@ -21,6 +21,25 @@ class DistribucionManoObraTest extends TestCase
 {
     use RefreshDatabase;
 
+    #[Test]
+    public function la_pantalla_de_distribucion_expone_la_mo_por_tercero(): void
+    {
+        // Bug corregido: el saldo de MO va por tercero, no colapsado en uno solo.
+        $this->setup_base();
+        $this->mo('MTO00099', '14200530', '111', 500000);
+        $this->mo('MTO00099', '14200530', '222', 300000);
+
+        $resp = $this->actingAs($this->op())
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento&mo_bolsa=MTO00099');
+        $resp->assertStatus(200);
+
+        $moSaldos = collect($resp->viewData('moSaldos'))->keyBy('tercero');
+        $this->assertCount(2, $moSaldos);                            // dos terceros, no uno colapsado
+        $this->assertEqualsWithDelta(500000, $moSaldos['111']['saldo'], 1);
+        $this->assertEqualsWithDelta(300000, $moSaldos['222']['saldo'], 1);
+        $resp->assertSee('Mano de obra por tercero', false);        // la sección integrada se renderiza
+    }
+
     private function op(string $nivel = 'editar'): User
     {
         return User::factory()->create([

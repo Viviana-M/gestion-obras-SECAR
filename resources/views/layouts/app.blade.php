@@ -170,7 +170,6 @@
             <div class="submenu">
                 <div class="submenu-group-label">Distribución</div>
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
-                <a href="{{ route('operativo.mano-obra.index') }}" class="{{ request()->is('operativo/mano-obra*') ? 'active' : '' }}">Distribución de mano de obra</a>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución del mes</a>
                 <div class="submenu-group-label">Consultas</div>
                 <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Proyectos en revisión</a>

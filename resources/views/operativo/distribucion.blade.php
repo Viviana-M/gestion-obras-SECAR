@@ -405,6 +405,8 @@
 @endif
 </form>
 
+@include('operativo.partials.mano-obra-seccion')
+
 {{-- MODAL: ajustar tolerancia --}}
 <div id="modal-calc" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
     <div style="background:white;border-radius:12px;padding:20px 22px;max-width:420px;width:90%">
