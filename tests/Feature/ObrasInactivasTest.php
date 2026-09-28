@@ -194,47 +194,57 @@ class ObrasInactivasTest extends TestCase
         $this->assertSame(1, $r2->viewData('fichas')->total());
     }
 
-    /** Movimiento de cuenta 14 con tercero y documento, para probar el detalle. */
-    private function mov(string $codigo, string $cc, string $doc, string $razon, string $documento, float $er, int $mes, int $anio): void
+    /** Movimiento de cuenta 14 con tercero, documento, débito y crédito, para probar el detalle. */
+    private function mov(string $codigo, string $cc, string $doc, string $razon, string $documento, float $er, int $mes, int $anio, float $debito = 0, float $credito = 0): void
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $codigo, 'nombre_proyecto' => 'Proy '.$codigo,
             'cuenta_contable' => $cc, 'cuenta_mayor' => 'Costos por aplicar',
             'tercero_dcto' => $doc, 'razon_social' => $razon, 'documento' => $documento,
-            'estado_er' => $er, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
+            'estado_er' => $er, 'valor_debito' => $debito, 'valor_credito' => $credito, 'mes' => $mes, 'anio' => $anio,
         ]);
     }
 
     #[Test]
-    public function el_detalle_de_una_obra_cuadra_con_su_saldo(): void
+    public function el_detalle_de_una_obra_cuadra_con_su_saldo_y_muestra_debito_credito(): void
     {
         \App\Models\Homologacion::create(['cuenta_14' => '14350105', 'cuenta_61' => '61350105', 'nombre' => 'Materiales',
             'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
         FichaProyecto::create(['codigo_proyecto' => 'MOB09070', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
 
-        // Mismo tercero/cuenta/documento en dos períodos → dos filas de detalle; otra cuenta/tercero → tercera fila.
-        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024);
-        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -20000, 7, 2024);
-        $this->mov('MOB09070', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024);
+        // Mismo tercero/cuenta/documento en dos períodos → dos filas; otra cuenta/tercero → otra fila.
+        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
+        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -20000, 7, 2024, 20000, 0);
+        $this->mov('MOB09070', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024, 30000, 0);
+        // Residuo: débito y crédito casi iguales, neto pequeño (estado_er = -(déb−cré) = -100).
+        $this->mov('MOB09070', '14200530', '333', 'Ana', 'D3', -100, 8, 2024, 80000, 79900);
 
         $resp = $this->actingAs($this->operador())
             ->get(route('operativo.obras-inactivas.detalle', ['codigo' => 'MOB09070', 'mes' => 8, 'anio' => 2024]));
         $resp->assertOk();
         $det = $resp->json('detalle');
 
-        // La suma del detalle cuadra con el saldo de la obra (100.000).
-        $this->assertCount(3, $det);
-        $this->assertEqualsWithDelta(100000, array_sum(array_column($det, 'saldo')), 1);
+        // La suma de los saldos NETOS cuadra con el saldo de la obra (100.100).
+        $this->assertCount(4, $det);
+        $this->assertEqualsWithDelta(100100, array_sum(array_column($det, 'saldo')), 1);
 
-        // Columnas de rastreo presentes y correctas.
+        // Columnas Débito / Crédito / Saldo neto por línea.
         $fila = collect($det)->firstWhere('documento', 'D2');
         $this->assertSame('14200530', $fila['cuenta']);
         $this->assertSame('Pedro', $fila['tercero']);
         $this->assertSame('08/2024', $fila['periodo']);
+        $this->assertEqualsWithDelta(30000, $fila['debito'], 1);
+        $this->assertEqualsWithDelta(0, $fila['credito'], 1);
         $this->assertEqualsWithDelta(30000, $fila['saldo'], 1);
-        // El concepto sale de la homologación de la cuenta.
+
+        // La línea residuo: débito y crédito grandes casi iguales, con neto pequeño (100).
+        $res = collect($det)->firstWhere('documento', 'D3');
+        $this->assertEqualsWithDelta(80000, $res['debito'], 1);
+        $this->assertEqualsWithDelta(79900, $res['credito'], 1);
+        $this->assertEqualsWithDelta(100, $res['saldo'], 1);
+
+        // El concepto sale de la homologación de la cuenta; períodos distintos = filas distintas.
         $this->assertSame('Materiales', collect($det)->firstWhere('cuenta', '14350105')['concepto']);
-        // El mismo tercero/documento en otro período aparece como fila aparte.
         $this->assertContains('07/2024', array_column($det, 'periodo'));
     }
 

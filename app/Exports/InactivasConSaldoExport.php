@@ -52,7 +52,7 @@ class InactivasResumenSheet implements FromArray, WithTitle, WithColumnFormattin
     }
 }
 
-/** Hoja detalle: el despliegue del saldo por obra (cuenta, concepto, tercero, documento, período). */
+/** Hoja detalle: el despliegue del saldo por obra (cuenta, concepto, tercero, documento, período, débito, crédito, saldo). */
 class InactivasDetalleSheet implements FromArray, WithTitle, WithColumnFormatting
 {
     public function __construct(private array $detalle) {}
@@ -67,9 +67,9 @@ class InactivasDetalleSheet implements FromArray, WithTitle, WithColumnFormattin
         return $this->detalle;
     }
 
-    /** Formato de miles para la columna Saldo. */
+    /** Formato de miles para las columnas Débito, Crédito y Saldo. */
     public function columnFormats(): array
     {
-        return ['G' => '#,##0'];
+        return ['G' => '#,##0', 'H' => '#,##0', 'I' => '#,##0'];
     }
 }

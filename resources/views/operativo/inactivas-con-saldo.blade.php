@@ -103,7 +103,8 @@
                     + '<thead><tr style="color:#6B7280;text-align:left">'
                     + '<th style="padding:5px 8px">Cuenta</th><th style="padding:5px 8px">Concepto</th>'
                     + '<th style="padding:5px 8px">Tercero</th><th style="padding:5px 8px">Documento</th>'
-                    + '<th style="padding:5px 8px">Período</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>';
+                    + '<th style="padding:5px 8px">Período</th><th style="padding:5px 8px;text-align:right">Débito</th>'
+                    + '<th style="padding:5px 8px;text-align:right">Crédito</th><th style="padding:5px 8px;text-align:right">Saldo neto</th></tr></thead><tbody>';
                 filas.forEach(d => {
                     html += '<tr style="border-top:1px solid #E5E7EB">'
                         + '<td style="padding:5px 8px;font-family:monospace;color:#854D0E">' + esc(d.cuenta) + '</td>'
@@ -111,7 +112,9 @@
                         + '<td style="padding:5px 8px;color:#374151">' + esc(d.tercero) + '</td>'
                         + '<td style="padding:5px 8px;font-family:monospace;color:#6B7280">' + esc(d.documento) + '</td>'
                         + '<td style="padding:5px 8px;color:#6B7280">' + esc(d.periodo) + '</td>'
-                        + '<td style="padding:5px 8px;text-align:right;color:#B45309">' + fmt(d.saldo) + '</td></tr>';
+                        + '<td style="padding:5px 8px;text-align:right;color:#6B7280">' + fmt(d.debito) + '</td>'
+                        + '<td style="padding:5px 8px;text-align:right;color:#6B7280">' + fmt(d.credito) + '</td>'
+                        + '<td style="padding:5px 8px;text-align:right;font-weight:600;color:#B45309">' + fmt(d.saldo) + '</td></tr>';
                 });
                 html += '</tbody></table>';
                 cont.innerHTML = html;

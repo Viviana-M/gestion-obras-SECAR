@@ -594,11 +594,13 @@ class DistribucionCostosController extends Controller
         }
         $filas[] = ['', '', 'TOTAL', round(array_sum(array_column($lista, 'saldo_14')), 2)];
 
-        // Hoja "Detalle": el despliegue completo por obra (cuenta, concepto, tercero, documento, período, saldo).
-        $detalle = [['Obra', 'Cuenta', 'Concepto', 'Tercero', 'Documento', 'Período', 'Saldo']];
+        // Hoja "Detalle": el despliegue completo por obra (cuenta, concepto, tercero, documento,
+        // período, débito, crédito y saldo neto).
+        $detalle = [['Obra', 'Cuenta', 'Concepto', 'Tercero', 'Documento', 'Período', 'Débito', 'Crédito', 'Saldo']];
         foreach ($lista as $f) {
             foreach ($this->detalleInactivaData($f['codigo'], $mes, $anio) as $d) {
-                $detalle[] = [$f['codigo'], $d['cuenta'], $d['concepto'], $d['tercero'], $d['documento'], $d['periodo'], round($d['saldo'], 2)];
+                $detalle[] = [$f['codigo'], $d['cuenta'], $d['concepto'], $d['tercero'], $d['documento'], $d['periodo'],
+                    round($d['debito'], 2), round($d['credito'], 2), round($d['saldo'], 2)];
             }
         }
 
@@ -651,11 +653,12 @@ class DistribucionCostosController extends Controller
     /**
      * Detalle del saldo en cuenta 14 de UNA obra inactiva, para rastrear el origen: agrupa los
      * movimientos ('Costos por aplicar') al corte acumulado por cuenta + tercero + documento +
-     * período, con SUM(estado_er) y HAVING ABS>0.5, de mayor a menor. El saldo se orienta con el
-     * signo del total de la obra para mostrarse en positivo, de modo que la suma del detalle cuadre
-     * con el "Saldo cuenta 14" del listado.
+     * período, con SUM(estado_er) y HAVING ABS>0.5, de mayor a menor. Por línea muestra Débito,
+     * Crédito y el Saldo NETO (= SUM(estado_er), orientado en positivo con el signo del total de la
+     * obra), de modo que la suma de los saldos netos cuadre con el "Saldo cuenta 14" del listado y
+     * se vea dónde quedó el residuo (débito y crédito casi iguales con neto pequeño).
      *
-     * @return array<int, array{cuenta:string,concepto:string,tercero:string,documento:string,periodo:string,saldo:float}>
+     * @return array<int, array{cuenta:string,concepto:string,tercero:string,documento:string,periodo:string,debito:float,credito:float,saldo:float}>
      */
     private function detalleInactivaData(string $codigo, int $mes, int $anio): array
     {
@@ -665,7 +668,8 @@ class DistribucionCostosController extends Controller
                 $q->where('anio', '<', $anio)
                   ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
             })
-            ->selectRaw('cuenta_contable, tercero_dcto, razon_social, documento, mes, anio, SUM(estado_er) as neto')
+            ->selectRaw('cuenta_contable, tercero_dcto, razon_social, documento, mes, anio, '
+                .'SUM(valor_debito) as debito, SUM(valor_credito) as credito, SUM(estado_er) as neto')
             ->groupBy('cuenta_contable', 'tercero_dcto', 'razon_social', 'documento', 'mes', 'anio')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
             ->get();
@@ -675,7 +679,7 @@ class DistribucionCostosController extends Controller
         }
 
         // Orientación: el saldo pendiente va negativo; se muestra en positivo con el signo del total
-        // de la obra (así la suma del detalle iguala el "Saldo cuenta 14" del listado).
+        // de la obra (así la suma de los saldos netos iguala el "Saldo cuenta 14" del listado).
         $totalNeto = (float) $rows->sum('neto');
         $signo = $totalNeto < 0 ? -1 : 1;
 
@@ -690,6 +694,8 @@ class DistribucionCostosController extends Controller
                 'tercero'   => trim((string) $r->razon_social) ?: trim((string) $r->tercero_dcto),
                 'documento' => (string) $r->documento,
                 'periodo'   => sprintf('%02d/%d', (int) $r->mes, (int) $r->anio),
+                'debito'    => round((float) $r->debito, 2),
+                'credito'   => round((float) $r->credito, 2),
                 'saldo'     => round($signo * (float) $r->neto, 2),
             ];
         }
