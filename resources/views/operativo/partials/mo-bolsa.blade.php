@@ -53,7 +53,7 @@
                         <div style="display:flex;gap:5px;margin-top:4px">
                             <input list="mo-obras-list" name="asignaciones[{{ $i }}][obra]" value="{{ $obra }}" placeholder="Obra destino" data-mo-obra {{ $puede ? '' : 'disabled' }}
                                    style="flex:1;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                            <input type="number" step="0.01" min="0" name="asignaciones[{{ $i }}][monto]" value="{{ $monto ? round($monto,2) : '' }}" placeholder="Monto" data-mo-monto oninput="moRecalc(this)" {{ $puede ? '' : 'disabled' }}
+                            <input type="text" inputmode="numeric" name="asignaciones[{{ $i }}][monto]" value="{{ $monto ? number_format($monto, 0, ',', '.') : '' }}" placeholder="Monto" data-mo-monto oninput="moMoney(this)" {{ $puede ? '' : 'disabled' }}
                                    style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">
                             <input type="hidden" name="asignaciones[{{ $i }}][cedula]" value="{{ $p['cedula'] }}">
                             <input type="hidden" name="asignaciones[{{ $i }}][nombre]" value="{{ $p['nombre'] }}">
@@ -112,7 +112,16 @@ window.MO_OBRAS = @json($moObrasInfo);
 (function(){
     const fmt = (n) => '$' + Math.round(n).toLocaleString('es-CO');
     const pct1 = (n) => (Math.round(n*10)/10).toLocaleString('es-CO',{minimumFractionDigits:1,maximumFractionDigits:1}) + '%';
+    // Solo dígitos → entero (para leer montos con separador de miles "2.779.139").
+    const moNum = (v) => { const n = parseInt(String(v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; };
     let moSeq = 100000;
+
+    // Formatea el campo de monto con separador de miles (es-CO) mientras se escribe y recalcula.
+    window.moMoney = function(el){
+        const n = moNum(el.value);
+        el.value = n ? n.toLocaleString('es-CO') : '';
+        moRecalc(el);
+    };
 
     window.moRecalc = function(el){
         const blk = el ? el.closest('.mo-blk') : null;
@@ -121,7 +130,7 @@ window.MO_OBRAS = @json($moObrasInfo);
     function recalcBlk(blk){
         blk.querySelectorAll('.mo-per').forEach(per => {
             const total = parseFloat(per.dataset.total)||0;
-            let suma = 0; per.querySelectorAll('[data-mo-monto]').forEach(i => suma += (parseFloat(i.value)||0));
+            let suma = 0; per.querySelectorAll('[data-mo-monto]').forEach(i => suma += moNum(i.value));
             const p = per.querySelector('[data-mo-pend]');
             const rest = total - suma; p.textContent = fmt(rest);
             p.style.color = rest < -0.5 ? '#DC2626' : '#15803D';
@@ -129,7 +138,7 @@ window.MO_OBRAS = @json($moObrasInfo);
         const porObra = {};
         blk.querySelectorAll('.mo-form [data-mo-monto]').forEach(inp => {
             const row = inp.closest('div'); const obra = (row.querySelector('[data-mo-obra]').value||'').trim();
-            const m = parseFloat(inp.value)||0; if (!obra || m<=0) return;
+            const m = moNum(inp.value); if (!obra || m<=0) return;
             porObra[obra] = (porObra[obra]||0) + m;
         });
         const cont = blk.querySelector('.mo-cards'), vacio = blk.querySelector('.mo-cards-vacio');
@@ -138,20 +147,22 @@ window.MO_OBRAS = @json($moObrasInfo);
         vacio.style.display = obras.length ? 'none':'block';
         obras.forEach(cod => {
             const info = (window.MO_OBRAS[cod])||{nombre:'',ingreso:0,costo_apl:0,inventario:0};
-            const moCarg = porObra[cod], mat = 0, totalCarg = moCarg + mat;
-            const costoApl = info.costo_apl + totalCarg, mc = info.ingreso - costoApl;
+            const moCarg = porObra[cod];
+            const otros = info.costo_apl;              // otros costos ya distribuidos/aplicados a la obra
+            const costoReal = otros + moCarg;          // costo real = otros costos + MO distribuida
+            const mc = info.ingreso - costoReal;       // MC$ = Ingreso − Costo real (incluye MO)
             const mcp = info.ingreso ? (mc/info.ingreso*100) : null;
-            const saldoTr = Math.max(0, info.inventario - totalCarg);
+            const saldoTr = Math.max(0, info.inventario - moCarg);
             const d = document.createElement('div');
             d.style.cssText = 'border:1px solid #E5E7EB;border-radius:6px;padding:6px 8px;background:#fff';
             d.innerHTML = '<div style="font-weight:600;color:#1B3F6E;font-size:11px">'+cod+' <span style="font-weight:400;color:#9CA3AF">'+(info.nombre||'')+'</span></div>'+
                 '<div style="display:grid;grid-template-columns:1fr auto;gap:1px 8px;font-size:10.5px;color:#374151;margin-top:3px">'+
                 '<div>Ingreso</div><div style="text-align:right">'+fmt(info.ingreso)+'</div>'+
+                '<div>Materiales / otros</div><div style="text-align:right">'+fmt(otros)+'</div>'+
+                '<div>Mano de obra</div><div style="text-align:right">'+fmt(moCarg)+'</div>'+
+                '<div style="font-weight:600">Costo real</div><div style="text-align:right;font-weight:600">'+fmt(costoReal)+'</div>'+
                 '<div>MC$</div><div style="text-align:right;font-weight:600;color:'+(mc<0?'#DC2626':'#15803D')+'">'+fmt(mc)+'</div>'+
                 '<div>MC%</div><div style="text-align:right;font-weight:600;color:'+(mcp!==null&&mcp<0?'#DC2626':'#15803D')+'">'+(mcp!==null?pct1(mcp):'—')+'</div>'+
-                '<div>Mano de obra cargada</div><div style="text-align:right">'+fmt(moCarg)+'</div>'+
-                '<div>Materiales / otros</div><div style="text-align:right">'+fmt(mat)+'</div>'+
-                '<div>Total cargado</div><div style="text-align:right;font-weight:600">'+fmt(totalCarg)+'</div>'+
                 '<div>Saldo en tránsito</div><div style="text-align:right">'+fmt(saldoTr)+'</div></div>';
             cont.appendChild(d);
         });
@@ -165,7 +176,7 @@ window.MO_OBRAS = @json($moObrasInfo);
         const esc = s => (s||'').replace(/"/g,'&quot;');
         row.innerHTML =
             '<input list="mo-obras-list" name="asignaciones['+i+'][obra]" placeholder="Obra destino" data-mo-obra style="flex:1;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">'+
-            '<input type="number" step="0.01" min="0" name="asignaciones['+i+'][monto]" placeholder="Monto" data-mo-monto oninput="moRecalc(this)" style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">'+
+            '<input type="text" inputmode="numeric" name="asignaciones['+i+'][monto]" placeholder="Monto" data-mo-monto oninput="moMoney(this)" style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">'+
             '<input type="hidden" name="asignaciones['+i+'][cedula]" value="'+esc(d.ced)+'"><input type="hidden" name="asignaciones['+i+'][nombre]" value="'+esc(d.nom)+'">'+
             '<button type="button" onclick="moDelRow(this)" style="border:none;background:#FEF2F2;color:#DC2626;width:24px;border-radius:6px;cursor:pointer">×</button>';
         rows.appendChild(row);
@@ -181,13 +192,18 @@ window.MO_OBRAS = @json($moObrasInfo);
                 first.value = obra;
                 const monto = first.parentElement.querySelector('[data-mo-monto]');
                 const total = parseFloat(per.dataset.total)||0;
-                if (monto && !monto.value) monto.value = Math.round(total);
+                if (monto && !monto.value) monto.value = total ? Math.round(total).toLocaleString('es-CO') : '';
             }
             chk.checked = false;
         });
         recalcBlk(blk);
     };
     document.addEventListener('input', e => { if (e.target.matches('[data-mo-obra]')) moRecalc(e.target); });
+    // Al enviar, deja los montos con solo dígitos para que el backend reciba un número limpio.
+    document.addEventListener('submit', e => {
+        if (! e.target.classList || ! e.target.classList.contains('mo-form')) return;
+        e.target.querySelectorAll('[data-mo-monto]').forEach(i => { i.value = String(moNum(i.value)); });
+    });
     document.querySelectorAll('.mo-blk').forEach(recalcBlk);
 })();
 </script>

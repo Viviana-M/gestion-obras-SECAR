@@ -111,6 +111,21 @@ class PrecargaDistribucionTest extends TestCase
     }
 
     #[Test]
+    public function guardar_acepta_montos_con_separador_de_miles(): void
+    {
+        // El campo llega formateado desde el front ("2.779.139"): debe parsearse limpio.
+        $this->rf('Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('Costos por aplicar', -3000000, 6, 2026, '14200506');
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14200506' => '2.779.139']],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(2779139, (float) AplicacionCosto::where('cuenta_14', '14200506')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
     public function guardar_aplica_aunque_no_haya_cupo_de_facturado(): void
     {
         // Facturado 500 ya consumido por costo aplicado 500 (antes: tope 0 => 0 aplicado).

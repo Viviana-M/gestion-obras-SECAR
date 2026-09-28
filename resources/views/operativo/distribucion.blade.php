@@ -713,14 +713,33 @@ function confirmarReasignar(){
     document.body.appendChild(f);
     f.submit();
 }
-function capear(inp){ const max=parseFloat(inp.max||0); let v=parseFloat(inp.value||0); if(v>max){inp.value=Math.round(max);} if(v<0){inp.value=0;} }
+function capear(inp){ const max=parseFloat(inp.max||0); let v=soloDigitos(inp.value); if(v>max){v=Math.round(max);} inp.value = v ? v.toLocaleString('es-CO') : ''; }
+
+/* Formatea el campo "a aplicar" con separador de miles (es-CO): 2779139 → 2.779.139. */
+function formatAplicar(inp){
+    const d = String(inp.value).replace(/\D/g, '');
+    inp.value = d === '' ? '' : (parseInt(d, 10) || 0).toLocaleString('es-CO');
+}
+/* Al escribir en "a aplicar": capea al pendiente (max), formatea con miles y recalcula. */
+function aplicarInput(inp, cod){
+    const max = Math.round(parseFloat(inp.max || 0));
+    let v = soloDigitos(inp.value);
+    if (v > max) v = max;
+    inp.value = v ? v.toLocaleString('es-CO') : '';
+    marcarTocada(inp);
+    recalc(cod);
+}
+/* Deja solo dígitos en los campos "a aplicar" (para el POST/autoguardado) y restaura el formato. */
+function normalizarAplicar(){ document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(i => { i.value = String(soloDigitos(i.value)); }); }
+function reformatearAplicar(){ document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(formatAplicar); }
 
 /* Marca en amarillo la celda "a aplicar" cuando Operaciones la deja distinta al
    pendiente completo de la cuenta (data-tope = saldo pendiente). Así se ve cuáles tocaron. */
 function marcarTocada(inp){
     if(!inp || inp.dataset.tipo !== 'aplicar') return;
+    formatAplicar(inp);
     const base = Math.round(parseFloat(inp.dataset.tope || 0));
-    const val  = Math.round(parseFloat(inp.value || 0));
+    const val  = soloDigitos(inp.value);
     inp.classList.toggle('celda-tocada', val !== base);
 }
 function remarcarAplicar(){
@@ -729,7 +748,7 @@ function remarcarAplicar(){
 
 function sumAplicar(cod){
     const card=document.getElementById('card-'+cod); let s=0;
-    card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>s+=parseFloat(i.value||0));
+    card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>s+=soloDigitos(i.value));
     return s;
 }
 function sumProv(cod){
@@ -752,7 +771,7 @@ function evaluarCerrable(cod){
 function recalc(cod){
     const card=document.getElementById('card-'+cod);
     let sumA=0, sumB=0;
-    card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=parseFloat(i.value||0));
+    card.querySelectorAll('input[data-tipo="aplicar"]').forEach(i=>sumA+=soloDigitos(i.value));
     card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
     const prov = Number(d.prov||0);          // provisiones activas (costo sin aplicar, 14→26)
@@ -1185,7 +1204,11 @@ document.addEventListener('DOMContentLoaded', function(){
     // Respaldo local (ligero): montos "a aplicar" y estado por obra.
     function serializar() {
         const data = {};
-        form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]').forEach(el => { if (el.name) data[el.name] = el.value; });
+        // Los montos "a aplicar" se guardan como número limpio (sin separador de miles).
+        form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]').forEach(el => {
+            if (!el.name) return;
+            data[el.name] = el.dataset.tipo === 'aplicar' ? String(soloDigitos(el.value)) : el.value;
+        });
         return data;
     }
     function guardarLocal() { try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), data: serializar() })); } catch (e) {} }
@@ -1197,6 +1220,8 @@ document.addEventListener('DOMContentLoaded', function(){
         saving = true;
         setStatus('Autoguardando…', '#9CA3AF');
         const fd = new FormData(form);
+        // El backend espera números limpios: quita el separador de miles de los montos "a aplicar".
+        form.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => { if (i.name) fd.set(i.name, String(soloDigitos(i.value))); });
         fd.set('auto', '1');
         fd.set('accion', 'guardar');
         fetch(URL_GUARDAR, {
@@ -1238,6 +1263,10 @@ document.addEventListener('DOMContentLoaded', function(){
     // Guardar/Enviar a mano ya persiste en BD: limpiamos estado y respaldo local.
     // (El botón "Ver resumen" usa formaction/nuevo tab: no debe limpiar nada.)
     form.addEventListener('submit', function (e) {
+        // El backend espera números limpios: quita el separador de miles antes de enviar y lo
+        // restaura en pantalla (por si el envío abre en otra pestaña, como "Ver resumen").
+        normalizarAplicar();
+        setTimeout(reformatearAplicar, 0);
         const btn = e.submitter;
         if (btn && btn.name === 'accion') {
             submitting = true; dirty = false; clearTimeout(tmr);

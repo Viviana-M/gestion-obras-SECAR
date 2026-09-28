@@ -243,13 +243,13 @@
                         <td style="padding:4px 6px;color:#6B7280">{{ Str::limit($sub['nombre'], 26) }}</td>
                         <td style="padding:4px 6px;text-align:right;color:#854D0E">{{ $fmt($sub['pendiente']) }}</td>
                         <td style="padding:4px 6px;text-align:right">
-                            <input type="number" min="0" max="{{ round($sub['pendiente']) }}" step="1"
-                                value="{{ round($sub['aplicar']) }}"
+                            <input type="text" inputmode="numeric" max="{{ round($sub['pendiente']) }}"
+                                value="{{ $sub['aplicar'] ? number_format($sub['aplicar'], 0, ',', '.') : '' }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
                                 onclick="event.stopPropagation()"
                                 data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
-                                oninput="capear(this);marcarTocada(this);recalc('{{ $cod }}')"
+                                oninput="aplicarInput(this, '{{ $cod }}')"
                                 @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso: la aplicación directa 14→61 no aplica. Carga el costo desde la bolsa de área (se reclasifica 14→14)." @endif
                                 style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right;{{ ($o['sin_ingreso'] ?? false) ? 'background:#F9FAFB;color:#9CA3AF' : '' }}">
                         </td>

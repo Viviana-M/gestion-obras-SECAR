@@ -1028,7 +1028,9 @@ class DistribucionCostosController extends Controller
             // Se guarda lo que dejó operaciones, recortando solo al saldo abierto de la cuenta.
             $capadas = [];
             foreach ((array) $cuentas as $c14 => $monto) {
-                $monto = min((float) $monto, $pendNetoG[$cod.'|'.$c14] ?? 0.0);
+                // El input puede llegar con separador de miles ("2.779.139"): deja solo dígitos.
+                $limpio = (float) preg_replace('/[^\d]/', '', (string) $monto);
+                $monto = min($limpio, $pendNetoG[$cod.'|'.$c14] ?? 0.0);
                 if ($monto <= 0.5) continue;
                 $capadas[(string) $c14] = $monto;
             }
