@@ -194,6 +194,58 @@ class ObrasInactivasTest extends TestCase
         $this->assertSame(1, $r2->viewData('fichas')->total());
     }
 
+    /** Usuario supervisor de un solo departamento (ve operación + su depto). */
+    private function supervisor(string $depModulo): User
+    {
+        return User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true,
+            'permisos_modulos' => ['operacion' => 'ver', $depModulo => 'ver'],
+        ]);
+    }
+
+    #[Test]
+    public function el_listado_de_inactivas_respeta_el_departamento_del_usuario(): void
+    {
+        // MOB… = mantenimiento (prefijo MO); GIX… = instalaciones (prefijo GI).
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09060', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+        FichaProyecto::create(['codigo_proyecto' => 'GIX09060', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
+        $this->rf('MOB09060', 'Costos por aplicar', -50000, 8, 2024, '14350105');
+        $this->rf('GIX09060', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+
+        // Supervisor de Mantenimiento: solo ve la obra de su departamento (lista, total y Excel).
+        $mant = $this->supervisor('dep_mantenimiento');
+        $resp = $this->actingAs($mant)->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024]));
+        $resp->assertOk();
+        $this->assertSame(['MOB09060'], collect($resp->viewData('lista'))->pluck('codigo')->all());
+        $this->assertEqualsWithDelta(50000, $resp->viewData('total'), 1); // no incluye la de instalaciones
+        $this->actingAs($mant)->get(route('operativo.obras-inactivas.excel', ['mes' => 8, 'anio' => 2024]))->assertOk();
+
+        // Admin (sin filtro de departamento): ve ambas.
+        $admin = User::factory()->create(['rol' => 'admin', 'activo' => true]);
+        $todas = collect($this->actingAs($admin)
+            ->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024]))
+            ->viewData('lista'))->pluck('codigo')->all();
+        $this->assertContains('MOB09060', $todas);
+        $this->assertContains('GIX09060', $todas);
+    }
+
+    #[Test]
+    public function el_aviso_de_inactivas_en_distribucion_respeta_el_departamento(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09061', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+        FichaProyecto::create(['codigo_proyecto' => 'GIX09061', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
+        $this->rf('MOB09061', 'Costos por aplicar', -50000, 8, 2024, '14350105');
+        $this->rf('GIX09061', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+
+        $mant = $this->supervisor('dep_mantenimiento');
+        $inact = collect($this->actingAs($mant)
+            ->get('/operativo/distribucion?mes=8&anio=2024')
+            ->viewData('inactivasConSaldo'))->pluck('codigo')->all();
+
+        $this->assertContains('MOB09061', $inact);
+        $this->assertNotContains('GIX09061', $inact); // el aviso no cuenta la de otro departamento
+    }
+
     /** Genera un xlsx (hoja MANTENIMIENTO) con las filas dadas. */
     private function hoja(array $filas): UploadedFile
     {

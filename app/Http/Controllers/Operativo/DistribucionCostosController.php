@@ -420,6 +420,8 @@ class DistribucionCostosController extends Controller
             ];
         }
         usort($inactivasConSaldo, fn ($a, $b) => $b['inventario_obra'] <=> $a['inventario_obra']);
+        // Acota el aviso ("Hay N obras…") al departamento permitido del usuario, igual que el listado.
+        $inactivasConSaldo = $this->soloDepartamentoPermitido($inactivasConSaldo, $usuario);
 
         $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto, $bolsaCodigos) {
             if (isset($bolsaCodigos[$o['codigo']])) return false;
@@ -565,7 +567,7 @@ class DistribucionCostosController extends Controller
         $mes  = (int) $request->get('mes', $mesDef);
         $anio = (int) $request->get('anio', $anioDef);
 
-        $lista = $this->inactivasConSaldoData($mes, $anio);
+        $lista = $this->inactivasConSaldoData($mes, $anio, $u);
 
         return view('operativo.inactivas-con-saldo', [
             'lista' => $lista, 'mes' => $mes, 'anio' => $anio,
@@ -584,7 +586,7 @@ class DistribucionCostosController extends Controller
         $mes  = (int) $request->get('mes', $mesDef);
         $anio = (int) $request->get('anio', $anioDef);
 
-        $lista = $this->inactivasConSaldoData($mes, $anio);
+        $lista = $this->inactivasConSaldoData($mes, $anio, $u);
 
         $filas = [['Código', 'Obra', 'Cliente', 'Saldo cuenta 14']];
         foreach ($lista as $f) {
@@ -602,7 +604,7 @@ class DistribucionCostosController extends Controller
      *
      * @return array<int, array{codigo:string,nombre:string,cliente:string,saldo_14:float}>
      */
-    private function inactivasConSaldoData(int $mes, int $anio): array
+    private function inactivasConSaldoData(int $mes, int $anio, ?\App\Models\User $u = null): array
     {
         $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where(function ($q) use ($anio, $mes) {
@@ -634,7 +636,34 @@ class DistribucionCostosController extends Controller
         }
         usort($lista, fn ($a, $b) => $b['saldo_14'] <=> $a['saldo_14']);
 
-        return $lista;
+        // Solo las obras del departamento al que el usuario tiene acceso (admin/total: todas).
+        return $this->soloDepartamentoPermitido($lista, $u);
+    }
+
+    /**
+     * Acota una lista de obras (arrays con clave 'codigo') al departamento permitido del usuario,
+     * con el MISMO patrón por prefijo que ya usa el resto de esta pantalla (reutiliza los helpers
+     * User::tieneFiltroDepartamento y User::departamentosPermitidos). Admin / acceso total: sin filtro.
+     *
+     * @param  array<int, array{codigo:string, ...}>  $lista
+     * @return array<int, array<string,mixed>>
+     */
+    private function soloDepartamentoPermitido(array $lista, ?\App\Models\User $u): array
+    {
+        if (! $u || ! $u->tieneFiltroDepartamento()) {
+            return $lista; // admin o acceso total: ve todo (comportamiento actual)
+        }
+        $prefijos = array_filter(array_map('strtoupper', $u->departamentosPermitidos()));
+
+        return array_values(array_filter($lista, function ($o) use ($prefijos) {
+            $cod = strtoupper((string) ($o['codigo'] ?? ''));
+            foreach ($prefijos as $p) {
+                if (str_starts_with($cod, $p)) {
+                    return true;
+                }
+            }
+            return false;
+        }));
     }
 
     /** Último período (mes, año) con información cargada en RegistroFinanciero (BIABLE). */
