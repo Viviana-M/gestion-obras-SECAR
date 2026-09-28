@@ -292,10 +292,10 @@ class DistribucionCostosController extends Controller
 
                     if (isset($savedAplicar[$sub['cuenta_14']])) {
                         $sub['aplicar'] = (float) $savedAplicar[$sub['cuenta_14']]->monto_aplicar;
-                    } elseif ($distribucion || $sinIngreso) {
+                    } elseif ($distribucion) {
                         $sub['aplicar'] = 0;
                     } else {
-                        // Nuevo borrador con ingreso: precargar el total pendiente.
+                        // Nuevo borrador: precargar el total pendiente (tengan o no ingreso en el mes).
                         $sub['aplicar'] = (float) $sub['pendiente'];
                     }
                 }

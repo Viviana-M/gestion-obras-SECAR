@@ -67,6 +67,30 @@ class PrecargaDistribucionTest extends TestCase
     }
 
     #[Test]
+    public function la_precarga_incluye_los_proyectos_sin_ingreso(): void
+    {
+        // Obra SIN ingreso en el mes, con saldo pendiente en cuenta 14: debe precargar su saldo.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-800', 'nombre_proyecto' => 'Sin ingreso',
+            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar',
+            'estado_er' => -400, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertStatus(200);
+
+        $obras = $resp->viewData('obras');
+        $this->assertArrayHasKey('C-800', $obras);
+        $this->assertTrue($obras['C-800']['sin_ingreso']);   // efectivamente no tiene ingreso
+
+        // El "a aplicar" quedó precargado con el saldo pendiente (400), no en 0.
+        $sumAplicar = 0;
+        foreach ($obras['C-800']['cat'] as $c) foreach ($c['subs'] as $s) $sumAplicar += (float) $s['aplicar'];
+        $this->assertEqualsWithDelta(400, $sumAplicar, 0.5);
+    }
+
+    #[Test]
     public function la_precarga_nunca_excede_el_saldo_neto_abierto(): void
     {
         // Bruto 2.000.000 con una reversa de 714.393 => neto abierto 1.285.607.
