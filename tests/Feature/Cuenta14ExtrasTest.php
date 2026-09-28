@@ -90,6 +90,33 @@ class Cuenta14ExtrasTest extends TestCase
         $this->assertStringNotContainsString('omitidas', session('success'));
     }
 
+    // ─────────── El saldo refleja libro 1 (débito − crédito), no libro 2 ───────────
+
+    #[Test]
+    public function el_saldo_usa_libro1_ignora_libro2_y_no_carga_filas_sin_debito_ni_credito(): void
+    {
+        $archivo = $this->biable([
+            // Fila solo con valor en libro 2 (débito=0, crédito=0): ya NO se carga.
+            ['OB4501', 'OBRA UNO', '14200105', 'AUX', 0, 0, 5000, '202408', '900', 'PROV', '890', 'SECAR', 'SOLO-L2'],
+            // Fila normal: movto efectivo = débito − crédito = 5000 (aunque libro 2 diga otra cosa).
+            ['OB4501', 'OBRA UNO', '14200105', 'AUX', 8000, 3000, 999999, '202408', '901', 'PROV', '890', 'SECAR', 'L1'],
+        ]);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.carga.store'), ['archivo' => $archivo, 'mes' => 8, 'anio' => 2024])
+            ->assertRedirect()->assertSessionHas('success');
+
+        // Solo entra la fila con débito/crédito; la de solo libro 2 queda fuera.
+        $this->assertSame(1, RegistroFinanciero::where('mes', 8)->where('anio', 2024)->count());
+        $this->assertSame(0, RegistroFinanciero::where('documento', 'SOLO-L2')->count());
+
+        $rf = RegistroFinanciero::where('documento', 'L1')->sole();
+        $this->assertEqualsWithDelta(8000, $rf->valor_debito, 1);
+        $this->assertEqualsWithDelta(3000, $rf->valor_credito, 1);
+        $this->assertEqualsWithDelta(5000, $rf->movto_libro2, 1);   // guarda el movto efectivo (déb − cré), no el 999999 del archivo
+        $this->assertEqualsWithDelta(-5000, $rf->estado_er, 1);     // cuenta 14 → movto × −1
+    }
+
     // ─────────── COM00099 es una obra real con saldo: debe entrar ───────────
 
     #[Test]

@@ -90,12 +90,11 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     public function paraRegistro(array $row, $ahora): ?array
     {
-        $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
-        if ($movto == 0) {
-            $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
-            $credito = $this->limpiarNumero($row['creditos'] ?? 0);
-            $movto   = $debito - $credito;
-        }
+        // El saldo de la cuenta 14 refleja libro 1 (débito − crédito), NO libro 2. Un movimiento
+        // con débito=0 y crédito=0 (que solo tenía valor en libro 2) queda en $0 y no se carga.
+        $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
+        $credito = $this->limpiarNumero($row['creditos'] ?? 0);
+        $movto   = $debito - $credito;
         if ($movto == 0) return null;
 
         $periodo = trim((string) ($row['periodo'] ?? ''));
