@@ -58,6 +58,11 @@ class PlanosAplicadosController extends Controller
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
             'No tienes permiso para editar en Contabilidad.');
 
+        if (\App\Models\CierreConciliacion::estaCerrado((int) $plano->mes, (int) $plano->anio)) {
+            return back()->with('error',
+                "El período {$plano->mes}/{$plano->anio} está cerrado. Reábrelo en «Conciliación y cierre» para poder deshacer este plano.");
+        }
+
         $n = DB::transaction(function () use ($plano) {
             $borrados = RegistroFinanciero::where('plano_aplicado_id', $plano->id)->delete();
             $plano->delete();

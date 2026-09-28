@@ -95,6 +95,11 @@ class PlanoReversionController extends Controller
         if ($corteMes === null || $corteAnio === null) { $corteMes = null; $corteAnio = null; }
         $numeroDoc = (int) $datos['documento'];
 
+        $destinoMes = (int) $datos['destino_mes']; $destinoAnio = (int) $datos['destino_anio'];
+        if (\App\Models\CierreConciliacion::estaCerrado($destinoMes, $destinoAnio)) {
+            return back()->with('error', "El período destino {$destinoMes}/{$destinoAnio} está cerrado. Reábrelo para aplicar planos ahí.");
+        }
+
         $lineas = $this->construirLineas($corteMes, $corteAnio, $numeroDoc);
         if (empty($lineas)) {
             return back()->with('error', 'No hay cuentas 14 con saldo contrario para aplicar en este corte.');

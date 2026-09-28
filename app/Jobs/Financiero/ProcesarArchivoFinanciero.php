@@ -4,6 +4,7 @@ namespace App\Jobs\Financiero;
 
 use App\Imports\Financiero\MovimientoBiableImport;
 use App\Models\CargaFinanciera;
+use App\Models\CierreConciliacion;
 use App\Models\RegistroFinanciero;
 use App\Models\SaldoBalance;
 use Illuminate\Bus\Queueable;
@@ -54,6 +55,11 @@ class ProcesarArchivoFinanciero implements ShouldQueue
 
         if (!is_file($archivo)) {
             throw new \RuntimeException("No encuentro el archivo: {$archivo}");
+        }
+
+        // Un período conciliado y cerrado no se puede recargar (bloqueado hasta reabrirlo).
+        if (CierreConciliacion::estaCerrado((int) $this->mes, (int) $this->anio)) {
+            throw new \RuntimeException("El período {$this->mes}/{$this->anio} está cerrado (conciliado). Reábrelo para poder recargarlo.");
         }
 
         // Reprocesar REEMPLAZA el período, pero SOLO lo cargado desde BIABLE (origen='biable'): los

@@ -135,6 +135,11 @@ class PlanoContableController extends Controller
 
         $numeroDoc = (int) $datos['documento'];
 
+        $destinoMes = (int) $datos['destino_mes']; $destinoAnio = (int) $datos['destino_anio'];
+        if (\App\Models\CierreConciliacion::estaCerrado($destinoMes, $destinoAnio)) {
+            return back()->with('error', "El período destino {$destinoMes}/{$destinoAnio} está cerrado. Reábrelo para aplicar planos ahí.");
+        }
+
         try {
             $movimientos = $this->armarMovimientosDistribucion($distribucion, $numeroDoc);
         } catch (\RuntimeException $e) {

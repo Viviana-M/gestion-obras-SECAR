@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Financiero;
 use App\Http\Controllers\Concerns\ProcesaCargaPorLotes;
 use App\Http\Controllers\Controller;
 use App\Models\CargaFinanciera;
+use App\Models\CierreConciliacion;
 use App\Models\RegistroFinanciero;
 use App\Models\SaldoBalance;
 use App\Support\Lotes\ImportadorCierre;
@@ -35,6 +36,9 @@ class CargaFinancieraController extends Controller
             'mes'     => 'required|integer|between:1,12',
             'anio'    => 'required|integer|min:2020',
         ]);
+        if ($msg = $this->periodoBloqueado((int) $request->mes, (int) $request->anio)) {
+            return back()->with('error', $msg);
+        }
         $this->elevarLimites();
 
         $carga = $this->crearCarga($request);
@@ -65,6 +69,9 @@ class CargaFinancieraController extends Controller
             'mes'     => 'required|integer|between:1,12',
             'anio'    => 'required|integer|min:2020',
         ]);
+        if ($msg = $this->periodoBloqueado((int) $request->mes, (int) $request->anio)) {
+            return response()->json(['ok' => false, 'error' => $msg], 422);
+        }
         $this->elevarLimites();
 
         $carga = null;
@@ -144,6 +151,10 @@ class CargaFinancieraController extends Controller
 
         $carga = CargaFinanciera::findOrFail($id);
 
+        if ($msg = $this->periodoBloqueado((int) $carga->mes, (int) $carga->anio)) {
+            return back()->with('error', $msg);
+        }
+
         // Borra SOLO lo cargado desde BIABLE de ese período; conserva los movimientos generados por
         // el sistema al aplicar planos (reverso_plano/distribucion_plano).
         RegistroFinanciero::where('mes', $carga->mes)->where('anio', $carga->anio)->where('origen', 'biable')->delete();
@@ -178,5 +189,13 @@ class CargaFinancieraController extends Controller
         $carga->setTotalFilas($a['total']);
         $carga->setMetaLotes($a['meta']);
         $carga->save();
+    }
+
+    /** Mensaje de bloqueo si el período (mes, año) está conciliado y cerrado; null si está libre. */
+    private function periodoBloqueado(int $mes, int $anio): ?string
+    {
+        return CierreConciliacion::estaCerrado($mes, $anio)
+            ? "El período {$mes}/{$anio} está cerrado (conciliado). Reábrelo en «Conciliación y cierre» para poder recargarlo."
+            : null;
     }
 }

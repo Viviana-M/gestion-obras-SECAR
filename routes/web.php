@@ -108,6 +108,14 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/planos-aplicados', [\App\Http\Controllers\Contable\PlanosAplicadosController::class, 'index'])->name('contable.planos-aplicados.index');
         Route::post('/contable/planos-aplicados/{plano}/deshacer', [\App\Http\Controllers\Contable\PlanosAplicadosController::class, 'deshacer'])->name('contable.planos-aplicados.deshacer');
 
+        // Conciliación y cierre de cuenta 14 (y 6) vs ERP, con bloqueo del período conciliado.
+        Route::get('/contable/conciliacion-cierre', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'index'])->name('contable.conciliacion-cierre.index');
+        Route::post('/contable/conciliacion-cierre/erp', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'subirErp'])->name('contable.conciliacion-cierre.erp');
+        Route::post('/contable/conciliacion-cierre/limpiar', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'limpiar'])->name('contable.conciliacion-cierre.limpiar');
+        Route::get('/contable/conciliacion-cierre/excel', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'excel'])->name('contable.conciliacion-cierre.excel');
+        Route::post('/contable/conciliacion-cierre/cerrar', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'cerrar'])->name('contable.conciliacion-cierre.cerrar');
+        Route::post('/contable/conciliacion-cierre/{cierre}/reabrir', [\App\Http\Controllers\Contable\ConciliacionCierreController::class, 'reabrir'])->name('contable.conciliacion-cierre.reabrir');
+
         // Reconciliación cuenta 14: sistema vs archivo del ERP.
         Route::get('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'index'])->name('contable.recon14.index');
         Route::post('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'store'])->name('contable.recon14.store');
