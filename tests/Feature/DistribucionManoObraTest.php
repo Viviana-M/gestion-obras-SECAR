@@ -2,19 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Models\AutoliquidacionAporte;
 use App\Models\FichaProyecto;
 use App\Models\Homologacion;
 use App\Models\ManoObraAsignacion;
 use App\Models\PlanoAplicado;
 use App\Models\RegistroFinanciero;
+use App\Models\TerceroManoObra;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * Mano de obra por tercero integrada en el grid de bolsas: desglose real por tercero, subtotales
- * MO/sin-MO, asignación por (UN, cuenta, tercero) → obra, y plano 14→61 por departamento.
+ * Mano de obra DIRECTA integrada en el grid de bolsas: costo completo por persona (maestro Mano de
+ * obra directa) usando el mismo cruce por cédula del plano de MO de apoyo (salario cuenta 14 +
+ * seguridad social de la autoliquidación), asignación por persona → obra, subtotales, resumen y
+ * plano 14→61 preservando persona + obra destino.
  */
 class DistribucionManoObraTest extends TestCase
 {
@@ -34,21 +38,36 @@ class DistribucionManoObraTest extends TestCase
     }
 
     /** Línea de la cuenta 14 de una bolsa con un tercero. estado_er negativo = pendiente. */
-    private function rf(string $bolsa, string $c14, string $doc, float $monto, int $mes = 5, int $anio = 2026): void
+    private function rf(string $bolsa, string $c14, string $doc, string $nom, float $monto, int $mes = 5, int $anio = 2026): void
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $bolsa, 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $c14,
-            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $doc, 'razon_social' => 'T '.$doc,
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $doc, 'razon_social' => $nom,
             'estado_er' => -abs($monto), 'valor_debito' => 0, 'valor_credito' => 0,
             'mes' => $mes, 'anio' => $anio, 'origen' => 'biable',
         ]);
     }
 
+    /**
+     * Escenario base: Juan (maestro Mano de obra directa) con salario 500k en la cuenta 14200530 de
+     * MTO00099 y 100k de seguridad social en la autoliquidación (fondo 800100). Además materiales
+     * 200k (no MO). Costo completo de Juan = 600k. Total bolsa = 800k.
+     */
     private function base(): void
     {
-        // Bolsa MTO00099 (mantenimiento) ya sembrada. 14200530 = MO (estructura), 14350105 = materiales.
-        $this->homolog('14200530', '73950505', 'MOI');
-        $this->homolog('14350105', '61350105', 'EQU-MAT-SUM');
+        $this->homolog('14200530', '73950505', 'MOI');          // MO (está en CUENTAS_MO)
+        $this->homolog('14350105', '61350105', 'EQU-MAT-SUM');  // materiales (resto)
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+
+        $this->rf('MTO00099', '14200530', '111', 'Juan Perez', 500000);  // salario de Juan
+        $this->rf('MTO00099', '14200530', '800100', 'EPS SURA', 100000); // seguridad social (fondo) en la 14
+        $this->rf('MTO00099', '14350105', '900', 'Ferreteria', 200000);  // materiales (resto)
+
+        AutoliquidacionAporte::create([
+            'cedula' => '800100', 'razon_social' => 'EPS SURA', 'empleado' => '111', 'empleado_nombre' => 'Juan Perez',
+            'id_cuenta' => '14200530', 'aporte_empresa' => 100000, 'aporte_empleado' => 0, 'mes' => 5, 'anio' => 2026,
+        ]);
+
         FichaProyecto::create(['codigo_proyecto' => 'OB1', 'nombre_obra' => 'Obra 1', 'activa' => true]);
         FichaProyecto::create(['codigo_proyecto' => 'OB2', 'nombre_obra' => 'Obra 2', 'activa' => true]);
     }
@@ -58,70 +77,75 @@ class DistribucionManoObraTest extends TestCase
         return collect($resp->viewData('bolsas'))->firstWhere('codigo', 'mantenimiento');
     }
 
-    // ─────────── Grid: subtotales y desglose por tercero (bug corregido) ───────────
+    // ─────────── Grid: costo por persona y subtotales ───────────
 
     #[Test]
-    public function el_grid_abre_la_mo_por_tercero_real_y_muestra_subtotales(): void
+    public function el_grid_abre_por_persona_del_maestro_con_su_costo_completo(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);   // MO
-        $this->rf('MTO00099', '14200530', '222', 300000);   // MO, otro tercero
-        $this->rf('MTO00099', '14350105', '900', 200000);   // materiales (no MO)
 
         $b = $this->bolsaMto($this->actingAs($this->op('ver'))
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento'));
 
         $this->assertNotNull($b);
-        // Subtotales: X (sin MO) + Y (MO) = Total.
-        $this->assertEqualsWithDelta(800000, $b['total_mo'], 1);
+        // Costo completo de Juan = salario 500k + seguridad social 100k = 600k.
+        $personas = collect($b['mo_personas'])->keyBy('cedula');
+        $this->assertCount(1, $personas);
+        $this->assertEqualsWithDelta(600000, $personas['111']['total'], 1);
+        $this->assertCount(2, $personas['111']['buckets']); // salario + SS
+
+        // Subtotales: MO directa a distribuir (Y) + resto (X) = Total.
+        $this->assertEqualsWithDelta(600000, $b['total_mo'], 1);
         $this->assertEqualsWithDelta(200000, $b['total_sinmo'], 1);
         $this->assertEqualsWithDelta($b['total'], $b['total_mo'] + $b['total_sinmo'], 1);
+    }
 
-        // La cuenta de MO se abre por tercero (no colapsada en uno solo).
-        $lineaMo = collect($b['lineas'])->firstWhere('cuenta_14', '14200530');
-        $ters = collect($lineaMo['terceros'])->keyBy('tercero');
-        $this->assertCount(2, $ters);
-        $this->assertEqualsWithDelta(500000, $ters['111']['saldo'], 1);
-        $this->assertEqualsWithDelta(300000, $ters['222']['saldo'], 1);
-        // La suma por cuenta cuadra con el saldo de la línea.
-        $this->assertEqualsWithDelta($lineaMo['saldo'], $ters->sum('saldo'), 1);
+    #[Test]
+    public function una_persona_fuera_del_maestro_no_entra(): void
+    {
+        $this->base();
+        // Otro tercero con MO en la bolsa, pero NO está en el maestro: no debe aparecer.
+        $this->rf('MTO00099', '14200530', '222', 'Pedro Ajeno', 300000);
 
-        // La cuenta no laboral NO se abre por tercero.
-        $lineaMat = collect($b['lineas'])->firstWhere('cuenta_14', '14350105');
-        $this->assertEmpty($lineaMat['terceros']);
+        $b = $this->bolsaMto($this->actingAs($this->op('ver'))
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento'));
+
+        $personas = collect($b['mo_personas'])->pluck('cedula')->all();
+        $this->assertSame(['111'], $personas);
+        $this->assertEqualsWithDelta(600000, $b['total_mo'], 1); // solo Juan
     }
 
     // ─────────── Guardar / validación ───────────
 
     #[Test]
-    public function guarda_la_asignacion_por_tercero_a_varias_obras(): void
+    public function guarda_la_asignacion_por_persona_a_varias_obras(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
 
         $this->actingAs($this->op())->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
             'asignaciones' => [
-                ['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 300000],
-                ['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB2', 'monto' => 200000],
+                ['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 400000],
+                ['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB2', 'monto' => 200000],
             ],
         ])->assertRedirect()->assertSessionHas('success');
 
-        $this->assertEqualsWithDelta(300000, ManoObraAsignacion::where('obra_destino', 'OB1')->sum('monto'), 1);
+        // Se reparte por obra y por bucket (salario + SS), preservando persona.
+        $this->assertEqualsWithDelta(400000, ManoObraAsignacion::where('obra_destino', 'OB1')->sum('monto'), 1);
         $this->assertEqualsWithDelta(200000, ManoObraAsignacion::where('obra_destino', 'OB2')->sum('monto'), 1);
-        $this->assertSame('MTO00099', ManoObraAsignacion::first()->bolsa_un);
-        $this->assertSame('111', ManoObraAsignacion::first()->tercero);
+        $this->assertSame('111', ManoObraAsignacion::first()->persona);
+        // Cada obra se explota en dos filas (salario + SS).
+        $this->assertSame(2, ManoObraAsignacion::where('obra_destino', 'OB1')->count());
     }
 
     #[Test]
-    public function no_deja_asignar_mas_del_saldo_del_tercero(): void
+    public function no_deja_asignar_mas_del_costo_de_la_persona(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
 
         $this->actingAs($this->op())->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
-            'asignaciones' => [['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 600000]],
+            'asignaciones' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 700000]],
         ])->assertRedirect()->assertSessionHas('error');
 
         $this->assertSame(0, ManoObraAsignacion::count());
@@ -130,58 +154,59 @@ class DistribucionManoObraTest extends TestCase
     // ─────────── Precargar ───────────
 
     #[Test]
-    public function precarga_el_mapa_del_mes_anterior_con_el_saldo_actual(): void
+    public function precarga_las_proporciones_del_mes_anterior_con_el_costo_actual(): void
     {
         $this->base();
         foreach ([['OB1', 300000], ['OB2', 100000]] as [$obra, $monto]) {
             ManoObraAsignacion::create(['bolsa_un' => 'MTO00099', 'cuenta_14' => '14200530', 'persona' => '111',
                 'tercero' => '111', 'obra_destino' => $obra, 'monto' => $monto, 'mes' => 4, 'anio' => 2026, 'origen' => 'manual']);
         }
-        $this->rf('MTO00099', '14200530', '111', 500000);
 
         $this->actingAs($this->op())->post(route('operativo.mano-obra.precargar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
         ])->assertRedirect()->assertSessionHas('success');
 
+        // Costo actual de Juan (600k) repartido en 75/25 (proporción del mes anterior).
         $may = ManoObraAsignacion::where('mes', 5)->where('anio', 2026)->get()
             ->groupBy('obra_destino')->map(fn ($g) => $g->sum('monto'));
-        $this->assertEqualsWithDelta(375000, $may['OB1'], 1);
-        $this->assertEqualsWithDelta(125000, $may['OB2'], 1);
+        $this->assertEqualsWithDelta(450000, $may['OB1'], 1);
+        $this->assertEqualsWithDelta(150000, $may['OB2'], 1);
     }
 
     // ─────────── Resumen ───────────
 
     #[Test]
-    public function el_resumen_por_obra_cuadra_con_lo_asignado(): void
+    public function el_resumen_por_obra_cuadra_por_persona(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
         $this->actingAs($this->op())->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
             'asignaciones' => [
-                ['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 300000],
-                ['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB2', 'monto' => 200000],
+                ['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 400000],
+                ['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB2', 'monto' => 200000],
             ],
         ])->assertRedirect();
 
         $resp = $this->actingAs($this->op('ver'))->get(route('operativo.mano-obra.resumen', ['departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026]));
-        $this->assertEqualsWithDelta(500000, $resp->viewData('total'), 1);
+        $this->assertEqualsWithDelta(600000, $resp->viewData('total'), 1);
         $porObra = collect($resp->viewData('resumen'))->keyBy('obra');
-        $this->assertEqualsWithDelta(300000, $porObra['OB1']['total'], 1);
-        $this->assertEqualsWithDelta(200000, $porObra['OB2']['total'], 1);
+        $this->assertEqualsWithDelta(400000, $porObra['OB1']['total'], 1);
+        // Desglose por persona (agrega salario + SS en una sola línea de Juan).
+        $this->assertCount(1, $porObra['OB1']['detalle']);
+        $this->assertSame('111', $porObra['OB1']['detalle'][0]['tercero']);
+        $this->assertEqualsWithDelta(400000, $porObra['OB1']['detalle'][0]['monto'], 1);
     }
 
     // ─────────── Aplicar 14→61 ───────────
 
     #[Test]
-    public function aplicar_crea_la_partida_doble_y_baja_el_saldo(): void
+    public function aplicar_preserva_persona_y_obra_y_baja_el_saldo(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
         $c = $this->op();
         $this->actingAs($c)->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
-            'asignaciones' => [['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 500000]],
+            'asignaciones' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 600000]],
         ])->assertRedirect();
 
         $this->actingAs($c)->post(route('operativo.mano-obra.aplicar'), [
@@ -191,15 +216,19 @@ class DistribucionManoObraTest extends TestCase
         $plano = PlanoAplicado::where('tipo', 'mo_distribucion')->sole();
         $this->assertSame('MTO00099', $plano->bolsa_un);
 
-        $cr = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '14200530')->sole();
-        $this->assertSame('MTO00099', $cr->codigo_proyecto);
-        $this->assertSame('111', $cr->tercero_dcto);
-        $this->assertEqualsWithDelta(500000, $cr->valor_credito, 1);
+        // CR la 14 en la bolsa (con el tercero del ERP: persona en salario, fondo en SS).
+        $cr = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '14200530')->get();
+        $this->assertEqualsWithDelta(600000, $cr->sum('valor_credito'), 1);
+        $this->assertSame(['MTO00099'], $cr->pluck('codigo_proyecto')->unique()->values()->all());
+        $this->assertEqualsContains(['111', '800100'], $cr->pluck('tercero_dcto')->all());
 
-        $db = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '73950505')->sole();
-        $this->assertSame('OB1', $db->codigo_proyecto);
-        $this->assertEqualsWithDelta(500000, $db->valor_debito, 1);
+        // DB la 61 homologada en la obra destino, siempre con la PERSONA.
+        $db = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '73950505')->get();
+        $this->assertEqualsWithDelta(600000, $db->sum('valor_debito'), 1);
+        $this->assertSame(['OB1'], $db->pluck('codigo_proyecto')->unique()->values()->all());
+        $this->assertSame(['111'], $db->pluck('tercero_dcto')->unique()->values()->all());
 
+        // El saldo de la 14 en la bolsa quedó en cero (se aplicó el costo completo).
         $neto = RegistroFinanciero::where('codigo_proyecto', 'MTO00099')->where('cuenta_contable', '14200530')->sum('estado_er');
         $this->assertEqualsWithDelta(0, $neto, 1);
     }
@@ -208,29 +237,33 @@ class DistribucionManoObraTest extends TestCase
     public function reaplicar_reemplaza_no_acumula(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
         $c = $this->op();
         $this->actingAs($c)->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
-            'asignaciones' => [['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 500000]],
+            'asignaciones' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 600000]],
         ])->assertRedirect();
 
         $this->actingAs($c)->post(route('operativo.mano-obra.aplicar'), ['departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026])->assertRedirect();
         $this->actingAs($c)->post(route('operativo.mano-obra.aplicar'), ['departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026])->assertRedirect();
 
         $this->assertSame(1, PlanoAplicado::where('tipo', 'mo_distribucion')->count());
-        $this->assertSame(2, RegistroFinanciero::where('origen', 'distribucion_plano')->count());
+        $this->assertSame(4, RegistroFinanciero::where('origen', 'distribucion_plano')->count()); // 2 CR + 2 DB
     }
 
     #[Test]
     public function un_usuario_solo_lectura_no_puede_guardar(): void
     {
         $this->base();
-        $this->rf('MTO00099', '14200530', '111', 500000);
 
         $this->actingAs($this->op('ver'))->post(route('operativo.mano-obra.guardar'), [
             'departamento' => 'mantenimiento', 'mes' => 5, 'anio' => 2026,
-            'asignaciones' => [['un' => 'MTO00099', 'cuenta_14' => '14200530', 'tercero' => '111', 'obra' => 'OB1', 'monto' => 100000]],
+            'asignaciones' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'obra' => 'OB1', 'monto' => 100000]],
         ])->assertForbidden();
+    }
+
+    /** Helper: los valores esperados están todos presentes (en cualquier orden). */
+    private function assertEqualsContains(array $esperados, array $reales): void
+    {
+        foreach ($esperados as $e) $this->assertContains($e, $reales);
     }
 }

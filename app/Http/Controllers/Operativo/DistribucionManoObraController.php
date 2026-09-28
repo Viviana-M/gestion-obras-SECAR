@@ -19,11 +19,13 @@ use Maatwebsite\Excel\Facades\Excel;
 /**
  * DISTRIBUCIÓN DE MANO DE OBRA — acciones del grid de bolsas de la pantalla de Distribución.
  *
- * La MO se abre por tercero real dentro del grid de cada bolsa (departamento). Estas acciones
- * (guardar, precargar, plano, aplicar, resumen) operan a nivel DEPARTAMENTO, recorriendo sus UN.
- * Guardan en mano_obra_asignacion (bolsa_un, cuenta_14, tercero, obra_destino, monto, …) y aplican
- * la partida doble 14→61 (origen='distribucion_plano', idempotente por bolsa+período). No cambian la
- * clasificación ni el estado_er ni la lógica del plano que ya funciona.
+ * La MO directa se abre por PERSONA (maestro Mano de obra directa) dentro del grid de cada bolsa
+ * (departamento), con su costo completo del período (salario + seguridad social, mismo cruce por
+ * cédula del plano de MO de apoyo). Estas acciones (guardar, precargar, plano, aplicar, resumen)
+ * operan a nivel DEPARTAMENTO, recorriendo sus UN. Guardan en mano_obra_asignacion (persona/cédula,
+ * cuenta_14, tercero del ERP, obra_destino, monto, …) y aplican la partida doble 14→61
+ * (origen='distribucion_plano', idempotente por bolsa+período). No cambian la clasificación ni el
+ * estado_er ni la lógica del plano que ya funciona.
  */
 class DistribucionManoObraController extends Controller
 {
@@ -48,7 +50,7 @@ class DistribucionManoObraController extends Controller
             ->pluck('codigo')->all();
     }
 
-    /** Guarda las asignaciones del departamento (reemplaza las del período). Valida ≤ saldo por (UN, cuenta, tercero). */
+    /** Guarda las asignaciones del departamento (reemplaza las del período). Valida ≤ costo completo por PERSONA. */
     public function guardar(Request $request)
     {
         abort_unless($request->user()->puedeEditarModulo('operacion'), 403, 'No tienes permiso para editar en Operaciones.');
@@ -57,11 +59,8 @@ class DistribucionManoObraController extends Controller
             'mes'  => 'required|integer|between:1,12',
             'anio' => 'required|integer|min:2000',
             'asignaciones'                 => 'array',
-            'asignaciones.*.un'            => 'required|string',
-            'asignaciones.*.cuenta_14'     => 'required|string',
-            'asignaciones.*.tercero'       => 'required|string',
-            'asignaciones.*.tercero_doc'   => 'nullable|string',
-            'asignaciones.*.tercero_nombre'=> 'nullable|string',
+            'asignaciones.*.cedula'        => 'required|string',
+            'asignaciones.*.nombre'        => 'nullable|string',
             'asignaciones.*.obra'          => 'required|string',
             'asignaciones.*.monto'         => 'required|numeric|min:0',
             'asignaciones.*.observacion'   => 'nullable|string|max:255',
@@ -69,56 +68,39 @@ class DistribucionManoObraController extends Controller
         $depto = $datos['departamento']; $mes = (int) $datos['mes']; $anio = (int) $datos['anio'];
         $codigos = $this->unsDeDepto($depto);
 
-        // Saldo real por (UN|cuenta|tercero) — misma base que el grid (resta MO de apoyo).
-        $saldoMap = [];
-        foreach ($this->dist->manoObraPorTercero($codigos, $anio, $mes) as $unCta => $ters) {
-            foreach ($ters as $t) $saldoMap[$unCta.'|'.$t['tercero']] = (float) $t['saldo'];
-        }
+        // Costo completo por persona (solo el maestro Mano de obra directa), con sus buckets.
+        $personas = $this->dist->manoObraDirectaPorPersona($codigos, $anio, $mes);
 
-        // Agrupa lo enviado por (UN|cuenta|tercero) y valida contra el saldo.
-        $porClave = [];
+        // Agrupa lo enviado por cédula → [obra => {monto, obs}] y valida el total contra el costo de la persona.
+        $mapa = [];
         foreach ($datos['asignaciones'] ?? [] as $a) {
             $monto = round((float) $a['monto'], 2);
             if ($monto <= 0.005) continue;
-            $clave = $a['un'].'|'.$a['cuenta_14'].'|'.$a['tercero'];
-            $porClave[$clave][] = $a + ['monto' => $monto];
+            $ced = (string) $a['cedula']; $obra = (string) $a['obra'];
+            if (! isset($mapa[$ced][$obra])) $mapa[$ced][$obra] = ['monto' => 0.0, 'obs' => $a['observacion'] ?? null];
+            $mapa[$ced][$obra]['monto'] += $monto;
         }
-        foreach ($porClave as $clave => $filas) {
-            $saldo = (float) ($saldoMap[$clave] ?? 0);
-            $suma  = round(array_sum(array_column($filas, 'monto')), 2);
-            if ($suma - $saldo > 0.5) {
-                [$un, $cta, $ter] = explode('|', $clave);
+        foreach ($mapa as $ced => $obras) {
+            $costo = (float) ($personas[$ced]['total'] ?? 0);
+            $suma  = round(array_sum(array_column($obras, 'monto')), 2);
+            if ($suma - $costo > 0.5) {
+                $nom = $personas[$ced]['nombre'] ?? $ced;
                 return back()->with('error',
-                    "El tercero {$ter} (UN {$un}, cuenta {$cta}) tiene asignado ".number_format($suma, 0, ',', '.').
-                    " que supera su saldo de ".number_format($saldo, 0, ',', '.').". Ajusta antes de guardar.");
+                    "A {$nom} le asignaste ".number_format($suma, 0, ',', '.').
+                    " que supera su costo de mano de obra de ".number_format($costo, 0, ',', '.').". Ajusta antes de guardar.");
             }
         }
 
-        DB::transaction(function () use ($codigos, $mes, $anio, $porClave, $request) {
+        DB::transaction(function () use ($codigos, $mes, $anio, $personas, $mapa, $request) {
             ManoObraAsignacion::whereIn('bolsa_un', $codigos)->where('mes', $mes)->where('anio', $anio)->delete();
-            $filas = [];
-            $ahora = now();
-            foreach ($porClave as $clave => $rows) {
-                foreach ($rows as $a) {
-                    $filas[] = [
-                        'bolsa_un' => (string) $a['un'], 'cuenta_14' => (string) $a['cuenta_14'],
-                        'persona' => (string) $a['tercero'], 'tercero' => (string) $a['tercero'],
-                        'tercero_doc' => $a['tercero_doc'] ?? (string) $a['tercero'],
-                        'tercero_nombre' => $a['tercero_nombre'] ?? null,
-                        'obra_destino' => (string) $a['obra'], 'monto' => (float) $a['monto'],
-                        'mes' => $mes, 'anio' => $anio, 'observacion' => $a['observacion'] ?? null,
-                        'origen' => 'manual', 'user_id' => $request->user()?->id,
-                        'created_at' => $ahora, 'updated_at' => $ahora,
-                    ];
-                }
-            }
+            $filas = $this->construirFilas($personas, $mapa, $mes, $anio, 'manual', $request->user()?->id);
             if (! empty($filas)) ManoObraAsignacion::insert($filas);
         });
 
         return back()->with('success', 'Asignaciones de mano de obra guardadas.');
     }
 
-    /** Precarga el mapa (UN, cuenta, tercero) → obra(s) del mes anterior, repartiendo el saldo ACTUAL en las mismas proporciones. */
+    /** Precarga el mapa persona → obra(s) del mes anterior, repartiendo el COSTO ACTUAL de cada persona en las mismas proporciones. */
     public function precargar(Request $request)
     {
         abort_unless($request->user()->puedeEditarModulo('operacion'), 403, 'No tienes permiso para editar en Operaciones.');
@@ -133,51 +115,81 @@ class DistribucionManoObraController extends Controller
         if ($prev->isEmpty()) {
             return back()->with('error', 'No hay distribución del mes anterior para esta área.');
         }
-        // Mapa previo por (UN|cuenta|tercero) → [obra => monto].
-        $mapaPrev = [];
+        // Mapa previo por PERSONA → [obra => monto] (proporciones del mes anterior).
+        $prevPorObra = [];
         foreach ($prev as $a) {
-            $clave = $a->bolsa_un.'|'.$a->cuenta_14.'|'.$a->tercero;
-            $mapaPrev[$clave][$a->obra_destino] = ($mapaPrev[$clave][$a->obra_destino] ?? 0) + (float) $a->monto;
+            $ced = (string) ($a->persona ?: $a->tercero);
+            $prevPorObra[$ced][$a->obra_destino] = ($prevPorObra[$ced][$a->obra_destino] ?? 0) + (float) $a->monto;
         }
-        // Saldo actual por (UN|cuenta|tercero).
-        $saldoMap = []; $infoMap = [];
-        foreach ($this->dist->manoObraPorTercero($codigos, $anio, $mes) as $unCta => $ters) {
-            [$un, $cta] = explode('|', $unCta);
-            foreach ($ters as $t) {
-                $clave = $unCta.'|'.$t['tercero'];
-                $saldoMap[$clave] = (float) $t['saldo'];
-                $infoMap[$clave] = ['un' => $un, 'cuenta_14' => $cta, 'tercero' => $t['tercero'], 'doc' => $t['doc'], 'nombre' => $t['nombre']];
+
+        // Costo actual por persona → reparte el total en las proporciones del mes anterior.
+        $personas = $this->dist->manoObraDirectaPorPersona($codigos, $anio, $mes);
+        $mapa = [];
+        foreach ($personas as $ced => $p) {
+            $obras = $prevPorObra[$ced] ?? null;
+            if (! $obras) continue;
+            $totalPrev = array_sum($obras);
+            if ($totalPrev <= 0.005) continue;
+            $costo = (float) $p['total'];
+            $acum = 0.0; $ultima = array_key_last($obras);
+            foreach ($obras as $obra => $montoPrev) {
+                $monto = $obra === $ultima ? round($costo - $acum, 2) : round($costo * ($montoPrev / $totalPrev), 2);
+                $acum += $monto;
+                if ($monto <= 0.005) continue;
+                $mapa[$ced][(string) $obra] = ['monto' => $monto, 'obs' => 'Precargado del mes anterior'];
             }
         }
 
-        DB::transaction(function () use ($codigos, $mes, $anio, $mapaPrev, $saldoMap, $infoMap, $request) {
+        DB::transaction(function () use ($codigos, $mes, $anio, $personas, $mapa, $request) {
             ManoObraAsignacion::whereIn('bolsa_un', $codigos)->where('mes', $mes)->where('anio', $anio)->delete();
-            $filas = []; $ahora = now();
-            foreach ($mapaPrev as $clave => $obras) {
-                $saldo = (float) ($saldoMap[$clave] ?? 0);
-                $info  = $infoMap[$clave] ?? null;
-                if ($saldo <= 0.005 || ! $info) continue;
-                $totalPrev = array_sum($obras);
-                if ($totalPrev <= 0.005) continue;
-                $acum = 0.0; $ultima = array_key_last($obras);
-                foreach ($obras as $obra => $montoPrev) {
-                    $monto = $obra === $ultima ? round($saldo - $acum, 2) : round($saldo * ($montoPrev / $totalPrev), 2);
-                    $acum += $monto;
-                    if ($monto <= 0.005) continue;
-                    $filas[] = [
-                        'bolsa_un' => $info['un'], 'cuenta_14' => $info['cuenta_14'],
-                        'persona' => $info['tercero'], 'tercero' => $info['tercero'],
-                        'tercero_doc' => $info['doc'] ?: $info['tercero'], 'tercero_nombre' => $info['nombre'] ?: null,
-                        'obra_destino' => (string) $obra, 'monto' => $monto, 'mes' => $mes, 'anio' => $anio,
-                        'observacion' => 'Precargado del mes anterior', 'origen' => 'precargado', 'user_id' => $request->user()?->id,
-                        'created_at' => $ahora, 'updated_at' => $ahora,
-                    ];
-                }
-            }
+            $filas = $this->construirFilas($personas, $mapa, $mes, $anio, 'precargado', $request->user()?->id);
             if (! empty($filas)) ManoObraAsignacion::insert($filas);
         });
 
         return back()->with('success', 'Distribución precargada del mes anterior. Revisa y ajusta antes de aplicar.');
+    }
+
+    /**
+     * Explota cada asignación (persona → obra → monto) en filas de mano_obra_asignacion, repartiendo
+     * el monto proporcionalmente entre los buckets del costo de la persona (salario y seguridad
+     * social), para preservar la cuenta 14 y el tercero del ERP de cada componente en el plano.
+     *
+     * @param  array  $personas  [cédula => {cedula,doc,nombre,total,buckets}]
+     * @param  array  $mapa      [cédula => [obra => {monto, obs}]]
+     * @return array<int, array<string,mixed>>
+     */
+    private function construirFilas(array $personas, array $mapa, int $mes, int $anio, string $origen, ?int $userId): array
+    {
+        $ahora = now();
+        $filas = [];
+        foreach ($mapa as $ced => $obras) {
+            $p = $personas[(string) $ced] ?? null;
+            if (! $p || $p['total'] <= 0.005 || empty($p['buckets'])) continue;
+            $total = (float) $p['total'];
+
+            foreach ($obras as $obra => $info) {
+                $montoObra = round((float) $info['monto'], 2);
+                if ($montoObra <= 0.005) continue;
+                $obs = $info['obs'] ?? null;
+
+                $acum = 0.0; $ult = count($p['buckets']) - 1;
+                foreach ($p['buckets'] as $idx => $b) {
+                    $monto = $idx === $ult ? round($montoObra - $acum, 2) : round($montoObra * ((float) $b['monto'] / $total), 2);
+                    $acum += $monto;
+                    if ($monto <= 0.005) continue;
+                    $filas[] = [
+                        'bolsa_un' => (string) $b['un'], 'cuenta_14' => (string) $b['cuenta'],
+                        'persona' => (string) $p['cedula'], 'tercero' => (string) $b['tercero'],
+                        'tercero_doc' => (string) $p['doc'], 'tercero_nombre' => (string) $p['nombre'],
+                        'obra_destino' => (string) $obra, 'monto' => $monto,
+                        'mes' => $mes, 'anio' => $anio, 'observacion' => $obs,
+                        'origen' => $origen, 'user_id' => $userId,
+                        'created_at' => $ahora, 'updated_at' => $ahora,
+                    ];
+                }
+            }
+        }
+        return $filas;
     }
 
     public function resumen(Request $request)
@@ -202,11 +214,11 @@ class DistribucionManoObraController extends Controller
         [$depto, $mes, $anio] = [$request->get('departamento'), (int) $request->get('mes'), (int) $request->get('anio')];
         $nombresObra = FichaProyecto::pluck('nombre_obra', 'codigo_proyecto');
 
-        $rows = [['Obra', 'Nombre', 'Tercero', 'Cuenta 14', 'Monto']];
+        $rows = [['Obra', 'Nombre obra', 'Persona', 'Cédula', 'Monto']];
         $total = 0.0;
         foreach ($this->resumenDepto($depto, $mes, $anio) as $o) {
             foreach ($o['detalle'] as $d) {
-                $rows[] = [$o['obra'], (string) ($nombresObra[$o['obra']] ?? ''), $d['tercero'], $d['cuenta'], round($d['monto'], 2)];
+                $rows[] = [$o['obra'], (string) ($nombresObra[$o['obra']] ?? ''), (string) ($d['nombre'] ?: $d['tercero']), $d['tercero'], round($d['monto'], 2)];
                 $total += $d['monto'];
             }
             $rows[] = [$o['obra'].' — TOTAL', '', '', '', round($o['total'], 2)];

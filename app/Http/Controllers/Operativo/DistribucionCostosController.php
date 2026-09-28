@@ -492,18 +492,18 @@ class DistribucionCostosController extends Controller
             ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
             ->values();
 
-        // ─── Mano de obra por tercero: datos para el grid de bolsas (integrado en esta vista) ───
-        // El desglose por tercero de cada cuenta de MO ya viene en $bolsas[*]['lineas'][*]['terceros'].
+        // ─── Mano de obra directa por PERSONA: datos para el grid de bolsas (integrado en esta vista) ───
+        // El costo completo por persona (maestro Mano de obra directa) ya viene en $bolsas[*]['mo_personas'].
         // Aquí se pasa lo necesario para asignar por obra y para el panel "Cómo queda el proyecto".
         $moUns = UnBolsa::where('activo', true)
             ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
             ->pluck('codigo')->all();
 
-        // Asignaciones guardadas del período por (UN|cuenta|tercero) → [obra => monto] (prefill).
+        // Asignaciones guardadas del período por PERSONA (cédula) → [obra => monto] (prefill).
         $moGuardadas = [];
         foreach (ManoObraAsignacion::whereIn('bolsa_un', $moUns)->where('mes', $mes)->where('anio', $anio)->get() as $a) {
-            $k = $a->bolsa_un.'|'.$a->cuenta_14.'|'.$a->tercero;
-            $moGuardadas[$k][$a->obra_destino] = ($moGuardadas[$k][$a->obra_destino] ?? 0) + (float) $a->monto;
+            $ced = (string) ($a->persona ?: $a->tercero);
+            $moGuardadas[$ced][$a->obra_destino] = ($moGuardadas[$ced][$a->obra_destino] ?? 0) + (float) $a->monto;
         }
         [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
         $moHayMesAnterior = ! empty($moUns) && ManoObraAsignacion::whereIn('bolsa_un', $moUns)

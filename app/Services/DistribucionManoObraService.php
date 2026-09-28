@@ -7,10 +7,11 @@ use App\Models\ManoObraAsignacion;
 use App\Models\UnBolsa;
 
 /**
- * Distribución de mano de obra por tercero → obra: genera el plano 14→61 de lo asignado y su
- * resumen por obra. El desglose por tercero de las bolsas (para el grid) lo calcula
- * DistribucionService::manoObraPorTercero; aquí solo se construye el plano y el resumen a partir de
- * lo guardado en mano_obra_asignacion (una fila por UN, cuenta 14, tercero SIESA, obra).
+ * Distribución de mano de obra directa por persona → obra: genera el plano 14→61 de lo asignado y su
+ * resumen por obra. El costo completo por persona (para el grid) lo calcula
+ * DistribucionService::manoObraDirectaPorPersona; aquí solo se construye el plano y el resumen a
+ * partir de lo guardado en mano_obra_asignacion (una fila por UN, cuenta 14, tercero del ERP, obra,
+ * con la persona en la columna persona).
  */
 class DistribucionManoObraService
 {
@@ -21,8 +22,10 @@ class DistribucionManoObraService
     ];
 
     /**
-     * Líneas del plano 14→61 (SIESA parcial) de una UN: CR la 14 en la bolsa (conserva el tercero)
-     * y DB la 61 homologada en la obra destino (mismo tercero, con centro de costos del depto).
+     * Líneas del plano 14→61 (SIESA parcial) de una UN, preservando persona + obra destino:
+     *   - CR la cuenta 14 en la bolsa con el TERCERO del ERP (la persona en el salario; el fondo/EPS
+     *     en la seguridad social), para que esa 14 baje donde está el costo.
+     *   - DB la cuenta 61 homologada en la obra destino con la PERSONA y el centro de costos del depto.
      *
      * @return array<int, array{cuenta:string,tercero:string,unidad:string,centro:?string,debito:float,credito:float}>
      */
@@ -36,22 +39,23 @@ class DistribucionManoObraService
             $monto = round((float) $a->monto, 2);
             if ($monto <= 0.005) continue;
 
-            $c14 = (string) $a->cuenta_14;
-            $c61 = (string) ($homol[$c14]->cuenta_61 ?? $c14);
-            $ter = (string) $a->tercero;
+            $c14     = (string) $a->cuenta_14;
+            $c61     = (string) ($homol[$c14]->cuenta_61 ?? $c14);
+            $terCr   = (string) $a->tercero;                        // tercero del ERP (persona o fondo/EPS)
+            $persona = (string) ($a->persona ?: $a->tercero);       // la persona (para la 61 de la obra)
 
-            $mov[] = ['cuenta' => $c14, 'tercero' => $ter, 'unidad' => (string) $bolsa,          'centro' => null,    'debito' => 0,      'credito' => $monto];
-            $mov[] = ['cuenta' => $c61, 'tercero' => $ter, 'unidad' => (string) $a->obra_destino, 'centro' => $centro, 'debito' => $monto, 'credito' => 0];
+            $mov[] = ['cuenta' => $c14, 'tercero' => $terCr,   'unidad' => (string) $bolsa,          'centro' => null,    'debito' => 0,      'credito' => $monto];
+            $mov[] = ['cuenta' => $c61, 'tercero' => $persona, 'unidad' => (string) $a->obra_destino, 'centro' => $centro, 'debito' => $monto, 'credito' => 0];
         }
 
         return $mov;
     }
 
     /**
-     * Resumen del costo de MO por obra destino (de una UN): total por obra y desglose por
-     * tercero/cuenta.
+     * Resumen del costo de MO por obra destino (de una UN): total por obra y desglose por PERSONA
+     * (agrega los buckets — salario y seguridad social — de cada persona).
      *
-     * @return array<int, array{obra:string,total:float,detalle:array<int,array{tercero:string,nombre:string,cuenta:string,monto:float}>}>
+     * @return array<int, array{obra:string,total:float,detalle:array<int,array{tercero:string,nombre:string,monto:float}>}>
      */
     public function resumenPorObra(string $bolsa, int $mes, int $anio): array
     {
@@ -62,19 +66,26 @@ class DistribucionManoObraService
         foreach ($rows as $a) {
             $monto = round((float) $a->monto, 2);
             if ($monto <= 0.005) continue;
-            $obra = (string) $a->obra_destino;
+            $obra    = (string) $a->obra_destino;
+            $persona = (string) ($a->persona ?: $a->tercero);
             if (! isset($porObra[$obra])) {
                 $porObra[$obra] = ['obra' => $obra, 'total' => 0.0, 'detalle' => []];
             }
             $porObra[$obra]['total'] += $monto;
-            $porObra[$obra]['detalle'][] = [
-                'tercero' => (string) ($a->persona ?: $a->tercero),
-                'nombre'  => (string) $a->tercero_nombre,
-                'cuenta'  => (string) $a->cuenta_14, 'monto' => $monto,
-            ];
+            if (! isset($porObra[$obra]['detalle'][$persona])) {
+                $porObra[$obra]['detalle'][$persona] = [
+                    'tercero' => $persona, 'nombre' => (string) $a->tercero_nombre, 'monto' => 0.0,
+                ];
+            }
+            $porObra[$obra]['detalle'][$persona]['monto'] += $monto;
         }
 
-        foreach ($porObra as &$o) $o['total'] = round($o['total'], 2);
+        foreach ($porObra as &$o) {
+            $o['total'] = round($o['total'], 2);
+            foreach ($o['detalle'] as &$d) $d['monto'] = round($d['monto'], 2);
+            unset($d);
+            usort($o['detalle'], fn ($a, $b) => $b['monto'] <=> $a['monto']);
+        }
         unset($o);
         uasort($porObra, fn ($a, $b) => $b['total'] <=> $a['total']);
 

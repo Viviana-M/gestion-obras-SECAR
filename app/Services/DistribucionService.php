@@ -42,79 +42,58 @@ class DistribucionService
     public const ESTRUCTURAS_MO = ['MOI', 'MOE', 'MOFIJAOPER'];
 
     /**
-     * Desglose de la MANO DE OBRA de las bolsas por (UN, cuenta, TERCERO real): el saldo por
-     * repartir de cada cuenta de MO abierto por persona (tercero_dcto, o razón social si viene
-     * vacío). Reemplaza al colapso por MAX(razon_social). Se resta la MO del personal de apoyo
-     * (misma base que el "retiro" de saldosBolsasPorCuenta), por (UN, cuenta, tercero), para que
-     * la suma por cuenta cuadre con el saldo mostrado en el grid.
+     * MANO DE OBRA DIRECTA a distribuir, por PERSONA (solo el maestro "Mano de obra directa",
+     * TerceroManoObra). Reutiliza el MISMO cruce por cédula del plano de MO de apoyo
+     * (RedistribucionMoEspecialService::costoPorPersona) para armar el costo completo del período de
+     * cada persona: salario (líneas de la cuenta 14 de las bolsas cuyo tercero cruza por cédula o
+     * nombre) + seguridad social (autoliquidación por cédula). Se conservan los "buckets" (UN,
+     * cuenta 14, tercero del ERP) para generar el plano 14→61 preservando persona + obra destino.
      *
-     * @return array<string, array<int, array{tercero:string,doc:string,nombre:string,saldo:float}>>  ["un|cuenta" => [líneas por tercero]]
+     * Solo se consideran los buckets de las UN indicadas ($codigos). Devuelve una entrada por
+     * persona con costo > 0, indexada por cédula. Las demás personas/costos de la bolsa (que ya
+     * traen su obra en el ERP) no entran aquí.
+     *
+     * @return array<string, array{cedula:string,doc:string,nombre:string,total:float,buckets:array<int,array{un:string,cuenta:string,monto:float,tipo:string,tercero:string}>}>
      */
-    public function manoObraPorTercero(array $codigos, int $anio, int $mes): array
+    public function manoObraDirectaPorPersona(array $codigos, int $anio, int $mes): array
     {
         if (empty($codigos)) {
             return [];
         }
-        $homol = Homologacion::mapaEn(self::periodoInt($anio, $mes));
-        $esMo  = fn (string $c) => in_array((string) ($homol[$c]->estructura ?? 'OTROS COSTO'), self::ESTRUCTURAS_MO, true);
+        $maestro = \App\Models\TerceroManoObra::where('activo', true)->get();
+        if ($maestro->isEmpty()) {
+            return [];
+        }
 
-        $corteAcum = function ($q) use ($anio, $mes) {
-            $q->where('anio', '<', $anio)
-              ->orWhere(fn ($q2) => $q2->where('anio', $anio)->where('mes', '<=', $mes));
-        };
-
-        // Crudo por (UN, cuenta, tercero) de las cuentas de MO; saldo positivo = por repartir.
-        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-            ->whereIn('codigo_proyecto', $codigos)
-            ->where($corteAcum)
-            ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as er')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
-            ->get();
+        // Mismo cruce por cédula/nombre + seguridad social que el plano de MO de apoyo, pero con el
+        // maestro de mano de obra DIRECTA. No se toca la lógica del servicio, solo se le pasa el maestro.
+        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona($mes, $anio, $maestro);
 
         $out = [];
-        foreach ($filas as $r) {
-            $cuenta = (string) $r->cuenta;
-            if (! $esMo($cuenta)) continue;
-            $saldo = -1 * (float) $r->er;
-            if ($saldo <= 0.005) continue;
-            $doc = trim((string) $r->tercero_dcto);
-            $nom = trim((string) $r->razon_social);
-            $ter = $doc !== '' ? $doc : $nom;
-            if ($ter === '') continue;
-            $k = $r->un.'|'.$cuenta;
-            if (! isset($out[$k][$ter])) {
-                $out[$k][$ter] = ['tercero' => $ter, 'doc' => $doc, 'nombre' => $nom, 'saldo' => 0.0];
-            }
-            $out[$k][$ter]['saldo'] += $saldo;
-        }
-
-        // Restar la MO del personal de APOYO (salario + SS), por (UN, cuenta, tercero), igual base
-        // que el retiro agregado de saldosBolsasPorCuenta → la suma por cuenta cuadra con el grid.
-        foreach (app(RedistribucionMoEspecialService::class)->costoPorPersona($mes, $anio) as $p) {
+        foreach ($costo as $ced => $p) {
+            $buckets = [];
+            $total   = 0.0;
             foreach ($p['buckets'] as $b) {
-                $k = $b['un'].'|'.$b['cuenta'];
-                $ter = (string) $b['tercero'];
-                if (isset($out[$k][$ter])) {
-                    $out[$k][$ter]['saldo'] -= (float) $b['monto'];
-                    if ($out[$k][$ter]['saldo'] <= 0.005) unset($out[$k][$ter]);
-                }
+                if (! in_array((string) $b['un'], $codigos, true)) continue; // solo las UN pedidas
+                $monto = (float) $b['monto'];
+                if ($monto <= 0.005) continue;
+                $buckets[] = [
+                    'un'     => (string) $b['un'],   'cuenta'  => (string) $b['cuenta'],
+                    'monto'  => round($monto, 2),    'tipo'    => (string) ($b['tipo'] ?? ''),
+                    'tercero'=> (string) ($b['tercero'] ?? $ced),
+                ];
+                $total += $monto;
             }
+            if ($total <= 0.005 || empty($buckets)) continue;
+            $out[(string) $ced] = [
+                'cedula' => (string) $p['cedula'],
+                'doc'    => (string) ($p['doc'] ?: $p['cedula']),
+                'nombre' => (string) $p['nombre'],
+                'total'  => round($total, 2),
+                'buckets'=> $buckets,
+            ];
         }
-
-        $res = [];
-        foreach ($out as $k => $ters) {
-            $list = array_map(fn ($t) => ['tercero' => $t['tercero'], 'doc' => $t['doc'],
-                'nombre' => $t['nombre'], 'saldo' => round($t['saldo'], 2)], array_values($ters));
-            usort($list, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
-            if (! empty($list)) $res[$k] = $list;
-        }
-        return $res;
-    }
-
-    /** Período AAAAMM (helper local para no depender del orden de carga de Homologacion). */
-    private static function periodoInt(int $anio, int $mes): int
-    {
-        return $anio * 100 + $mes;
+        return $out;
     }
 
     // ───────────────────────── Bolsas de área ─────────────────────────
@@ -224,10 +203,26 @@ class DistribucionService
 
         $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes); // [un => líneas]
         $terceros = $this->tercerosPorCuenta($codigos, $anio, $mes);               // [un|cuenta => tercero]
-        $moTerceros = $this->manoObraPorTercero($codigos, $anio, $mes);            // [un|cuenta => [por tercero]]
+        $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes);       // [cédula => costo completo + buckets]
         $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
             ->whereIn('un_codigo', $codigos)->get()
             ->keyBy(fn ($m) => $m->un_codigo.'|'.$m->cuenta_14);
+
+        // Mano de obra directa por PERSONA, repartida por departamento según la UN de sus buckets.
+        $personasPorDepto = [];
+        foreach ($moPers as $ced => $p) {
+            foreach ($p['buckets'] as $b) {
+                $d = $deptoDeUn[$b['un']] ?? 'otros';
+                if (! isset($personasPorDepto[$d][$ced])) {
+                    $personasPorDepto[$d][$ced] = [
+                        'cedula' => $p['cedula'], 'doc' => $p['doc'], 'nombre' => $p['nombre'],
+                        'total' => 0.0, 'buckets' => [],
+                    ];
+                }
+                $personasPorDepto[$d][$ced]['total']    += (float) $b['monto'];
+                $personasPorDepto[$d][$ced]['buckets'][] = $b;
+            }
+        }
 
         $porDepto = [];
         foreach ($saldos as $un => $lineas) {
@@ -248,8 +243,6 @@ class DistribucionService
                     'tercero'          => $terceros[$key] ?? '',
                     'estructura'       => $l['estructura'],
                     'es_mo'            => $esMo,
-                    // Desglose por tercero real (solo mano de obra). Se abre en el grid.
-                    'terceros'         => $esMo ? ($moTerceros[$key] ?? []) : [],
                     'periodo'          => $l['periodo'],
                     'saldo'            => round($saldo, 2),
                     'monto_distribuir' => round($aDist, 2),
@@ -269,15 +262,25 @@ class DistribucionService
                 continue;
             }
             usort($lineas, fn ($a, $b) => [$a['un_codigo'], $a['cuenta_14']] <=> [$b['un_codigo'], $b['cuenta_14']]);
-            $mo    = round(array_sum(array_map(fn ($l) => $l['es_mo'] ? $l['saldo'] : 0, $lineas)), 2);
             $total = round(array_sum(array_column($lineas, 'saldo')), 2);
+
+            // Mano de obra DIRECTA a distribuir = costo completo de las personas del maestro (Y).
+            // El resto de la bolsa (X = Total − Y) es lo demás (materiales, seguros y la MO que no
+            // es de estas personas, que ya trae su obra en el ERP). Se topa a Total para que X ≥ 0.
+            $personas = array_values($personasPorDepto[$d] ?? []);
+            foreach ($personas as &$per) $per['total'] = round($per['total'], 2);
+            unset($per);
+            usort($personas, fn ($a, $b) => $b['total'] <=> $a['total']);
+            $mo = round(min($total, array_sum(array_column($personas, 'total'))), 2);
+
             $result[] = [
                 'codigo'       => $d,
                 'nombre'       => $nombre,
                 'departamento' => $d,
                 'total'        => $total,
-                'total_mo'     => $mo,                       // subtotal mano de obra
-                'total_sinmo'  => round($total - $mo, 2),    // subtotal sin mano de obra (materiales, etc.)
+                'total_mo'     => $mo,                       // MO directa a distribuir (costo por persona)
+                'total_sinmo'  => round($total - $mo, 2),    // resto de la bolsa
+                'mo_personas'  => $personas,                 // una fila por persona del maestro (con buckets)
                 'a_distribuir' => round(array_sum(array_column($lineas, 'monto_distribuir')), 2),
                 'componentes'  => $this->componentesDe($lineas),
                 'lineas'       => $lineas,
@@ -292,10 +295,9 @@ class DistribucionService
      * tercero representativo basta.
      *
      * OJO — mano de obra: NO uses este método para MO. Colapsa todos los terceros de una cuenta en
-     * uno solo (MAX(razon_social)), lo que ocultaba el saldo por persona. La MO se desglosa por
-     * tercero real (tercero_dcto, o razon_social si viene vacío) en
-     * DistribucionManoObraService::saldosPorTercero, que es lo que usa la sección de "Mano de obra
-     * por tercero" de la pantalla de Distribución.
+     * uno solo (MAX(razon_social)). La MO directa a distribuir se calcula por PERSONA (costo
+     * completo del maestro Mano de obra directa) en manoObraDirectaPorPersona(), que es lo que abre
+     * el grid de bolsas de la pantalla de Distribución.
      */
     public function tercerosPorCuenta(array $codigos, int $anio, int $mes): array
     {

@@ -6,9 +6,9 @@
 @php $fmt = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
 
 <x-page-banner title="Costo de mano de obra por obra" icon="📊">
-    Total de mano de obra que se carga a cada obra destino del área <b>{{ ucfirst($departamento ?? '') }}</b> en
-    <b>{{ $meses[$mes] ?? $mes }} {{ $anio }}</b>. Al desplegar cada obra se ve el desglose por tercero
-    y cuenta. La suma de las obras iguala lo asignado de la bolsa.
+    Total de mano de obra directa que se carga a cada obra destino del área <b>{{ ucfirst($departamento ?? '') }}</b> en
+    <b>{{ $meses[$mes] ?? $mes }} {{ $anio }}</b>. Al desplegar cada obra se ve el desglose por persona.
+    La suma de las obras iguala lo asignado de la bolsa.
 </x-page-banner>
 
 @if(session('error'))<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">{{ session('error') }}</div>@endif
@@ -43,15 +43,15 @@
                 <td colspan="3" style="padding:0 14px 10px">
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr style="color:#6B7280">
-                            <th style="padding:6px 8px;text-align:left">Tercero</th>
-                            <th style="padding:6px 8px;text-align:left">Cuenta 14</th>
+                            <th style="padding:6px 8px;text-align:left">Persona</th>
+                            <th style="padding:6px 8px;text-align:left">Cédula</th>
                             <th style="padding:6px 8px;text-align:right">Monto</th>
                         </tr></thead>
                         <tbody>
                             @foreach($o['detalle'] as $d)
                             <tr style="border-top:1px solid #E5E7EB">
-                                <td style="padding:5px 8px;color:#374151">{{ $d['nombre'] ?: $d['tercero'] }} <span style="color:#9CA3AF;font-family:monospace">{{ $d['tercero'] }}</span></td>
-                                <td style="padding:5px 8px;font-family:monospace;color:#854D0E">{{ $d['cuenta'] }}</td>
+                                <td style="padding:5px 8px;color:#374151">{{ $d['nombre'] ?: $d['tercero'] }}</td>
+                                <td style="padding:5px 8px;font-family:monospace;color:#854D0E">{{ $d['tercero'] }}</td>
                                 <td style="padding:5px 8px;text-align:right;color:#374151">{{ $fmt($d['monto']) }}</td>
                             </tr>
                             @endforeach

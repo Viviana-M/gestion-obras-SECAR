@@ -1,19 +1,20 @@
-{{-- Distribución de mano de obra por TERCERO dentro del grid de la bolsa (departamento $b).
-     Cada cuenta de MO se abre por tercero (saldo real); se asigna a obra(s). Reutiliza los
-     endpoints operativo.mano-obra.* (por departamento). Vars heredadas del padre:
+{{-- Distribución de MANO DE OBRA DIRECTA por PERSONA dentro del grid de la bolsa (departamento $b).
+     Una fila por persona del maestro "Mano de obra directa" con su costo completo del período
+     (salario + seguridad social); se asigna a obra(s) destino. Reutiliza los endpoints
+     operativo.mano-obra.* (por departamento). Vars heredadas del padre:
      $mes,$anio,$moGuardadas,$moObras,$moObrasInfo,$moHayMesAnterior,$moMesAnt,$moAnioAnt,$puedeEditar --}}
 @php
     $moFmt = fn ($n) => '$'.number_format((float) $n, 0, ',', '.');
     $meses = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
     $puede = $puedeEditar ?? auth()->user()->puedeEditarModulo('operacion');
-    $moLineas = collect($b['lineas'])->filter(fn ($l) => ! empty($l['es_mo']) && ! empty($l['terceros']))->values();
+    $moPersonas = collect($b['mo_personas'] ?? []);
     $dep = $b['codigo'];
     $i = 0;
 @endphp
 
-@if($moLineas->isNotEmpty())
+@if($moPersonas->isNotEmpty())
 <div class="mo-blk" data-depto="{{ $dep }}" style="border-top:1px dashed #FDE68A;background:#FFFDF5;padding:10px 12px">
-    <div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:8px">🧑‍🔧 MANO DE OBRA POR TERCERO — asignar a obra destino</div>
+    <div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:8px">🧑‍🔧 MANO DE OBRA DIRECTA POR PERSONA — asignar a obra destino</div>
 
     @unless($puede)
         <div style="font-size:11px;color:#92400E;background:#FEF9C3;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px;margin-bottom:8px">Solo lectura: para asignar, Contabilidad debe abrir el cierre del mes.</div>
@@ -24,59 +25,48 @@
     </datalist>
 
     <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px;align-items:start">
-        {{-- Izquierda: terceros por cuenta de MO --}}
+        {{-- Izquierda: personas del maestro con su costo completo --}}
         <div>
             {{-- Barra de asignación en bloque --}}
             @if($puede)
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:11px;color:#6B7280">
                 <span>En bloque:</span>
                 <input list="mo-obras-list" placeholder="Obra destino" data-mo-bulk-obra style="padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                <button type="button" onclick="moBulk(this)" style="padding:4px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">Asignar seleccionados</button>
+                <button type="button" onclick="moBulk(this)" style="padding:4px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">Asignar seleccionadas</button>
             </div>
             @endif
 
             <form method="POST" action="{{ route('operativo.mano-obra.guardar') }}" class="mo-form">
                 @csrf
                 <input type="hidden" name="departamento" value="{{ $dep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                @foreach($moLineas as $l)
-                <div style="margin-bottom:8px">
-                    <div style="font-size:11px;color:#374151;font-weight:600">
-                        <span style="font-family:monospace">{{ $l['un_codigo'] }} · {{ $l['cuenta_14'] }}</span>
-                        <span style="color:#9CA3AF;font-weight:400">{{ \Illuminate\Support\Str::limit($l['nombre'], 28) }}</span>
+                @foreach($moPersonas as $p)
+                @php $pre = $moGuardadas[$p['cedula']] ?? ['' => 0]; @endphp
+                <div class="mo-per" data-total="{{ $p['total'] }}" style="border:1px solid #FDE68A;border-radius:6px;margin:4px 0;padding:5px 8px;background:#fff">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        @if($puede)<input type="checkbox" data-mo-check title="Seleccionar para asignación en bloque">@endif
+                        <span style="font-size:11.5px;color:#1B3F6E;font-weight:600">{{ $p['nombre'] ?: $p['cedula'] }}</span>
+                        <span style="font-size:10px;color:#9CA3AF;font-family:monospace">{{ $p['doc'] ?: $p['cedula'] }}</span>
+                        <span style="margin-left:auto;font-size:11px;color:#374151">Costo <b>{{ $moFmt($p['total']) }}</b> · Por asignar <b data-mo-pend style="color:#15803D">{{ $moFmt($p['total']) }}</b></span>
                     </div>
-                    @foreach($l['terceros'] as $t)
-                    @php $pre = $moGuardadas[$l['un_codigo'].'|'.$l['cuenta_14'].'|'.$t['tercero']] ?? ['' => 0]; @endphp
-                    <div class="mo-ter" data-saldo="{{ $t['saldo'] }}" style="border:1px solid #FDE68A;border-radius:6px;margin:4px 0;padding:5px 8px;background:#fff">
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            @if($puede)<input type="checkbox" data-mo-check title="Seleccionar para asignación en bloque">@endif
-                            <span style="font-size:11.5px;color:#1B3F6E;font-weight:600">{{ $t['nombre'] ?: $t['tercero'] }}</span>
-                            <span style="font-size:10px;color:#9CA3AF;font-family:monospace">{{ $t['doc'] ?: $t['tercero'] }}</span>
-                            <span style="margin-left:auto;font-size:11px;color:#374151">Saldo <b>{{ $moFmt($t['saldo']) }}</b> · Por asignar <b data-mo-pend style="color:#15803D">{{ $moFmt($t['saldo']) }}</b></span>
+                    <div data-mo-rows>
+                        @foreach($pre as $obra => $monto)
+                        <div style="display:flex;gap:5px;margin-top:4px">
+                            <input list="mo-obras-list" name="asignaciones[{{ $i }}][obra]" value="{{ $obra }}" placeholder="Obra destino" data-mo-obra {{ $puede ? '' : 'disabled' }}
+                                   style="flex:1;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
+                            <input type="number" step="0.01" min="0" name="asignaciones[{{ $i }}][monto]" value="{{ $monto ? round($monto,2) : '' }}" placeholder="Monto" data-mo-monto oninput="moRecalc(this)" {{ $puede ? '' : 'disabled' }}
+                                   style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">
+                            <input type="hidden" name="asignaciones[{{ $i }}][cedula]" value="{{ $p['cedula'] }}">
+                            <input type="hidden" name="asignaciones[{{ $i }}][nombre]" value="{{ $p['nombre'] }}">
+                            @if($puede)<button type="button" onclick="moDelRow(this)" style="border:none;background:#FEF2F2;color:#DC2626;width:24px;border-radius:6px;cursor:pointer">×</button>@endif
                         </div>
-                        <div data-mo-rows>
-                            @foreach($pre as $obra => $monto)
-                            <div style="display:flex;gap:5px;margin-top:4px">
-                                <input list="mo-obras-list" name="asignaciones[{{ $i }}][obra]" value="{{ $obra }}" placeholder="Obra destino" data-mo-obra {{ $puede ? '' : 'disabled' }}
-                                       style="flex:1;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                                <input type="number" step="0.01" min="0" name="asignaciones[{{ $i }}][monto]" value="{{ $monto ? round($monto,2) : '' }}" placeholder="Monto" data-mo-monto oninput="moRecalc(this)" {{ $puede ? '' : 'disabled' }}
-                                       style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">
-                                <input type="hidden" name="asignaciones[{{ $i }}][un]" value="{{ $l['un_codigo'] }}">
-                                <input type="hidden" name="asignaciones[{{ $i }}][cuenta_14]" value="{{ $l['cuenta_14'] }}">
-                                <input type="hidden" name="asignaciones[{{ $i }}][tercero]" value="{{ $t['tercero'] }}">
-                                <input type="hidden" name="asignaciones[{{ $i }}][tercero_doc]" value="{{ $t['doc'] }}">
-                                <input type="hidden" name="asignaciones[{{ $i }}][tercero_nombre]" value="{{ $t['nombre'] }}">
-                                @if($puede)<button type="button" onclick="moDelRow(this)" style="border:none;background:#FEF2F2;color:#DC2626;width:24px;border-radius:6px;cursor:pointer">×</button>@endif
-                            </div>
-                            @php $i++; @endphp
-                            @endforeach
-                        </div>
-                        @if($puede)<button type="button" onclick="moAddRow(this)" data-un="{{ $l['un_codigo'] }}" data-cta="{{ $l['cuenta_14'] }}" data-ter="{{ $t['tercero'] }}" data-doc="{{ $t['doc'] }}" data-nom="{{ $t['nombre'] }}" style="margin-top:3px;padding:2px 8px;background:white;border:1px dashed #1B3F6E;border-radius:6px;font-size:10px;color:#1B3F6E;cursor:pointer">+ obra</button>@endif
+                        @php $i++; @endphp
+                        @endforeach
                     </div>
-                    @endforeach
+                    @if($puede)<button type="button" onclick="moAddRow(this)" data-ced="{{ $p['cedula'] }}" data-nom="{{ $p['nombre'] }}" style="margin-top:3px;padding:2px 8px;background:white;border:1px dashed #1B3F6E;border-radius:6px;font-size:10px;color:#1B3F6E;cursor:pointer">+ obra</button>@endif
                 </div>
                 @endforeach
                 @if($puede)
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
                     <button type="submit" style="padding:6px 14px;background:#1B3F6E;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">💾 Guardar MO</button>
                     @if($moHayMesAnterior)
                     <button type="button" onclick="this.closest('.mo-blk').querySelector('.mo-precargar').submit()" style="padding:6px 12px;background:#EFF6FF;border:1px solid #1B3F6E;border-radius:6px;font-size:12px;color:#1B3F6E;cursor:pointer">⤵ Precargar mes anterior</button>
@@ -87,7 +77,7 @@
 
             @if($puede)
             <form class="mo-precargar" method="POST" action="{{ route('operativo.mano-obra.precargar') }}" style="display:none"
-                  onsubmit="return confirm('¿Precargar la distribución de {{ $meses[$moMesAnt] ?? $moMesAnt }} {{ $moAnioAnt }}? Reparte el saldo actual en las mismas obras/proporciones del mes anterior. Reemplaza lo cargado este período.');">
+                  onsubmit="return confirm('¿Precargar la distribución de {{ $meses[$moMesAnt] ?? $moMesAnt }} {{ $moAnioAnt }}? Reparte el costo actual de cada persona en las mismas obras/proporciones del mes anterior. Reemplaza lo cargado este período.');">
                 @csrf<input type="hidden" name="departamento" value="{{ $dep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
             </form>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;border-top:1px solid #FDE68A;padding-top:8px">
@@ -129,11 +119,11 @@ window.MO_OBRAS = @json($moObrasInfo);
         (blk ? [blk] : document.querySelectorAll('.mo-blk')).forEach(recalcBlk);
     };
     function recalcBlk(blk){
-        blk.querySelectorAll('.mo-ter').forEach(ter => {
-            const saldo = parseFloat(ter.dataset.saldo)||0;
-            let suma = 0; ter.querySelectorAll('[data-mo-monto]').forEach(i => suma += (parseFloat(i.value)||0));
-            const p = ter.querySelector('[data-mo-pend]');
-            const rest = saldo - suma; p.textContent = fmt(rest);
+        blk.querySelectorAll('.mo-per').forEach(per => {
+            const total = parseFloat(per.dataset.total)||0;
+            let suma = 0; per.querySelectorAll('[data-mo-monto]').forEach(i => suma += (parseFloat(i.value)||0));
+            const p = per.querySelector('[data-mo-pend]');
+            const rest = total - suma; p.textContent = fmt(rest);
             p.style.color = rest < -0.5 ? '#DC2626' : '#15803D';
         });
         const porObra = {};
@@ -176,8 +166,7 @@ window.MO_OBRAS = @json($moObrasInfo);
         row.innerHTML =
             '<input list="mo-obras-list" name="asignaciones['+i+'][obra]" placeholder="Obra destino" data-mo-obra style="flex:1;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">'+
             '<input type="number" step="0.01" min="0" name="asignaciones['+i+'][monto]" placeholder="Monto" data-mo-monto oninput="moRecalc(this)" style="width:110px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">'+
-            '<input type="hidden" name="asignaciones['+i+'][un]" value="'+esc(d.un)+'"><input type="hidden" name="asignaciones['+i+'][cuenta_14]" value="'+esc(d.cta)+'">'+
-            '<input type="hidden" name="asignaciones['+i+'][tercero]" value="'+esc(d.ter)+'"><input type="hidden" name="asignaciones['+i+'][tercero_doc]" value="'+esc(d.doc)+'"><input type="hidden" name="asignaciones['+i+'][tercero_nombre]" value="'+esc(d.nom)+'">'+
+            '<input type="hidden" name="asignaciones['+i+'][cedula]" value="'+esc(d.ced)+'"><input type="hidden" name="asignaciones['+i+'][nombre]" value="'+esc(d.nom)+'">'+
             '<button type="button" onclick="moDelRow(this)" style="border:none;background:#FEF2F2;color:#DC2626;width:24px;border-radius:6px;cursor:pointer">×</button>';
         rows.appendChild(row);
     };
@@ -185,14 +174,14 @@ window.MO_OBRAS = @json($moObrasInfo);
         const blk = btn.closest('.mo-blk');
         const obra = (blk.querySelector('[data-mo-bulk-obra]').value||'').trim();
         if (!obra) { alert('Escribe la obra destino para asignar en bloque.'); return; }
-        blk.querySelectorAll('.mo-ter').forEach(ter => {
-            const chk = ter.querySelector('[data-mo-check]'); if (!chk || !chk.checked) return;
-            const first = ter.querySelector('[data-mo-obra]');
+        blk.querySelectorAll('.mo-per').forEach(per => {
+            const chk = per.querySelector('[data-mo-check]'); if (!chk || !chk.checked) return;
+            const first = per.querySelector('[data-mo-obra]');
             if (first && !first.value.trim()) {
                 first.value = obra;
                 const monto = first.parentElement.querySelector('[data-mo-monto]');
-                const saldo = parseFloat(ter.dataset.saldo)||0;
-                if (monto && !monto.value) monto.value = Math.round(saldo);
+                const total = parseFloat(per.dataset.total)||0;
+                if (monto && !monto.value) monto.value = Math.round(total);
             }
             chk.checked = false;
         });

@@ -174,9 +174,9 @@
                     <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
                 </div>
                 <div style="display:flex;gap:10px;font-size:10.5px;color:#92400E;margin-top:2px">
-                    <span>Sin mano de obra: <b>${{ number_format($b['total_sinmo'] ?? 0, 0, ',', '.') }}</b></span>
+                    <span>Resto de la bolsa: <b>${{ number_format($b['total_sinmo'] ?? 0, 0, ',', '.') }}</b></span>
                     <span>·</span>
-                    <span>Mano de obra: <b>${{ number_format($b['total_mo'] ?? 0, 0, ',', '.') }}</b></span>
+                    <span>Mano de obra directa a distribuir: <b>${{ number_format($b['total_mo'] ?? 0, 0, ',', '.') }}</b></span>
                 </div>
                 {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
