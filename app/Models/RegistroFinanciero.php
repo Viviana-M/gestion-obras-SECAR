@@ -26,5 +26,6 @@ protected $fillable = [
     'mes',
     'anio',
     'origen',
+    'plano_aplicado_id',   // aplicación de plano que generó el movimiento (null = biable)
 ];
 }

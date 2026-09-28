@@ -13,6 +13,13 @@
     (reversión excesiva: saldo del lado equivocado). Revísalas y descarga el plano para ajustar la contabilidad.
 </x-page-banner>
 
+@if(session('success'))
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
+@endif
+@if(session('error'))
+<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">{{ session('error') }}</div>
+@endif
+
 {{-- Filtros + descarga --}}
 <div class="card" style="padding:14px 16px;margin-bottom:1rem;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
     <form method="GET" action="{{ route('contable.plano-reversion.index') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
@@ -48,6 +55,42 @@
             style="padding:9px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Descargar plano (Excel)</button>
     </form>
 </div>
+
+{{-- Aplicar en el sistema: crea los movimientos de cuenta 14 (origen reverso_plano) para que el
+     saldo baje de inmediato sin recargar BIABLE. El período destino es el que contabilizará el ERP. --}}
+@if(count($filas) > 0)
+<div class="card" style="padding:14px 16px;margin-bottom:1rem;background:#F8FAFC;border:1px solid #E5E7EB">
+    <div style="font-size:12px;color:#374151;margin-bottom:8px">
+        <b>Aplicar en el sistema:</b> crea los {{ number_format(count($filas),0,',','.') }} movimientos de cuenta 14 de este reverso
+        (origen <code>reverso_plano</code>) para que el saldo se refleje ya. Idempotente: re-aplicar el mismo corte reemplaza sus movimientos.
+    </div>
+    <form method="POST" action="{{ route('contable.plano-reversion.aplicar') }}"
+          onsubmit="return confirm('¿Aplicar el reverso en el sistema? Se crearán los movimientos de cuenta 14 en el período destino indicado. Podrás deshacerlo desde «Planos aplicados».');"
+          style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
+        @csrf
+        <input type="hidden" name="corte_mes" value="{{ $mes }}">
+        <input type="hidden" name="corte_anio" value="{{ $anio }}">
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
+            <input type="number" name="documento" min="1" value="1" style="width:100px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Período destino (mes)</label>
+            <select name="destino_mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+                @foreach($nombresMes as $mnum => $mnom)
+                <option value="{{ $mnum }}" {{ (int)($mes ?: date('n')) === $mnum ? 'selected' : '' }}>{{ $mnom }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
+            <input type="number" name="destino_anio" min="2000" value="{{ $anio ?: date('Y') }}" style="width:90px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <button type="submit"
+            style="padding:9px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Aplicar en el sistema</button>
+    </form>
+</div>
+@endif
 
 {{-- KPIs --}}
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:1rem">

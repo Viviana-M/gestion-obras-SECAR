@@ -47,6 +47,7 @@
     $col = fn ($n) => abs($n) < 0.5 ? '#6B7280' : ($n < 0 ? '#DC2626' : '#15803D');
     $tErp = array_sum(array_column($recon['filas'], 'saldo_erp'));
     $tSis = array_sum(array_column($recon['filas'], 'saldo_sistema'));
+    $tGen = array_sum(array_column($recon['filas'], 'saldo_generado'));
     $tDif = array_sum(array_column($recon['filas'], 'diferencia'));
     $nOk  = count(array_filter($recon['filas'], fn ($f) => $f['cuadra']));
     $nBad = count($recon['filas']) - $nOk;
@@ -66,6 +67,7 @@
                 <th style="padding:10px 14px;text-align:left">Obra</th>
                 <th style="padding:10px 14px;text-align:right">Saldo ERP</th>
                 <th style="padding:10px 14px;text-align:right">Saldo sistema</th>
+                <th style="padding:10px 14px;text-align:right" title="Parte del saldo del sistema que proviene de planos aplicados (no BIABLE)">de los cuales: generados</th>
                 <th style="padding:10px 14px;text-align:right">Diferencia</th>
                 <th style="padding:10px 14px;text-align:center">Estado</th>
             </tr>
@@ -83,6 +85,7 @@
                 <td style="padding:9px 14px;color:#374151">{{ $f['nombre'] ?: '—' }}</td>
                 <td style="padding:9px 14px;text-align:right;color:{{ $col($f['saldo_erp']) }}">{{ $fmt($f['saldo_erp']) }}</td>
                 <td style="padding:9px 14px;text-align:right;color:{{ $col($f['saldo_sistema']) }}">{{ $fmt($f['saldo_sistema']) }}</td>
+                <td style="padding:9px 14px;text-align:right;color:{{ ($f['saldo_generado'] ?? 0) == 0 ? '#9CA3AF' : '#1B3F6E' }}">{{ ($f['saldo_generado'] ?? 0) == 0 ? '—' : $fmt($f['saldo_generado']) }}</td>
                 <td style="padding:9px 14px;text-align:right;font-weight:700;color:{{ $col($f['diferencia']) }}">{{ $fmt($f['diferencia']) }}</td>
                 <td style="padding:9px 14px;text-align:center">
                     @if($f['cuadra'])
@@ -93,7 +96,7 @@
                 </td>
             </tr>
             @empty
-            <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay obras para comparar.</td></tr>
+            <tr><td colspan="7" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay obras para comparar.</td></tr>
             @endforelse
         </tbody>
         <tfoot>
@@ -101,6 +104,7 @@
                 <td colspan="2" style="padding:10px 14px;text-align:right;color:#374151">TOTAL</td>
                 <td style="padding:10px 14px;text-align:right;color:{{ $col($tErp) }}">{{ $fmt($tErp) }}</td>
                 <td style="padding:10px 14px;text-align:right;color:{{ $col($tSis) }}">{{ $fmt($tSis) }}</td>
+                <td style="padding:10px 14px;text-align:right;color:{{ $tGen == 0 ? '#9CA3AF' : '#1B3F6E' }}">{{ $tGen == 0 ? '—' : $fmt($tGen) }}</td>
                 <td style="padding:10px 14px;text-align:right;color:{{ $col($tDif) }}">{{ $fmt($tDif) }}</td>
                 <td></td>
             </tr>

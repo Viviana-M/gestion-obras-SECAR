@@ -198,6 +198,7 @@
                 <a href="{{ route('contable.recon14.index') }}" class="{{ request()->is('contable/recon14') ? 'active' : '' }}">Reconciliación 14 (Sistema vs ERP)</a>
                 <a href="{{ route('contable.duplicados.index') }}" class="{{ request()->is('contable/duplicados') ? 'active' : '' }}">Posibles duplicados</a>
                 <a href="{{ route('contable.sobre-reversion.index') }}" class="{{ request()->is('contable/sobre-reversion') ? 'active' : '' }}">Validación de sobre-reversión</a>
+                <a href="{{ route('contable.planos-aplicados.index') }}" class="{{ request()->is('contable/planos-aplicados') ? 'active' : '' }}">Planos aplicados (cuenta 14)</a>
                 <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
                 <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Terceros mano de obra</a>

@@ -76,14 +76,17 @@ class ReconciliacionErpController extends Controller
                 ->with('error', 'Primero sube el archivo del ERP para generar la comparación.');
         }
 
-        $rows = [['Código', 'Obra', 'Saldo ERP', 'Saldo sistema', 'Diferencia (ERP − sistema)', 'Estado']];
+        $rows = [['Código', 'Obra', 'Saldo ERP', 'Saldo sistema', 'Saldo biable', 'Saldo generado', 'Diferencia (ERP − sistema)', 'Estado']];
         foreach ($recon['filas'] as $f) {
             $rows[] = [$f['codigo'], $f['nombre'], round($f['saldo_erp'], 2), round($f['saldo_sistema'], 2),
+                round($f['saldo_biable'] ?? $f['saldo_sistema'], 2), round($f['saldo_generado'] ?? 0, 2),
                 round($f['diferencia'], 2), $f['cuadra'] ? 'Cuadra' : 'Revisar'];
         }
         $rows[] = ['', 'TOTAL',
             round(array_sum(array_column($recon['filas'], 'saldo_erp')), 2),
             round(array_sum(array_column($recon['filas'], 'saldo_sistema')), 2),
+            round(array_sum(array_column($recon['filas'], 'saldo_biable')), 2),
+            round(array_sum(array_column($recon['filas'], 'saldo_generado')), 2),
             round(array_sum(array_column($recon['filas'], 'diferencia')), 2), ''];
 
         return Excel::download(new Recon14Export($rows), 'Reconciliacion_cuenta_14_'.date('Ymd').'.xlsx');
@@ -217,6 +220,16 @@ class ReconciliacionErpController extends Controller
             $sisObra[$this->normCod($r->codigo_proyecto)] = -1 * (float) $r->s;
         }
 
+        // Parte del saldo que proviene de planos APLICADOS por el sistema (reverso/distribución), no
+        // de BIABLE. Sirve para verificar que el saldo del sistema = biable + generados cuadra con el
+        // ERP aunque ese mes no se haya recargado desde BIABLE.
+        $sisGen = [];
+        foreach (RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('origen', ['reverso_plano', 'distribucion_plano'])
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as s')->groupBy('codigo_proyecto')->get() as $r) {
+            $sisGen[$this->normCod($r->codigo_proyecto)] = -1 * (float) $r->s;
+        }
+
         $sisMes = [];  // codigoNorm => ['YYYY-MM' => saldoErp]
         foreach (RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->selectRaw('codigo_proyecto, anio, mes, SUM(estado_er) as s')
@@ -243,6 +256,7 @@ class ReconciliacionErpController extends Controller
         foreach ($codigos as $k) {
             $saldoErp = round((float) ($erp['obras'][$k] ?? 0), 2);
             $saldoSis = round((float) ($sisObra[$k] ?? 0), 2);
+            $saldoGen = round((float) ($sisGen[$k] ?? 0), 2);
             $dif      = round($saldoErp - $saldoSis, 2);
             $cuadra   = abs($dif) <= 1000;
 
@@ -251,6 +265,8 @@ class ReconciliacionErpController extends Controller
                 'nombre'        => $nombres[$k] ?? '',
                 'saldo_erp'     => $saldoErp,
                 'saldo_sistema' => $saldoSis,
+                'saldo_biable'  => round($saldoSis - $saldoGen, 2),
+                'saldo_generado'=> $saldoGen,
                 'diferencia'    => $dif,
                 'cuadra'        => $cuadra,
                 'en_erp'        => isset($erp['obras'][$k]),

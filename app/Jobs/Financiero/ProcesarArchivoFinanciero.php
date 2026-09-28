@@ -56,9 +56,11 @@ class ProcesarArchivoFinanciero implements ShouldQueue
             throw new \RuntimeException("No encuentro el archivo: {$archivo}");
         }
 
-        // Reprocesar REEMPLAZA el período: se borra y se vuelve a insertar.
+        // Reprocesar REEMPLAZA el período, pero SOLO lo cargado desde BIABLE (origen='biable'): los
+        // movimientos generados por el sistema al aplicar planos no se tocan.
         RegistroFinanciero::where('mes', $this->mes)
             ->where('anio', $this->anio)
+            ->where('origen', 'biable')
             ->delete();
 
         SaldoBalance::where('mes', $this->mes)

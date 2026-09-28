@@ -48,8 +48,9 @@ class ImportadorCierre implements ImportadorLotes
             }
         }
 
-        // Reemplazo del período: borra lo anterior (registros y saldos).
-        RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->delete();
+        // Reemplazo del período: borra SOLO lo cargado desde BIABLE (origen='biable'); nunca los
+        // movimientos generados por el sistema al aplicar planos (reverso_plano/distribucion_plano).
+        RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->where('origen', 'biable')->delete();
         SaldoBalance::where('mes', $mes)->where('anio', $anio)->delete();
 
         return [

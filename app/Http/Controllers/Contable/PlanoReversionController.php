@@ -7,11 +7,13 @@ use App\Models\Homologacion;
 use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Support\GeneraPlanoSiesa;
+use App\Support\AplicaPlanoCuenta14;
 use Illuminate\Http\Request;
 
 class PlanoReversionController extends Controller
 {
     use GeneraPlanoSiesa;
+    use AplicaPlanoCuenta14;
 
     /** Mismo tipo de documento y tercero (SECAR) que el Plano de Cierre Contable. */
     private const TIPO_DOC  = 'CCC';
@@ -64,6 +66,59 @@ class PlanoReversionController extends Controller
 
         return response()->download($archivo, 'PLANO_REVERSION_SALDOS_14_'.date('Ymd_His').'.xlsx')
             ->deleteFileAfterSend(true);
+    }
+
+    /**
+     * APLICA el reverso en la cuenta 14 del sistema: crea los movimientos equivalentes (crédito/
+     * débito a la 14) en `registro_financieros` con origen 'reverso_plano', para que el saldo baje
+     * de inmediato y coincida con el ERP sin recargar BIABLE. Idempotente: re-aplicar el mismo corte
+     * reemplaza sus movimientos. El período destino (donde el ERP lo contabiliza) por defecto es el
+     * del corte, pero contabilidad puede cambiarlo.
+     */
+    public function aplicar(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
+        $datos = $request->validate([
+            'corte_mes'    => ['nullable', 'integer', 'between:1,12'],
+            'corte_anio'   => ['nullable', 'integer', 'min:2000'],
+            'documento'    => ['required', 'integer', 'min:1'],
+            'destino_mes'  => ['required', 'integer', 'between:1,12'],
+            'destino_anio' => ['required', 'integer', 'min:2000'],
+        ], [
+            'documento.required' => 'Indica el número de documento del asiento.',
+        ]);
+
+        $corteMes  = $datos['corte_mes'] ?? null;
+        $corteAnio = $datos['corte_anio'] ?? null;
+        if ($corteMes === null || $corteAnio === null) { $corteMes = null; $corteAnio = null; }
+        $numeroDoc = (int) $datos['documento'];
+
+        $lineas = $this->construirLineas($corteMes, $corteAnio, $numeroDoc);
+        if (empty($lineas)) {
+            return back()->with('error', 'No hay cuentas 14 con saldo contrario para aplicar en este corte.');
+        }
+
+        $lineas14 = $this->lineasCuenta14DePlano($lineas);
+
+        $plano = $this->aplicarPlanoEnSistema([
+            'tipo'             => 'reverso',
+            'distribucion_id'  => null,
+            'corte_mes'        => $corteMes,
+            'corte_anio'       => $corteAnio,
+            'mes'              => (int) $datos['destino_mes'],
+            'anio'             => (int) $datos['destino_anio'],
+            'numero_documento' => $numeroDoc,
+            'referencia'       => 'Reversión saldos cuenta 14'
+                . (($corteMes && $corteAnio) ? ' — corte '.sprintf('%02d/%d', $corteMes, $corteAnio) : ' — histórico'),
+            'origen'           => 'reverso_plano',
+            'user_id'          => $request->user()->id,
+        ], $lineas14);
+
+        return back()->with('success',
+            "Reverso aplicado en el sistema: {$plano->n_lineas} movimientos de cuenta 14 en el período {$plano->mes}/{$plano->anio}. "
+            . "El saldo ya se reflejó (Operaciones no volverá a verlo).");
     }
 
     /**

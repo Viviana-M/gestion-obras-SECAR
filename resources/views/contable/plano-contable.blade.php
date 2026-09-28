@@ -117,6 +117,42 @@
                 Si la observación se deja vacía, se usa la sugerida.
             </div>
         </div>
+
+        {{-- ══════ APLICAR EN EL SISTEMA (cuenta 14) ══════ --}}
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:12px 14px;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:#15803D;margin-bottom:8px">Aplicar en el sistema (cuenta 14)</div>
+            <form method="POST" action="{{ route('contable.plano-contable.aplicar', $v['id']) }}"
+                  onsubmit="return confirm('¿Aplicar esta distribución en el sistema? Se crearán los movimientos de cuenta 14 (origen distribucion_plano) en el período destino; el pendiente bajará de inmediato en Operaciones. Podrás deshacerlo desde «Planos aplicados».');"
+                  style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+                @csrf
+                <div style="flex:0 0 140px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N.° de documento *</label>
+                    <input type="number" name="documento" min="1" required placeholder="Ej: 385"
+                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                </div>
+                <div style="flex:0 0 150px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Período destino (mes)</label>
+                    <select name="destino_mes" style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                        @foreach($nombresMes as $i => $m)
+                        <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div style="flex:0 0 100px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
+                    <input type="number" name="destino_anio" min="2000" value="{{ $anio }}"
+                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                </div>
+                <button type="submit"
+                    style="padding:8px 18px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">
+                    ✓ Aplicar en el sistema
+                </button>
+            </form>
+            <div style="font-size:11px;color:#6B7280;margin-top:8px;line-height:1.5">
+                Crea sólo los movimientos que afectan la <b>cuenta 14</b> (origen <code>distribucion_plano</code>), para que el saldo
+                cuadre con el ERP sin recargar BIABLE. Idempotente: re-aplicar reemplaza los movimientos de esta versión.
+            </div>
+        </div>
         @endif
 
         <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:12px">

@@ -10,11 +10,13 @@ use App\Models\ReasignacionItem;
 use App\Models\User;
 use App\Services\RepartoFifoTerceros;
 use App\Support\GeneraPlanoSiesa;
+use App\Support\AplicaPlanoCuenta14;
 use Illuminate\Http\Request;
 
 class PlanoContableController extends Controller
 {
     use GeneraPlanoSiesa;
+    use AplicaPlanoCuenta14;
 
     /** NIT de SECAR: es el tercero de la cabecera del documento. */
     private const NIT_SECAR = '890319324';
@@ -92,60 +94,10 @@ class PlanoContableController extends Controller
         $anio      = (int) $distribucion->anio;
         $depto     = (string) $distribucion->departamento;
 
-        $centroCostos = self::CENTRO_COSTOS[$depto] ?? null;
-        if ($centroCostos === null) {
-            return back()->with('error', "No se que centro de costos usar para el departamento '{$depto}'.");
-        }
-
-        if ($distribucion->reemplazada) {
-            return back()->with('error', 'Esta version fue reemplazada por un reenvio posterior. Exporta la version vigente.');
-        }
-
-        $aplican    = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
-        $aplicanSet = array_flip($aplican->all());
-
-        // Las líneas normales solo se exportan para obras cerradas/parciales. Las de
-        // bolsa (origen_bolsa) se exportan SIEMPRE: si la obra está abierta se reclasifica
-        // 14→14 (cambia la UN); si está cerrada/parcial se aplica 14→61.
-        $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)
-            ->where('monto_aplicar', '>', 0)
-            ->where(function ($q) use ($aplican) {
-                $q->whereIn('codigo_proyecto', $aplican)
-                  ->orWhereNotNull('origen_bolsa');
-            })
-            ->orderBy('codigo_proyecto')
-            ->orderBy('cuenta_14')
-            ->get();
-
-        if ($lineas->isEmpty()) {
-            return back()->with('error', 'Esta version no tiene lineas para exportar.');
-        }
-
-        $obras   = $lineas->pluck('codigo_proyecto')->unique()->values()->all();
-        $reparto = new RepartoFifoTerceros($obras);
-
-        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
-
-        // Reasignaciones de ítems del período (Fase D): reclasificación de UN — misma
-        // cuenta contable, cambia el codigo_proyecto (origen → destino).
-        foreach ($this->movimientosReasignaciones($mes, $anio, $depto, $numeroDoc) as $m) {
-            $movimientos[] = $m;
-        }
-
-        // Provisiones del período (costo en tránsito): registro (D 14 / C 26) y reversas (D 26 / C 14).
-        foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
-            $movimientos[] = $m;
-        }
-
-        // Control de cuadre: si no cuadra, no se exporta.
-        $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
-        $credito = round(array_sum(array_column($movimientos, 'credito')), 2);
-
-        if (abs($debito - $credito) > 0.5) {
-            return back()->with('error',
-                'El plano NO cuadra: debito ' . number_format($debito, 2, ',', '.') .
-                ' vs credito ' . number_format($credito, 2, ',', '.') .
-                '. No se genero el archivo.');
+        try {
+            $movimientos = $this->armarMovimientosDistribucion($distribucion, $numeroDoc);
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
         }
 
         $fecha       = $this->ultimoDiaDelMes($anio, $mes);
@@ -158,6 +110,121 @@ class PlanoContableController extends Controller
                 . '_v' . $distribucion->version . '.xlsx';
 
         return response()->download($archivo, $nombre)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * APLICA la distribución en la cuenta 14 del sistema: crea los movimientos equivalentes que
+     * afectan "Costos por aplicar" (crédito a la 14 y reclasificaciones 14→14) en
+     * `registro_financieros` con origen 'distribucion_plano', para que el pendiente baje de
+     * inmediato en Operaciones y cuadre con el ERP sin recargar BIABLE. Idempotente: re-aplicar la
+     * misma distribución reemplaza sus movimientos. El período destino por defecto es el de la
+     * distribución, pero contabilidad puede cambiarlo.
+     */
+    public function aplicar(Request $request, Distribucion $distribucion)
+    {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403,
+            'No tienes permiso para editar en Contabilidad.');
+
+        $datos = $request->validate([
+            'documento'    => ['required', 'integer', 'min:1'],
+            'destino_mes'  => ['required', 'integer', 'between:1,12'],
+            'destino_anio' => ['required', 'integer', 'min:2000'],
+        ], [
+            'documento.required' => 'Indica el número de documento del asiento.',
+        ]);
+
+        $numeroDoc = (int) $datos['documento'];
+
+        try {
+            $movimientos = $this->armarMovimientosDistribucion($distribucion, $numeroDoc);
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        $lineas14 = $this->lineasCuenta14DePlano($movimientos);
+        $depto    = (string) $distribucion->departamento;
+
+        $plano = $this->aplicarPlanoEnSistema([
+            'tipo'             => 'distribucion',
+            'distribucion_id'  => $distribucion->id,
+            'corte_mes'        => null,
+            'corte_anio'       => null,
+            'mes'              => (int) $datos['destino_mes'],
+            'anio'             => (int) $datos['destino_anio'],
+            'numero_documento' => $numeroDoc,
+            'referencia'       => 'Distribución ' . mb_strtoupper($depto) . ' v' . $distribucion->version
+                . ' — ' . (self::MESES[(int) $distribucion->mes] ?? '') . ' ' . $distribucion->anio,
+            'origen'           => 'distribucion_plano',
+            'user_id'          => $request->user()->id,
+        ], $lineas14);
+
+        return back()->with('success',
+            "Distribución aplicada en el sistema: {$plano->n_lineas} movimientos de cuenta 14 en el período {$plano->mes}/{$plano->anio}. "
+            . "El saldo ya se reflejó en Operaciones.");
+    }
+
+    /**
+     * Arma TODAS las líneas del plano de una distribución (14→61, bolsas, reasignaciones y
+     * provisiones) y valida el cuadre. Lanza RuntimeException con el motivo si no se puede.
+     * Compartido por la descarga (exportarPlano) y la aplicación en el sistema (aplicar).
+     */
+    private function armarMovimientosDistribucion(Distribucion $distribucion, int $numeroDoc): array
+    {
+        $mes   = (int) $distribucion->mes;
+        $anio  = (int) $distribucion->anio;
+        $depto = (string) $distribucion->departamento;
+
+        $centroCostos = self::CENTRO_COSTOS[$depto] ?? null;
+        if ($centroCostos === null) {
+            throw new \RuntimeException("No se que centro de costos usar para el departamento '{$depto}'.");
+        }
+        if ($distribucion->reemplazada) {
+            throw new \RuntimeException('Esta version fue reemplazada por un reenvio posterior. Usa la version vigente.');
+        }
+
+        $aplican    = ObraEstado::whereIn('estado', ['cerrada', 'parcial'])->pluck('codigo_proyecto');
+        $aplicanSet = array_flip($aplican->all());
+
+        // Las líneas normales solo se aplican para obras cerradas/parciales. Las de bolsa
+        // (origen_bolsa) siempre: obra abierta → reclasifica 14→14; cerrada/parcial → 14→61.
+        $lineas = AplicacionCosto::where('distribucion_id', $distribucion->id)
+            ->where('monto_aplicar', '>', 0)
+            ->where(function ($q) use ($aplican) {
+                $q->whereIn('codigo_proyecto', $aplican)
+                  ->orWhereNotNull('origen_bolsa');
+            })
+            ->orderBy('codigo_proyecto')
+            ->orderBy('cuenta_14')
+            ->get();
+
+        if ($lineas->isEmpty()) {
+            throw new \RuntimeException('Esta version no tiene lineas para exportar.');
+        }
+
+        $obras   = $lineas->pluck('codigo_proyecto')->unique()->values()->all();
+        $reparto = new RepartoFifoTerceros($obras);
+
+        $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
+
+        // Reasignaciones de ítems del período (Fase D): reclasificación 14→14 (cambia codigo_proyecto).
+        foreach ($this->movimientosReasignaciones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
+        // Provisiones del período (costo en tránsito): registro (D 14 / C 26) y reversas (D 26 / C 14).
+        foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
+
+        // Control de cuadre: si no cuadra, no se genera/aplica.
+        $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
+        $credito = round(array_sum(array_column($movimientos, 'credito')), 2);
+        if (abs($debito - $credito) > 0.5) {
+            throw new \RuntimeException(
+                'El plano NO cuadra: debito ' . number_format($debito, 2, ',', '.') .
+                ' vs credito ' . number_format($credito, 2, ',', '.') . '. No se generó el archivo.');
+        }
+
+        return $movimientos;
     }
 
     /**

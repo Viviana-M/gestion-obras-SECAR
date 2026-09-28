@@ -144,7 +144,9 @@ class CargaFinancieraController extends Controller
 
         $carga = CargaFinanciera::findOrFail($id);
 
-        RegistroFinanciero::where('mes', $carga->mes)->where('anio', $carga->anio)->delete();
+        // Borra SOLO lo cargado desde BIABLE de ese período; conserva los movimientos generados por
+        // el sistema al aplicar planos (reverso_plano/distribucion_plano).
+        RegistroFinanciero::where('mes', $carga->mes)->where('anio', $carga->anio)->where('origen', 'biable')->delete();
         SaldoBalance::where('mes', $carga->mes)->where('anio', $carga->anio)->delete();
 
         if ($carga->ruta_archivo && file_exists(storage_path('app/'.$carga->ruta_archivo))) {

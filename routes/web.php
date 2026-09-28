@@ -54,9 +54,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::post('/contable/cierre-obras/excel', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cargarExcel'])->name('contable.cierre-obras.excel');
         Route::post('/contable/cierre-obras/manual', [\App\Http\Controllers\Contable\CierreObrasController::class, 'cerrarManual'])->name('contable.cierre-obras.manual');
         Route::delete('/contable/cierre-obras/{id}', [\App\Http\Controllers\Contable\CierreObrasController::class, 'destroy'])->name('contable.cierre-obras.eliminar');
-        // Plano de cuentas 14 con saldos contrarios (reversión): página + descarga.
+        // Plano de cuentas 14 con saldos contrarios (reversión): página + descarga + aplicar.
         Route::get('/contable/plano-reversion', [PlanoReversionController::class, 'index'])->name('contable.plano-reversion.index');
         Route::get('/contable/plano-reversion/excel', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano-reversion.excel');
+        Route::post('/contable/plano-reversion/aplicar', [PlanoReversionController::class, 'aplicar'])->name('contable.plano-reversion.aplicar');
 
         // Redistribución por % de la mano de obra del personal especial (Grupo B).
         Route::get('/contable/redistribucion-mo', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'index'])->name('contable.redistribucion-mo.index');
@@ -84,6 +85,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Plano contable (distribución 14 → 61)
         Route::get('/contable/plano-contable', [PlanoContableController::class, 'index'])->name('contable.plano-contable');
         Route::get('/contable/plano-contable/{distribucion}/descargar', [PlanoContableController::class, 'exportarPlano'])->name('contable.plano-contable.descargar');
+        Route::post('/contable/plano-contable/{distribucion}/aplicar', [PlanoContableController::class, 'aplicar'])->name('contable.plano-contable.aplicar');
         Route::post('/contable/plano-contable/{distribucion}/habilitar', [PlanoContableController::class, 'habilitar'])->name('contable.plano-contable.habilitar');
         Route::get   ('/contable/reclasificaciones',                    [PlanoReclasificacionController::class, 'index'])    ->name('contable.reclasificaciones.index');
         Route::get   ('/contable/reclasificaciones/{homologacion}',     [PlanoReclasificacionController::class, 'detalle'])  ->name('contable.reclasificaciones.detalle');
@@ -101,6 +103,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // confirmar y eliminar el exceso con un clic (nunca en silencio al cargar).
         Route::get('/contable/sobre-reversion', [\App\Http\Controllers\Contable\SobreReversionController::class, 'index'])->name('contable.sobre-reversion.index');
         Route::post('/contable/sobre-reversion/eliminar', [\App\Http\Controllers\Contable\SobreReversionController::class, 'eliminar'])->name('contable.sobre-reversion.eliminar');
+
+        // Planos aplicados por el sistema en la cuenta 14 (auditoría): ver y deshacer.
+        Route::get('/contable/planos-aplicados', [\App\Http\Controllers\Contable\PlanosAplicadosController::class, 'index'])->name('contable.planos-aplicados.index');
+        Route::post('/contable/planos-aplicados/{plano}/deshacer', [\App\Http\Controllers\Contable\PlanosAplicadosController::class, 'deshacer'])->name('contable.planos-aplicados.deshacer');
 
         // Reconciliación cuenta 14: sistema vs archivo del ERP.
         Route::get('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'index'])->name('contable.recon14.index');
