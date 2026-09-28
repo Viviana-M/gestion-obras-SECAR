@@ -505,7 +505,7 @@ class DistribucionCostosController extends Controller
         $moAsignado = $moBolsa ? $moSvc->asignadoPorTercero($moBolsa, $mes, $anio) : [];
         $moGuardadas = $moBolsa
             ? ManoObraAsignacion::where('bolsa_un', $moBolsa)->where('mes', $mes)->where('anio', $anio)
-                ->orderBy('tercero')->get()->groupBy('tercero')
+                ->orderBy('persona')->get()->groupBy('persona')
             : collect();
         [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
         $moHayMesAnterior = $moBolsa && ManoObraAsignacion::where('bolsa_un', $moBolsa)

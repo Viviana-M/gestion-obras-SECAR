@@ -42,9 +42,11 @@ class RedistribucionMoEspecialService
      *
      * @return array<string, array{cedula:string,nombre:string,directo:float,ss:float,total:float,buckets:array}>
      */
-    public function costoPorPersona(int $mes, int $anio): array
+    public function costoPorPersona(int $mes, int $anio, $maestro = null): array
     {
-        $maestro = ManoObraDirecta::where('activo', true)->get();
+        // Por defecto, el personal de apoyo (ManoObraDirecta). Se puede pasar otro maestro con
+        // el mismo contrato (cédula + nombre), p. ej. Terceros de mano de obra (mano de obra directa).
+        $maestro = $maestro ?? ManoObraDirecta::where('activo', true)->get();
         if ($maestro->isEmpty()) {
             return [];
         }

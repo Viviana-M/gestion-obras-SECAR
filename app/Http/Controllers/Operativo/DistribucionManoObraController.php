@@ -52,7 +52,7 @@ class DistribucionManoObraController extends Controller
         // Asignaciones guardadas del período (para prellenar la pantalla): tercero → filas.
         $guardadas = $bolsa
             ? ManoObraAsignacion::where('bolsa_un', $bolsa)->where('mes', $mes)->where('anio', $anio)
-                ->orderBy('tercero')->get()->groupBy('tercero')
+                ->orderBy('persona')->get()->groupBy('persona')
             : collect();
 
         // Obras destino: proyectos activos (no bolsas).
@@ -144,7 +144,7 @@ class DistribucionManoObraController extends Controller
         }
         $mapaPrev = [];
         foreach ($prev as $a) {
-            $mapaPrev[$a->tercero][$a->obra_destino] = ($mapaPrev[$a->tercero][$a->obra_destino] ?? 0) + (float) $a->monto;
+            $mapaPrev[$a->persona][$a->obra_destino] = ($mapaPrev[$a->persona][$a->obra_destino] ?? 0) + (float) $a->monto;
         }
 
         $saldos = collect($this->svc->saldosPorTercero($bolsa, $mes, $anio))->keyBy('tercero');
@@ -284,38 +284,41 @@ class DistribucionManoObraController extends Controller
     // ═══════════════════════ Helpers ═══════════════════════
 
     /**
-     * Inserta las asignaciones de un tercero repartiendo cada monto por obra entre las cuentas 14
-     * del tercero (buckets del saldo), proporcionalmente, para conservar el detalle por cuenta.
+     * Inserta las asignaciones de una PERSONA repartiendo cada monto por obra entre sus buckets
+     * (cuenta 14 + tercero SIESA: persona en salario, fondo en SS), proporcionalmente, para
+     * conservar el detalle contable del plano.
      */
     private function insertarAsignaciones(string $bolsa, int $mes, int $anio, array $porTercero, $saldos, string $origen, ?int $userId): void
     {
         $filas = [];
         $ahora = now();
-        foreach ($porTercero as $ter => $asigs) {
-            $info    = $saldos[$ter] ?? null;
-            $buckets = $info['buckets'] ?? [];
-            $doc     = $info['doc'] ?? '';
+        foreach ($porTercero as $persona => $asigs) {
+            $info    = $saldos[$persona] ?? null;
+            $buckets = $info['buckets'] ?? [];              // [{cuenta_14, tercero, monto}]
             $nombre  = $info['nombre'] ?? '';
-            $totalBucket = array_sum($buckets);
-            // Si no hay detalle de cuentas (raro), usa una sola "14" para no perder el monto.
-            if ($totalBucket <= 0.005) $buckets = ['14' => 1.0];
-            $totalBucket = array_sum($buckets);
-            $cuentas = array_keys($buckets);
+            $totalBucket = array_sum(array_column($buckets, 'monto'));
+            if ($totalBucket <= 0.005) {
+                // Sin detalle contable (raro): una sola línea genérica a nombre de la persona.
+                $buckets = [['cuenta_14' => '14', 'tercero' => (string) $persona, 'monto' => 1.0]];
+                $totalBucket = 1.0;
+            }
+            $n = count($buckets);
 
             foreach ($asigs as $a) {
                 $monto = round((float) $a['monto'], 2);
                 if ($monto <= 0.005) continue;
 
-                $acum = 0.0; $ultima = end($cuentas);
-                foreach ($cuentas as $c14) {
-                    $parte = $c14 === $ultima
-                        ? round($monto - $acum, 2)                          // la última cuenta absorbe el redondeo
-                        : round($monto * ($buckets[$c14] / $totalBucket), 2);
+                $acum = 0.0;
+                foreach ($buckets as $i => $b) {
+                    $parte = ($i === $n - 1)
+                        ? round($monto - $acum, 2)                          // el último bucket absorbe el redondeo
+                        : round($monto * ($b['monto'] / $totalBucket), 2);
                     $acum += $parte;
                     if ($parte <= 0.005) continue;
                     $filas[] = [
-                        'bolsa_un' => $bolsa, 'cuenta_14' => (string) $c14, 'tercero' => (string) $ter,
-                        'tercero_doc' => $doc ?: null, 'tercero_nombre' => $nombre ?: null,
+                        'bolsa_un' => $bolsa, 'cuenta_14' => (string) $b['cuenta_14'],
+                        'persona' => (string) $persona, 'tercero' => (string) $b['tercero'],
+                        'tercero_doc' => (string) $b['tercero'], 'tercero_nombre' => $nombre ?: null,
                         'obra_destino' => (string) $a['obra'], 'monto' => $parte, 'mes' => $mes, 'anio' => $anio,
                         'observacion' => $a['obs'] ?? null, 'origen' => $origen, 'user_id' => $userId,
                         'created_at' => $ahora, 'updated_at' => $ahora,

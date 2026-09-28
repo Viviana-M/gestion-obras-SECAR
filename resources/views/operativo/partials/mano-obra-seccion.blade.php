@@ -16,8 +16,8 @@
 
 <div class="card" style="padding:0;margin-top:1.5rem;overflow:hidden">
     <div style="background:#1B3F6E;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-        <div style="font-size:14px;font-weight:700">🧑‍🔧 Mano de obra por tercero</div>
-        <div style="font-size:11.5px;opacity:.85">La MO se reparte por persona → obra. El saldo va por tercero (no colapsado).</div>
+        <div style="font-size:14px;font-weight:700">🧑‍🔧 Mano de obra directa por persona</div>
+        <div style="font-size:11.5px;opacity:.85">Personas del maestro de mano de obra directa con MO en la bolsa (salario + PILA). Las demás ya están distribuidas.</div>
     </div>
 
     <div style="padding:14px 16px">

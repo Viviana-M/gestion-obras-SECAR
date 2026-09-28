@@ -14,7 +14,7 @@ class ManoObraAsignacion extends Model
     protected $table = 'mano_obra_asignacion';
 
     protected $fillable = [
-        'bolsa_un', 'cuenta_14', 'tercero', 'tercero_doc', 'tercero_nombre',
+        'bolsa_un', 'cuenta_14', 'persona', 'tercero', 'tercero_doc', 'tercero_nombre',
         'obra_destino', 'monto', 'mes', 'anio', 'observacion', 'origen', 'user_id',
     ];
 
