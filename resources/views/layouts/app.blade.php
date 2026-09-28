@@ -199,6 +199,7 @@
                 <div class="submenu-group-label">Cierre y ajustes</div>
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano de cierre</a>
                 <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano de reclasificación</a>
+                <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">Plano reclasificación MO apoyo</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Reabrir período</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
                 <a href="{{ route('contable.conciliacion-cierre.index') }}" class="{{ request()->is('contable/conciliacion-cierre') ? 'active' : '' }}">Conciliación y cierre de cuenta 14</a>
@@ -209,9 +210,8 @@
                 <a href="{{ route('contable.recon14.index') }}" class="{{ request()->is('contable/recon14') ? 'active' : '' }}">Conciliación vs ERP</a>
                 <a href="{{ route('contable.duplicados.index') }}" class="{{ request()->is('contable/duplicados') ? 'active' : '' }}">Revisión de duplicados</a>
                 <div class="submenu-group-label">Mano de obra</div>
-                <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra directa</a>
-                <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Terceros de mano de obra</a>
-                <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">Mano de obra de apoyo</a>
+                <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra de apoyo</a>
+                <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Mano de obra directa</a>
             </div>
         </div>
         @endif
