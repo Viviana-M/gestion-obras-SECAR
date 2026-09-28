@@ -133,20 +133,22 @@ window.MO_EDIT = @json($puede);
     }
     function restante(blk, ced, exceptEl){ return Math.round(totalDe(blk, ced) - aplicado(blk, ced, exceptEl)); }
 
-    // ── Costo/margen de la obra (incluye la MO aplicada) ──
+    // ── Costo/margen de la obra (incluye la MO aplicada), en una línea compacta ──
     function costoHTML(cod, moCarg){
         const info = (window.MO_OBRAS[cod]) || {nombre:'',ingreso:0,costo_apl:0,inventario:0};
         const otros = info.costo_apl, costoReal = otros + moCarg, mc = info.ingreso - costoReal;
         const mcp = info.ingreso ? (mc/info.ingreso*100) : null;
         const saldoTr = Math.max(0, info.inventario - moCarg);
-        return '<div style="display:grid;grid-template-columns:1fr auto;gap:1px 8px;font-size:10.5px;color:#374151">'+
-            '<div>Ingreso</div><div style="text-align:right">'+fmt(info.ingreso)+'</div>'+
-            '<div>Materiales / otros</div><div style="text-align:right">'+fmt(otros)+'</div>'+
-            '<div>Mano de obra</div><div style="text-align:right">'+fmt(moCarg)+'</div>'+
-            '<div style="font-weight:600">Costo real</div><div style="text-align:right;font-weight:600">'+fmt(costoReal)+'</div>'+
-            '<div>MC$</div><div style="text-align:right;font-weight:600;color:'+(mc<0?'#DC2626':'#15803D')+'">'+fmt(mc)+'</div>'+
-            '<div>MC%</div><div style="text-align:right;font-weight:600;color:'+(mcp!==null&&mcp<0?'#DC2626':'#15803D')+'">'+(mcp!==null?pct1(mcp):'—')+'</div>'+
-            '<div>Saldo en tránsito</div><div style="text-align:right">'+fmt(saldoTr)+'</div></div>';
+        const cMc = mc < 0 ? '#DC2626' : '#15803D';
+        const cMcp = (mcp !== null && mcp < 0) ? '#DC2626' : '#15803D';
+        return '<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:10.5px;color:#374151">'+
+            '<span>Ingreso <b>'+fmt(info.ingreso)+'</b></span>'+
+            '<span>Materiales/otros <b>'+fmt(otros)+'</b></span>'+
+            '<span>Mano de obra <b>'+fmt(moCarg)+'</b></span>'+
+            '<span>Costo real <b>'+fmt(costoReal)+'</b></span>'+
+            '<span>MC$ <b style="color:'+cMc+'">'+fmt(mc)+'</b></span>'+
+            '<span>MC% <b style="color:'+cMcp+'">'+(mcp!==null?pct1(mcp):'—')+'</b></span>'+
+            '<span>Saldo en tránsito <b>'+fmt(saldoTr)+'</b></span></div>';
     }
 
     // ── Construcción de tarjetas y líneas ──
@@ -155,37 +157,39 @@ window.MO_EDIT = @json($puede);
         const row = document.createElement('div');
         row.className = 'mo-linea';
         row.dataset.ced = ced; row.dataset.nom = nom;
-        row.style.cssText = 'display:flex;gap:5px;align-items:center;margin-top:4px';
+        row.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:11px;padding:4px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
         const inputMonto = window.MO_EDIT
-            ? '<input type="text" inputmode="numeric" name="asignaciones['+i+'][monto]" value="'+(monto?Math.round(monto).toLocaleString("es-CO"):"")+'" data-mo-monto oninput="moLineaInput(this)" style="width:110px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;text-align:right">'
-            : '<span data-mo-monto data-val="'+(monto||0)+'" style="width:110px;text-align:right;font-size:11px;color:#374151">'+fmt(monto||0)+'</span>';
+            ? '<input type="text" inputmode="numeric" name="asignaciones['+i+'][monto]" value="'+(monto?Math.round(monto).toLocaleString("es-CO"):"")+'" data-mo-monto oninput="moLineaInput(this)" style="width:100px;padding:2px 6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px;text-align:right;background:#fff">'
+            : '<b data-mo-monto data-val="'+(monto||0)+'" style="min-width:90px;text-align:right;color:#92400E">'+fmt(monto||0)+'</b>';
         row.innerHTML =
-            '<span style="flex:1;font-size:11px;color:#1B3F6E">'+esc(nom)+'</span>'+
+            '<span style="flex:1;color:#92400E">🡒 <b>'+esc(nom)+'</b></span>'+
             inputMonto+
             '<input type="hidden" name="asignaciones['+i+'][cedula]" value="'+esc(ced)+'">'+
             '<input type="hidden" name="asignaciones['+i+'][nombre]" value="'+esc(nom)+'">'+
             '<input type="hidden" name="asignaciones['+i+'][obra]" value="'+esc(cod)+'">'+
-            (window.MO_EDIT ? '<button type="button" onclick="moDelLinea(this)" style="border:none;background:#FEF2F2;color:#DC2626;width:22px;border-radius:6px;cursor:pointer">×</button>' : '');
+            (window.MO_EDIT ? '<a href="#" onclick="moDelLinea(this);return false" style="color:#DC2626;text-decoration:none">✕</a>' : '');
         return row;
     }
 
     function crearCard(blk, cod){
         const info = (window.MO_OBRAS[cod]) || {nombre:''};
-        const listId = blk.querySelector('.mo-obra-cards').dataset.list;
         const card = document.createElement('div');
         card.className = 'mo-obra'; card.dataset.obra = cod;
         card.style.cssText = 'border:1px solid #E5E7EB;border-radius:6px;padding:6px 8px;background:#fff';
+        // Control compacto estilo "Asignar desde bolsa de área": Tercero + Monto + Asignar.
         const addRow = window.MO_EDIT
-            ? '<div class="mo-add-linea" style="display:flex;gap:5px;margin-top:6px">'+
-                '<select data-mo-add-ced style="flex:1;padding:3px 6px;border:1px solid #1B3F6E;border-radius:6px;font-size:11px"></select>'+
-                '<input type="text" inputmode="numeric" data-mo-add-monto placeholder="Monto" oninput="moFmtOnly(this)" style="width:110px;padding:3px 6px;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;text-align:right">'+
-                '<button type="button" onclick="moAddLinea(this)" style="padding:3px 10px;background:#1B3F6E;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer">+ MO</button>'+
+            ? '<div class="mo-add-linea" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">'+
+                '<div style="flex:2;min-width:170px"><label style="font-size:10px;color:#6B7280;display:block">Tercero</label>'+
+                  '<select data-mo-add-ced style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px"></select></div>'+
+                '<div style="flex:1;min-width:100px"><label style="font-size:10px;color:#6B7280;display:block">Monto</label>'+
+                  '<input type="text" inputmode="numeric" data-mo-add-monto placeholder="0" oninput="moFmtOnly(this)" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px;text-align:right"></div>'+
+                '<button type="button" onclick="moAddLinea(this)" style="padding:7px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Asignar</button>'+
               '</div>'
             : '';
         card.innerHTML =
             '<div style="display:flex;align-items:center;gap:6px">'+
               '<div style="font-weight:600;color:#1B3F6E;font-size:11px;flex:1">'+esc(cod)+' <span style="font-weight:400;color:#9CA3AF">'+esc(info.nombre||'')+'</span></div>'+
-              (window.MO_EDIT ? '<button type="button" onclick="moQuitarObra(this)" title="Quitar obra" style="border:none;background:transparent;color:#9CA3AF;cursor:pointer;font-size:14px">🗑</button>' : '')+
+              (window.MO_EDIT ? '<a href="#" onclick="moQuitarObra(this);return false" title="Quitar obra" style="color:#9CA3AF;text-decoration:none;font-size:13px">🗑</a>' : '')+
             '</div>'+
             '<div class="mo-obra-cost" style="margin-top:4px"></div>'+
             '<div class="mo-lineas" data-mo-lineas style="margin-top:4px"></div>'+
