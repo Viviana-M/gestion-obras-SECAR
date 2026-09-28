@@ -13,8 +13,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
     protected $mes;
     protected $anio;
 
-    private $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM', 'MTO', 'INS'];
-
     public function __construct($mes, $anio)
     {
         $this->mes  = $mes;
@@ -44,14 +42,15 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $periodo = trim($row['periodo'] ?? '');
         if (str_ends_with((string)$periodo, '13')) return null;
 
+        // Cualquier obra con código no vacío (sin lista blanca de prefijos, que botaba obras
+        // reales). Solo se descartan filas sin código o de totales/encabezado.
         $unidad = trim($row['unidad_de_negocio'] ?? '');
-        if (!$this->tienePrefijosValido($unidad)) return null;
+        if ($unidad === '' || str_contains(strtoupper($unidad), 'TOTAL')) return null;
 
         $nombreUnidad = trim($row['nombre_unidad_de_negocio'] ?? '');
         $unidadUnificada = $unidad && $nombreUnidad
             ? $unidad . ' - ' . $nombreUnidad
             : ($unidad ?: $nombreUnidad);
-        if (str_contains($unidadUnificada, 'COM00099')) return null;
 
         $cuenta = trim($row['cuenta'] ?? '');
         $cuentaMayor = $this->clasificarCuenta($cuenta);
@@ -68,15 +67,24 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             ? $movto * -1
             : $movto;
 
+        $tercero   = (trim($row['tercero'] ?? '') ?: trim($row['tercero_docto'] ?? '')) ?: null;
+        $documento = (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null);
+        $debito    = $this->limpiarNumero($row['debitos']  ?? 0);
+        $credito   = $this->limpiarNumero($row['creditos'] ?? 0);
+
         return new RegistroFinanciero([
             'codigo_proyecto'  => $unidad,
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
             'descripcion'      => trim($row['nombre_auxiliar'] ?? ''),
-            'tercero_dcto'     => trim($row['tercero_docto'] ?? '') ?: null,
-            'razon_social'     => trim($row['razon_social_docto'] ?? '') ?: null,
-            'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
-            'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
+            // Tercero del MOVIMIENTO (el empleado en nómina), no el del documento (SECAR).
+            'tercero_dcto'     => $tercero,
+            'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
+            // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
+            'documento'        => $documento,
+            'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
+            'valor_debito'     => $debito,
+            'valor_credito'    => $credito,
             'movto_libro2'     => $movto,
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
@@ -89,13 +97,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         ]);
     }
 
-    private function tienePrefijosValido($unidad): bool
-    {
-        foreach ($this->prefijosValidos as $prefijo) {
-            if (str_starts_with($unidad, $prefijo)) return true;
-        }
-        return false;
-    }
 
     private function clasificarCuenta($cuenta): string
     {

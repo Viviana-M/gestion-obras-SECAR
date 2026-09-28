@@ -114,6 +114,16 @@
             font-size: 13px;
             margin-bottom: 1rem;
         }
+
+        .alert-info {
+            background: #EFF6FF;
+            color: #1B3F6E;
+            border: 1px solid #BFDBFE;
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 13px;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -124,6 +134,12 @@
         </div>
         <h1>Bienvenido</h1>
         <p class="subtitle">Gestión Financiera de Proyectos</p>
+
+        @if (session('status'))
+            <div class="alert-info">
+                {{ session('status') }}
+            </div>
+        @endif
 
         @if ($errors->any())
             <div class="alert-error">

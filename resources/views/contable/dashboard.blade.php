@@ -3,7 +3,9 @@
 @section('title', 'Módulo Contable')
 
 @section('content')
-    <h1 class="page-title">Proyectos contables</h1>
+    <x-page-banner title="Proyectos contables" icon="🏗️">
+        Módulo contable en construcción.
+    </x-page-banner>
     <div class="card">
         <h3>Módulo en construcción</h3>
     </div>

@@ -1,0 +1,212 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AplicacionCosto;
+use App\Models\ManoObraAsignacion;
+use App\Models\RegistroFinanciero;
+use App\Models\TerceroManoObra;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\TestCase;
+use Tests\Concerns\AbrePeriodoCierre;
+
+/**
+ * Operaciones trabaja desde el TOTAL: al cargar la distribución de la cuenta 14 se
+ * precarga el saldo pendiente COMPLETO de cada cuenta (ellos ajustan hacia abajo), y al
+ * guardar se respeta lo que dejen, con el único límite del saldo abierto de cada cuenta
+ * (ya NO se topa al facturado del mes).
+ */
+class PrecargaDistribucionTest extends TestCase
+{
+    use RefreshDatabase;
+    use AbrePeriodoCierre;
+
+    private function operador(): User
+    {
+        return User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true,
+            'permisos_modulos' => ['operacion' => 'editar'],
+        ]);
+    }
+
+    private function rf(string $cuentaMayor, float $er, int $mes, int $anio, string $cc = '000000'): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-700', 'nombre_proyecto' => 'Obra',
+            'cuenta_contable' => $cc, 'cuenta_mayor' => $cuentaMayor,
+            'estado_er' => $er, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    private function sembrar(): void
+    {
+        // Facturado del mes 1000 (ya no importa para el tope), pendiente 600 + 800 = 1400.
+        $this->rf('Ingreso', 1000, 7, 2026, '41350100');
+        $this->rf('Costos por aplicar', -600, 5, 2026, '14350105');
+        $this->rf('Costos por aplicar', -800, 6, 2026, '14350206');
+    }
+
+    #[Test]
+    public function la_distribucion_precarga_el_saldo_pendiente_completo(): void
+    {
+        $this->sembrar();
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('id="card-C-700"', false);
+        // Se precarga el total de cada cuenta (600 y 800), sin toparlo al facturado (1000).
+        $resp->assertSee('data-tope="600"', false);
+        $resp->assertSee('data-tope="800"', false);
+        // El input arranca con el saldo completo.
+        $resp->assertSee('value="600"', false);
+        $resp->assertSee('value="800"', false);
+    }
+
+    #[Test]
+    public function la_precarga_incluye_los_proyectos_sin_ingreso(): void
+    {
+        // Obra SIN ingreso en el mes, con saldo pendiente en cuenta 14: debe precargar su saldo.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-800', 'nombre_proyecto' => 'Sin ingreso',
+            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar',
+            'estado_er' => -400, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertStatus(200);
+
+        $obras = $resp->viewData('obras');
+        $this->assertArrayHasKey('C-800', $obras);
+        $this->assertTrue($obras['C-800']['sin_ingreso']);   // efectivamente no tiene ingreso
+
+        // El "a aplicar" quedó precargado con el saldo pendiente (400), no en 0.
+        $sumAplicar = 0;
+        foreach ($obras['C-800']['cat'] as $c) foreach ($c['subs'] as $s) $sumAplicar += (float) $s['aplicar'];
+        $this->assertEqualsWithDelta(400, $sumAplicar, 0.5);
+    }
+
+    #[Test]
+    public function la_precarga_nunca_excede_el_saldo_neto_abierto(): void
+    {
+        // Bruto 2.000.000 con una reversa de 714.393 => neto abierto 1.285.607.
+        $this->rf('Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('Costos por aplicar', -2000000, 4, 2026, '14200506');
+        $this->rf('Costos por aplicar', 714393, 5, 2026, '14200506');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('data-tope="1285607"', false);
+        $resp->assertDontSee('data-tope="2000000"', false);
+    }
+
+    #[Test]
+    public function guardar_respeta_lo_que_deja_operaciones_sin_topar_al_facturado(): void
+    {
+        $this->sembrar(); // facturado 1000, pero pendiente 600 + 800 = 1400
+
+        // Operaciones deja el total (1400 > 1000 facturado): se guarda completo.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14350105' => 600, '14350206' => 800]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(800, (float) AplicacionCosto::where('cuenta_14', '14350206')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(1400, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
+    public function guardar_no_aplica_mas_que_el_saldo_de_la_cuenta(): void
+    {
+        $this->sembrar(); // 14350105 con saldo 600
+
+        // Aunque manden 9999, se recorta al saldo abierto de la cuenta (600).
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14350105' => 9999]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
+    public function guardar_acepta_montos_con_separador_de_miles(): void
+    {
+        // El campo llega formateado desde el front ("2.779.139"): debe parsearse limpio.
+        $this->rf('Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('Costos por aplicar', -3000000, 6, 2026, '14200506');
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14200506' => '2.779.139']],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(2779139, (float) AplicacionCosto::where('cuenta_14', '14200506')->sum('monto_aplicar'), 0.5);
+    }
+
+    #[Test]
+    public function guardar_persiste_la_mano_de_obra_asignada_dentro_de_la_obra(): void
+    {
+        // Juan (maestro Mano de obra directa) con salario 500k en la bolsa MTO00099 (mantenimiento).
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '111', 'razon_social' => 'Juan Perez',
+            'estado_er' => -500000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026, 'origen' => 'biable',
+        ]);
+
+        // Asigna MO a la obra OB1 desde la propia obra; el monto llega con separador de miles.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'mano_obra_activa' => '1',
+            'mano_obra' => ['OB1' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'monto' => '300.000']]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(300000, (float) ManoObraAsignacion::where('obra_destino', 'OB1')->sum('monto'), 1);
+        $this->assertSame('111', ManoObraAsignacion::where('obra_destino', 'OB1')->first()->persona);
+    }
+
+    #[Test]
+    public function guardar_capa_la_mano_de_obra_al_costo_de_la_persona(): void
+    {
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '111', 'razon_social' => 'Juan Perez',
+            'estado_er' => -500000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026, 'origen' => 'biable',
+        ]);
+
+        // Pide 700k pero su costo es 500k: se capa en silencio a 500k.
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'mano_obra_activa' => '1',
+            'mano_obra' => ['OB1' => [['cedula' => '111', 'nombre' => 'Juan Perez', 'monto' => '700000']]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(500000, (float) ManoObraAsignacion::where('persona', '111')->sum('monto'), 1);
+    }
+
+    #[Test]
+    public function guardar_aplica_aunque_no_haya_cupo_de_facturado(): void
+    {
+        // Facturado 500 ya consumido por costo aplicado 500 (antes: tope 0 => 0 aplicado).
+        // Ahora, al haber ingreso, se aplica el pendiente hasta el saldo (900).
+        $this->rf('Ingreso', 500, 7, 2026, '41350100');
+        $this->rf('Costos aplicados', -500, 7, 2026, '61350100');
+        $this->rf('Costos por aplicar', -900, 6, 2026, '14350206');
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14350206' => 900]],
+        ])->assertRedirect();
+
+        $this->assertEqualsWithDelta(900, (float) AplicacionCosto::where('cuenta_14', '14350206')->sum('monto_aplicar'), 0.5);
+    }
+}

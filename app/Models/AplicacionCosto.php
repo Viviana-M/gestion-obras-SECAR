@@ -14,6 +14,7 @@ class AplicacionCosto extends Model
         'anio',
         'codigo_proyecto',
         'cuenta_14',
+        'origen_bolsa',
         'cuenta_61',
         'categoria',
         'nombre',
