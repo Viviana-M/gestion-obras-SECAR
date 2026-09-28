@@ -21,7 +21,15 @@
         .btn-logout:hover { background: rgba(255,255,255,0.1); }
 
         .layout { display: flex; min-height: calc(100vh - 56px); }
-        .sidebar { width: 220px; background: #FFFFFF; border-right: 1px solid #E5E7EB; padding: 0.75rem 0; flex-shrink: 0; transition: width .2s ease; overflow: hidden; }
+        .sidebar {
+            width: 220px; background: #FFFFFF; border-right: 1px solid #E5E7EB; padding: 0.75rem 0; flex-shrink: 0; transition: width .2s ease;
+            position: sticky;
+            top: 56px;                 /* alto de la .navbar */
+            align-self: flex-start;    /* imprescindible para que sticky funcione dentro del flex .layout */
+            height: calc(100vh - 56px);
+            overflow-y: auto;          /* barra de desplazamiento propia del menú */
+            overflow-x: hidden;        /* reemplaza el overflow: hidden anterior */
+        }
         .layout.collapsed .sidebar { width: 58px; }
 
         .module-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 1.25rem; background: transparent; border: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #374151; text-align: left; }
