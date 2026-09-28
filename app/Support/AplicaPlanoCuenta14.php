@@ -93,6 +93,9 @@ trait AplicaPlanoCuenta14
                 ->where('tipo', $meta['tipo'])
                 ->when($meta['tipo'] === 'distribucion',
                     fn ($q) => $q->where('distribucion_id', $meta['distribucion_id']))
+                ->when($meta['tipo'] === 'mo_distribucion',
+                    fn ($q) => $q->where('bolsa_un', $meta['bolsa_un'] ?? null)
+                        ->where('mes', $meta['mes'])->where('anio', $meta['anio']))
                 ->when($meta['tipo'] === 'reverso', function ($q) use ($meta) {
                     $q->whereNull('distribucion_id');
                     isset($meta['corte_mes']) && $meta['corte_mes'] !== null
@@ -112,6 +115,7 @@ trait AplicaPlanoCuenta14
             $plano = PlanoAplicado::create([
                 'tipo'             => $meta['tipo'],
                 'distribucion_id'  => $meta['distribucion_id'] ?? null,
+                'bolsa_un'         => $meta['bolsa_un'] ?? null,
                 'corte_mes'        => $meta['corte_mes'] ?? null,
                 'corte_anio'       => $meta['corte_anio'] ?? null,
                 'mes'              => $meta['mes'],

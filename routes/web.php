@@ -159,6 +159,15 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Distribución de costos
         Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
         Route::get('/operativo/distribucion/reporte-saldos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reporteSaldos'])->name('operativo.distribucion.reporte-saldos');
+
+        // Distribución de mano de obra (por persona → obra), separada de otros costos.
+        Route::get('/operativo/mano-obra', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'index'])->name('operativo.mano-obra.index');
+        Route::post('/operativo/mano-obra/guardar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'guardar'])->name('operativo.mano-obra.guardar');
+        Route::post('/operativo/mano-obra/precargar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'precargar'])->name('operativo.mano-obra.precargar');
+        Route::get('/operativo/mano-obra/resumen', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'resumen'])->name('operativo.mano-obra.resumen');
+        Route::get('/operativo/mano-obra/resumen/excel', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'resumenExcel'])->name('operativo.mano-obra.resumen.excel');
+        Route::get('/operativo/mano-obra/plano', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'plano'])->name('operativo.mano-obra.plano');
+        Route::post('/operativo/mano-obra/aplicar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'aplicar'])->name('operativo.mano-obra.aplicar');
         Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');

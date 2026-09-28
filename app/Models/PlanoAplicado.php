@@ -15,7 +15,7 @@ class PlanoAplicado extends Model
     protected $table = 'planos_aplicados';
 
     protected $fillable = [
-        'tipo', 'distribucion_id', 'corte_mes', 'corte_anio', 'mes', 'anio',
+        'tipo', 'distribucion_id', 'bolsa_un', 'corte_mes', 'corte_anio', 'mes', 'anio',
         'numero_documento', 'referencia', 'total_debito', 'total_credito', 'n_lineas', 'user_id',
     ];
 
