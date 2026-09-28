@@ -16,7 +16,6 @@ use Illuminate\Support\Str;
 class ImportadorCierre implements ImportadorLotes
 {
     use InsertaLotes;
-    use DeduplicaRegistros;
 
     private const LOTE_INSERT = 500;
 
@@ -70,7 +69,6 @@ class ImportadorCierre implements ImportadorLotes
         $registros = [];      $regFilas = [];
         $saldos    = [];      $salFilas = [];
         $insertados = 0;
-        $duplicadas = 0;
 
         foreach ($filas as $i => $row) {
             $num = $base + $i;
@@ -90,7 +88,7 @@ class ImportadorCierre implements ImportadorLotes
             if ($s) { $saldos[] = $s;    $salFilas[] = $num; }
 
             if (count($registros) >= self::LOTE_INSERT) {
-                $insertados += $this->insertarRegistros($registros, $regFilas, $mes, $anio, $duplicadas);
+                $insertados += $this->insertarRegistros($registros, $regFilas);
                 $registros = []; $regFilas = [];
             }
             if (count($saldos) >= self::LOTE_INSERT) {
@@ -100,53 +98,36 @@ class ImportadorCierre implements ImportadorLotes
         }
 
         if ($registros) {
-            $insertados += $this->insertarRegistros($registros, $regFilas, $mes, $anio, $duplicadas);
+            $insertados += $this->insertarRegistros($registros, $regFilas);
         }
         if ($saldos) {
             $this->insertarLoteSeguro('saldos_balance', $saldos, $salFilas);
         }
 
-        return ['insertadas' => $insertados, 'contadores' => ['duplicadas' => $duplicadas]];
+        return ['insertadas' => $insertados];
     }
 
     /**
-     * Aplica el candado anti-duplicados y luego inserta. Devuelve cuántas insertó y suma en
-     * $duplicadas (por referencia) las omitidas.
+     * Inserta TODAS las filas del lote, fiel 1:1: ya no se descarta ninguna por huella (eso
+     * botaba reversiones legítimas de SECAR). La sobre-reversión se detecta y depura después, en
+     * el reporte "Validación de sobre-reversión". Devuelve cuántas insertó.
      */
-    private function insertarRegistros(array $registros, array $regFilas, int $mes, int $anio, int &$duplicadas): int
+    private function insertarRegistros(array $registros, array $regFilas): int
     {
-        // Alinear filas de origen con las filas que sobreviven al filtro (por dedup_hash).
-        $filtro = $this->filtrarDuplicados($registros, $mes, $anio);
-        $duplicadas += $filtro['omitidas'];
-
-        $rows = $filtro['rows'];
-        if (empty($rows)) {
+        if (empty($registros)) {
             return 0;
         }
 
-        // Mapa hash → fila de origen (para reportar la fila culpable si falla el insert).
-        $filaDe = [];
-        foreach ($registros as $k => $r) {
-            $filaDe[$r['dedup_hash'] ?? ('#'.$k)] = $regFilas[$k] ?? '?';
-        }
-        $filasOrigen = array_map(fn ($r) => $filaDe[$r['dedup_hash'] ?? ''] ?? '?', $rows);
+        $this->insertarLoteSeguro('registro_financieros', $registros, $regFilas);
 
-        $this->insertarLoteSeguro('registro_financieros', $rows, $filasOrigen);
-
-        return count($rows);
+        return count($registros);
     }
 
     public function resumen(int $mes, int $anio, array $meta): array
     {
         $n = RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->count();
-        $dup = (int) ($meta['contadores']['duplicadas'] ?? 0);
 
-        $mensaje = "Cierre {$mes}/{$anio}: {$n} registros contables cargados.";
-        if ($dup > 0) {
-            $mensaje .= " {$dup} filas duplicadas omitidas.";
-        }
-
-        return ['mensaje' => $mensaje];
+        return ['mensaje' => "Cierre {$mes}/{$anio}: {$n} registros contables cargados."];
     }
 
     public function hoja(array $meta): ?string

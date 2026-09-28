@@ -67,26 +67,27 @@ class Cuenta14ExtrasTest extends TestCase
         $this->assertEqualsWithDelta(2000000, $fila['saldo'], 1);   // débito − crédito
     }
 
-    // ─────────── Item 3: candado anti-duplicados en el importador ───────────
+    // ─────────── El importador carga TODAS las filas, fiel 1:1 ───────────
 
     #[Test]
-    public function el_importador_omite_filas_duplicadas_pero_conserva_documentos_distintos(): void
+    public function el_importador_carga_todas_las_filas_sin_descartar_por_huella(): void
     {
         $archivo = $this->biable([
             $this->fila('14200105', 'CCC-1', 1000),   // A
-            $this->fila('14200105', 'CCC-1', 1000),   // A duplicada exacta → se omite
-            $this->fila('14200105', 'CCC-2', 1000),   // mismo valor, OTRO documento → legítima
+            $this->fila('14200105', 'CCC-1', 1000),   // A repetida EXACTA → antes se botaba; ahora entra
+            $this->fila('14200105', 'CCC-2', 1000),   // mismo valor, otro documento
         ]);
 
         $this->actingAs($this->contable())
             ->post(route('contable.carga.store'), ['archivo' => $archivo, 'mes' => 8, 'anio' => 2024])
             ->assertRedirect()->assertSessionHas('success');
 
-        // Solo 2 quedaron (la duplicada exacta se omitió); la de otro documento se conserva.
-        $this->assertSame(2, RegistroFinanciero::where('mes', 8)->where('anio', 2024)->count());
-        $this->assertSame(1, RegistroFinanciero::where('documento', 'CCC-1')->count());
+        // Las 3 filas quedan: no se descarta ninguna en silencio al cargar.
+        $this->assertSame(3, RegistroFinanciero::where('mes', 8)->where('anio', 2024)->count());
+        $this->assertSame(2, RegistroFinanciero::where('documento', 'CCC-1')->count());
         $this->assertSame(1, RegistroFinanciero::where('documento', 'CCC-2')->count());
-        $this->assertStringContainsString('1 filas duplicadas omitidas', session('success'));
+        // Ya no se anuncia "duplicadas omitidas": nada se omite.
+        $this->assertStringNotContainsString('omitidas', session('success'));
     }
 
     // ─────────── Item 3: reporte "Posibles duplicados" ───────────

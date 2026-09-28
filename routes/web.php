@@ -97,6 +97,11 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Posibles duplicados en registro_financieros (solo lectura, para revisar).
         Route::get('/contable/duplicados', [\App\Http\Controllers\Contable\DuplicadosController::class, 'index'])->name('contable.duplicados.index');
 
+        // Validación de sobre-reversión: reversiones (crédito) sin costo (débito) detrás. Permite
+        // confirmar y eliminar el exceso con un clic (nunca en silencio al cargar).
+        Route::get('/contable/sobre-reversion', [\App\Http\Controllers\Contable\SobreReversionController::class, 'index'])->name('contable.sobre-reversion.index');
+        Route::post('/contable/sobre-reversion/eliminar', [\App\Http\Controllers\Contable\SobreReversionController::class, 'eliminar'])->name('contable.sobre-reversion.eliminar');
+
         // Reconciliación cuenta 14: sistema vs archivo del ERP.
         Route::get('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'index'])->name('contable.recon14.index');
         Route::post('/contable/recon14', [\App\Http\Controllers\Contable\ReconciliacionErpController::class, 'store'])->name('contable.recon14.store');

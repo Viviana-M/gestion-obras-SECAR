@@ -29,8 +29,6 @@ use Maatwebsite\Excel\Concerns\WithChunkReading;
  */
 class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkReading
 {
-    use \App\Support\Lotes\DeduplicaRegistros;
-
     protected int $mes;
     protected int $anio;
 
@@ -44,7 +42,6 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     public int $filasLeidas     = 0;
     public int $insertRegistros = 0;
     public int $insertSaldos    = 0;
-    public int $omitidasDuplicadas = 0;
 
     public function __construct($mes, $anio)
     {
@@ -224,14 +221,12 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
     {
         if (empty($this->bufferRegistros)) return;
 
-        // Candado anti-duplicados dentro de la misma carga (el mes se reemplazó al inicio).
-        $filtro = $this->filtrarDuplicados($this->bufferRegistros, $this->mes, $this->anio);
-        $this->omitidasDuplicadas += $filtro['omitidas'];
-
-        if (! empty($filtro['rows'])) {
-            DB::table('registro_financieros')->insert($filtro['rows']);
-            $this->insertRegistros += count($filtro['rows']);
-        }
+        // Se cargan TODAS las filas del archivo, fiel 1:1: no se descarta ninguna por huella al
+        // insertar (antes se botaba en silencio cada fila con el mismo dedup_hash, lo que hacía
+        // perder reversiones legítimas de SECAR). La sobre-reversión —créditos sin costo detrás—
+        // se detecta y depura aparte, en el reporte "Validación de sobre-reversión", no aquí.
+        DB::table('registro_financieros')->insert($this->bufferRegistros);
+        $this->insertRegistros += count($this->bufferRegistros);
         $this->bufferRegistros = [];
     }
 
