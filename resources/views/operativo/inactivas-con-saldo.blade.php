@@ -43,11 +43,18 @@
         </thead>
         <tbody>
             @forelse($lista as $o)
-            <tr style="border-bottom:1px solid #E5E7EB">
-                <td style="padding:10px 14px;font-family:monospace;font-weight:600;color:#1B3F6E">{{ $o['codigo'] }}</td>
+            <tr style="border-bottom:1px solid #E5E7EB;cursor:pointer" onclick="toggleDetalle(this, '{{ $o['codigo'] }}')">
+                <td style="padding:10px 14px;font-family:monospace;font-weight:600;color:#1B3F6E">
+                    <span class="chevron" style="display:inline-block;width:14px;color:#9CA3AF;transition:transform .15s">▸</span>{{ $o['codigo'] }}
+                </td>
                 <td style="padding:10px 14px">{{ $o['nombre'] ?: '—' }}</td>
                 <td style="padding:10px 14px;color:#6B7280">{{ $o['cliente'] ?: '—' }}</td>
                 <td style="padding:10px 14px;text-align:right;font-weight:600;color:#B45309">${{ number_format($o['saldo_14'], 0, ',', '.') }}</td>
+            </tr>
+            <tr class="detalle-row" style="display:none;background:#F9FAFB">
+                <td colspan="4" style="padding:0 14px 10px 34px">
+                    <div class="detalle-cont" style="font-size:12px;color:#9CA3AF;padding:10px 0">Cargando…</div>
+                </td>
             </tr>
             @empty
             <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay obras inactivas con saldo en cuenta 14 para este período. 🎉</td></tr>
@@ -63,4 +70,54 @@
         @endif
     </table>
 </div>
+
+<script>
+(function () {
+    const base = @json(route('operativo.obras-inactivas.detalle'));
+    const mes = @json((int) $mes), anio = @json((int) $anio);
+    const fmt = (n) => '$' + Math.round(n).toLocaleString('es-CO');
+    const esc = (s) => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    window.toggleDetalle = function (row, codigo) {
+        const det = row.nextElementSibling;
+        const chevron = row.querySelector('.chevron');
+        const abierto = det.style.display !== 'none';
+        if (abierto) {
+            det.style.display = 'none';
+            if (chevron) chevron.style.transform = '';
+            return;
+        }
+        det.style.display = 'table-row';
+        if (chevron) chevron.style.transform = 'rotate(90deg)';
+        if (det.dataset.cargado) return; // bajo demanda: solo la primera vez
+
+        const cont = det.querySelector('.detalle-cont');
+        const url = base + '?codigo=' + encodeURIComponent(codigo) + '&mes=' + mes + '&anio=' + anio;
+        fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(r => r.ok ? r.json() : Promise.reject(r))
+            .then(data => {
+                det.dataset.cargado = '1';
+                const filas = data.detalle || [];
+                if (!filas.length) { cont.innerHTML = '<div style="padding:8px 0;color:#9CA3AF">Sin detalle para este período.</div>'; return; }
+                let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+                    + '<thead><tr style="color:#6B7280;text-align:left">'
+                    + '<th style="padding:5px 8px">Cuenta</th><th style="padding:5px 8px">Concepto</th>'
+                    + '<th style="padding:5px 8px">Tercero</th><th style="padding:5px 8px">Documento</th>'
+                    + '<th style="padding:5px 8px">Período</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>';
+                filas.forEach(d => {
+                    html += '<tr style="border-top:1px solid #E5E7EB">'
+                        + '<td style="padding:5px 8px;font-family:monospace;color:#854D0E">' + esc(d.cuenta) + '</td>'
+                        + '<td style="padding:5px 8px;color:#374151">' + esc(d.concepto) + '</td>'
+                        + '<td style="padding:5px 8px;color:#374151">' + esc(d.tercero) + '</td>'
+                        + '<td style="padding:5px 8px;font-family:monospace;color:#6B7280">' + esc(d.documento) + '</td>'
+                        + '<td style="padding:5px 8px;color:#6B7280">' + esc(d.periodo) + '</td>'
+                        + '<td style="padding:5px 8px;text-align:right;color:#B45309">' + fmt(d.saldo) + '</td></tr>';
+                });
+                html += '</tbody></table>';
+                cont.innerHTML = html;
+            })
+            .catch(() => { cont.innerHTML = '<div style="padding:8px 0;color:#DC2626">No se pudo cargar el detalle.</div>'; });
+    };
+})();
+</script>
 @endsection

@@ -194,6 +194,65 @@ class ObrasInactivasTest extends TestCase
         $this->assertSame(1, $r2->viewData('fichas')->total());
     }
 
+    /** Movimiento de cuenta 14 con tercero y documento, para probar el detalle. */
+    private function mov(string $codigo, string $cc, string $doc, string $razon, string $documento, float $er, int $mes, int $anio): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $codigo, 'nombre_proyecto' => 'Proy '.$codigo,
+            'cuenta_contable' => $cc, 'cuenta_mayor' => 'Costos por aplicar',
+            'tercero_dcto' => $doc, 'razon_social' => $razon, 'documento' => $documento,
+            'estado_er' => $er, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    #[Test]
+    public function el_detalle_de_una_obra_cuadra_con_su_saldo(): void
+    {
+        \App\Models\Homologacion::create(['cuenta_14' => '14350105', 'cuenta_61' => '61350105', 'nombre' => 'Materiales',
+            'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09070', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+
+        // Mismo tercero/cuenta/documento en dos períodos → dos filas de detalle; otra cuenta/tercero → tercera fila.
+        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024);
+        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -20000, 7, 2024);
+        $this->mov('MOB09070', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024);
+
+        $resp = $this->actingAs($this->operador())
+            ->get(route('operativo.obras-inactivas.detalle', ['codigo' => 'MOB09070', 'mes' => 8, 'anio' => 2024]));
+        $resp->assertOk();
+        $det = $resp->json('detalle');
+
+        // La suma del detalle cuadra con el saldo de la obra (100.000).
+        $this->assertCount(3, $det);
+        $this->assertEqualsWithDelta(100000, array_sum(array_column($det, 'saldo')), 1);
+
+        // Columnas de rastreo presentes y correctas.
+        $fila = collect($det)->firstWhere('documento', 'D2');
+        $this->assertSame('14200530', $fila['cuenta']);
+        $this->assertSame('Pedro', $fila['tercero']);
+        $this->assertSame('08/2024', $fila['periodo']);
+        $this->assertEqualsWithDelta(30000, $fila['saldo'], 1);
+        // El concepto sale de la homologación de la cuenta.
+        $this->assertSame('Materiales', collect($det)->firstWhere('cuenta', '14350105')['concepto']);
+        // El mismo tercero/documento en otro período aparece como fila aparte.
+        $this->assertContains('07/2024', array_column($det, 'periodo'));
+    }
+
+    #[Test]
+    public function el_detalle_respeta_el_departamento_del_usuario(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09080', 'nombre_obra' => 'mant', 'activa' => false]);
+        FichaProyecto::create(['codigo_proyecto' => 'GIX09080', 'nombre_obra' => 'inst', 'activa' => false]);
+        $this->mov('MOB09080', '14350105', '111', 'Juan', 'D1', -40000, 8, 2024);
+        $this->mov('GIX09080', '14350105', '111', 'Juan', 'D9', -40000, 8, 2024);
+
+        $mant = $this->supervisor('dep_mantenimiento');
+        // Su propia obra: 200.
+        $this->actingAs($mant)->get(route('operativo.obras-inactivas.detalle', ['codigo' => 'MOB09080', 'mes' => 8, 'anio' => 2024]))->assertOk();
+        // Obra de instalaciones: prohibida.
+        $this->actingAs($mant)->get(route('operativo.obras-inactivas.detalle', ['codigo' => 'GIX09080', 'mes' => 8, 'anio' => 2024]))->assertForbidden();
+    }
+
     /** Usuario supervisor de un solo departamento (ve operación + su depto). */
     private function supervisor(string $depModulo): User
     {

@@ -210,6 +210,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
     // modulo:operacion: Contabilidad también debe poder verlo (permiso verificado en el controlador).
     Route::get('/operativo/obras-inactivas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'obrasInactivas'])->name('operativo.obras-inactivas.index');
     Route::get('/operativo/obras-inactivas/excel', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'obrasInactivasExcel'])->name('operativo.obras-inactivas.excel');
+    Route::get('/operativo/obras-inactivas/detalle', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'obrasInactivasDetalle'])->name('operativo.obras-inactivas.detalle');
 
     // ══════════════════════ COMERCIAL ══════════════════════
     // ══════════════════════ ADMINISTRACIÓN (solo admin, verificado en el controlador) ══════════════════════

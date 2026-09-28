@@ -594,7 +594,15 @@ class DistribucionCostosController extends Controller
         }
         $filas[] = ['', '', 'TOTAL', round(array_sum(array_column($lista, 'saldo_14')), 2)];
 
-        return Excel::download(new InactivasConSaldoExport($filas), "Obras_inactivas_con_saldo_{$mes}_{$anio}.xlsx");
+        // Hoja "Detalle": el despliegue completo por obra (cuenta, concepto, tercero, documento, período, saldo).
+        $detalle = [['Obra', 'Cuenta', 'Concepto', 'Tercero', 'Documento', 'Período', 'Saldo']];
+        foreach ($lista as $f) {
+            foreach ($this->detalleInactivaData($f['codigo'], $mes, $anio) as $d) {
+                $detalle[] = [$f['codigo'], $d['cuenta'], $d['concepto'], $d['tercero'], $d['documento'], $d['periodo'], round($d['saldo'], 2)];
+            }
+        }
+
+        return Excel::download(new InactivasConSaldoExport($filas, $detalle), "Obras_inactivas_con_saldo_{$mes}_{$anio}.xlsx");
     }
 
     /**
@@ -638,6 +646,76 @@ class DistribucionCostosController extends Controller
 
         // Solo las obras del departamento al que el usuario tiene acceso (admin/total: todas).
         return $this->soloDepartamentoPermitido($lista, $u);
+    }
+
+    /**
+     * Detalle del saldo en cuenta 14 de UNA obra inactiva, para rastrear el origen: agrupa los
+     * movimientos ('Costos por aplicar') al corte acumulado por cuenta + tercero + documento +
+     * período, con SUM(estado_er) y HAVING ABS>0.5, de mayor a menor. El saldo se orienta con el
+     * signo del total de la obra para mostrarse en positivo, de modo que la suma del detalle cuadre
+     * con el "Saldo cuenta 14" del listado.
+     *
+     * @return array<int, array{cuenta:string,concepto:string,tercero:string,documento:string,periodo:string,saldo:float}>
+     */
+    private function detalleInactivaData(string $codigo, int $mes, int $anio): array
+    {
+        $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('codigo_proyecto', $codigo)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('cuenta_contable, tercero_dcto, razon_social, documento, mes, anio, SUM(estado_er) as neto')
+            ->groupBy('cuenta_contable', 'tercero_dcto', 'razon_social', 'documento', 'mes', 'anio')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        // Orientación: el saldo pendiente va negativo; se muestra en positivo con el signo del total
+        // de la obra (así la suma del detalle iguala el "Saldo cuenta 14" del listado).
+        $totalNeto = (float) $rows->sum('neto');
+        $signo = $totalNeto < 0 ? -1 : 1;
+
+        $conceptos = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
+
+        $detalle = [];
+        foreach ($rows as $r) {
+            $cuenta = (string) $r->cuenta_contable;
+            $detalle[] = [
+                'cuenta'    => $cuenta,
+                'concepto'  => (string) ($conceptos[$cuenta]->nombre ?? ''),
+                'tercero'   => trim((string) $r->razon_social) ?: trim((string) $r->tercero_dcto),
+                'documento' => (string) $r->documento,
+                'periodo'   => sprintf('%02d/%d', (int) $r->mes, (int) $r->anio),
+                'saldo'     => round($signo * (float) $r->neto, 2),
+            ];
+        }
+        usort($detalle, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
+
+        return $detalle;
+    }
+
+    /** Detalle (bajo demanda) del saldo en cuenta 14 de una obra inactiva. Respeta el departamento del usuario. */
+    public function obrasInactivasDetalle(Request $request)
+    {
+        $u = $request->user();
+        abort_unless($u && ($u->puedeVerModulo('operacion') || $u->puedeVerModulo('contabilidad')), 403,
+            'No tienes permiso para ver este listado.');
+
+        $codigo = (string) $request->get('codigo', '');
+        abort_if($codigo === '', 404);
+        // Respeta el filtro por departamento: si la obra no es de su departamento, no la puede ver.
+        abort_unless($this->soloDepartamentoPermitido([['codigo' => $codigo]], $u) !== [], 403,
+            'Esa obra no pertenece a tu departamento.');
+
+        [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $mesDef);
+        $anio = (int) $request->get('anio', $anioDef);
+
+        return response()->json(['detalle' => $this->detalleInactivaData($codigo, $mes, $anio)]);
     }
 
     /**
