@@ -6,34 +6,18 @@
 @php $fmt = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
 
 <x-page-banner title="Costo de mano de obra por obra" icon="📊">
-    Total de mano de obra que se carga a cada obra destino de la bolsa <b>{{ $bolsa }}</b> en
+    Total de mano de obra que se carga a cada obra destino del área <b>{{ ucfirst($departamento ?? '') }}</b> en
     <b>{{ $meses[$mes] ?? $mes }} {{ $anio }}</b>. Al desplegar cada obra se ve el desglose por tercero
-    y cuenta. La suma de las obras debe igualar lo asignado de la bolsa.
+    y cuenta. La suma de las obras iguala lo asignado de la bolsa.
 </x-page-banner>
 
 @if(session('error'))<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">{{ session('error') }}</div>@endif
 
-<div class="card" style="padding:14px 16px;margin-bottom:1rem;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
-    <form method="GET" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
-        <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Bolsa</label>
-            <select name="bolsa" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
-                @foreach($bolsas as $b)<option value="{{ $b->codigo }}" {{ $bolsa === $b->codigo ? 'selected' : '' }}>{{ $b->codigo }} — {{ $b->nombre }}</option>@endforeach
-            </select>
-        </div>
-        <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Período</label>
-            <select name="periodo" onchange="const [a,m]=this.value.split('-');this.form.mes.value=m;this.form.anio.value=a;this.form.submit()"
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
-                @foreach($periodos as $p)<option value="{{ $p->anio }}-{{ $p->mes }}" {{ ($p->mes==$mes && $p->anio==$anio) ? 'selected' : '' }}>{{ $meses[$p->mes] ?? $p->mes }} {{ $p->anio }}</option>@endforeach
-            </select>
-            <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-        </div>
-    </form>
-    <a href="{{ route('operativo.mano-obra.index', ['bolsa'=>$bolsa,'mes'=>$mes,'anio'=>$anio]) }}"
-       style="padding:7px 14px;background:white;border:1px solid #1B3F6E;border-radius:8px;font-size:13px;color:#1B3F6E;text-decoration:none;height:36px;display:inline-flex;align-items:center">← Volver a asignar</a>
-    <a href="{{ route('operativo.mano-obra.resumen.excel', ['bolsa'=>$bolsa,'mes'=>$mes,'anio'=>$anio]) }}"
-       style="padding:7px 14px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;text-decoration:none;height:36px;display:inline-flex;align-items:center">⬇ Exportar Excel</a>
+<div class="card" style="padding:14px 16px;margin-bottom:1rem;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <a href="{{ route('operativo.distribucion', ['departamento'=>$departamento,'mes'=>$mes,'anio'=>$anio]) }}"
+       style="padding:7px 14px;background:white;border:1px solid #1B3F6E;border-radius:8px;font-size:13px;color:#1B3F6E;text-decoration:none">← Volver a Distribución</a>
+    <a href="{{ route('operativo.mano-obra.resumen.excel', ['departamento'=>$departamento,'mes'=>$mes,'anio'=>$anio]) }}"
+       style="padding:7px 14px;background:#1B3F6E;color:white;border-radius:8px;font-size:13px;text-decoration:none">⬇ Exportar Excel</a>
 </div>
 
 <div class="card" style="padding:0;overflow-x:auto">

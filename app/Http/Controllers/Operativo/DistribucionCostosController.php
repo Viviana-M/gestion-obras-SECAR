@@ -492,25 +492,26 @@ class DistribucionCostosController extends Controller
             ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
             ->values();
 
-        // ─── Mano de obra por tercero (sección integrada en esta misma vista) ───
-        // Reemplaza al módulo aparte: la MO se reparte por PERSONA (tercero) de una bolsa a las
-        // obras destino, con su saldo real por tercero (NO colapsado por MAX(razon_social)).
-        $moSvc    = new DistribucionManoObraService();
-        $moBolsasQ = UnBolsa::where('activo', true)
+        // ─── Mano de obra por tercero: datos para el grid de bolsas (integrado en esta vista) ───
+        // El desglose por tercero de cada cuenta de MO ya viene en $bolsas[*]['lineas'][*]['terceros'].
+        // Aquí se pasa lo necesario para asignar por obra y para el panel "Cómo queda el proyecto".
+        $moUns = UnBolsa::where('activo', true)
             ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
-            ->orderBy('codigo');
-        $moBolsas = $moBolsasQ->get();
-        $moBolsa  = (string) ($request->get('mo_bolsa') ?: ($moBolsas->first()->codigo ?? ''));
-        $moSaldos   = $moBolsa ? $moSvc->saldosPorTercero($moBolsa, $mes, $anio) : [];
-        $moAsignado = $moBolsa ? $moSvc->asignadoPorTercero($moBolsa, $mes, $anio) : [];
-        $moGuardadas = $moBolsa
-            ? ManoObraAsignacion::where('bolsa_un', $moBolsa)->where('mes', $mes)->where('anio', $anio)
-                ->orderBy('persona')->get()->groupBy('persona')
-            : collect();
+            ->pluck('codigo')->all();
+
+        // Asignaciones guardadas del período por (UN|cuenta|tercero) → [obra => monto] (prefill).
+        $moGuardadas = [];
+        foreach (ManoObraAsignacion::whereIn('bolsa_un', $moUns)->where('mes', $mes)->where('anio', $anio)->get() as $a) {
+            $k = $a->bolsa_un.'|'.$a->cuenta_14.'|'.$a->tercero;
+            $moGuardadas[$k][$a->obra_destino] = ($moGuardadas[$k][$a->obra_destino] ?? 0) + (float) $a->monto;
+        }
         [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
-        $moHayMesAnterior = $moBolsa && ManoObraAsignacion::where('bolsa_un', $moBolsa)
+        $moHayMesAnterior = ! empty($moUns) && ManoObraAsignacion::whereIn('bolsa_un', $moUns)
             ->where('mes', $moMesAnt)->where('anio', $moAnioAnt)->exists();
-        // Info de obras destino (para el panel "Cómo queda el proyecto", en vivo).
+
+        // Obras destino (para el selector) e info por obra (para el panel "Cómo queda el proyecto").
+        $moObras = FichaProyecto::where('activa', true)->whereNotIn('codigo_proyecto', UnBolsa::codigos())
+            ->orderBy('codigo_proyecto')->get(['codigo_proyecto', 'nombre_obra']);
         $moObrasInfo = [];
         foreach ($fichas as $cod => $f) {
             if (! $f->activa || isset($bolsaCodigos[$cod])) continue;
@@ -544,9 +545,8 @@ class DistribucionCostosController extends Controller
             'kpiObras'     => count($obras),
             'kpiAlertas'   => count(array_filter($obras, fn($o) => $o['semaforo'] === 'rojo')),
             'inactivasConSaldo' => $inactivasConSaldo,
-            // Sección de mano de obra por tercero (integrada).
-            'moBolsas' => $moBolsas, 'moBolsa' => $moBolsa, 'moSaldos' => $moSaldos,
-            'moAsignado' => $moAsignado, 'moGuardadas' => $moGuardadas, 'moObrasInfo' => $moObrasInfo,
+            // Datos para la asignación de mano de obra por tercero (grid) y su panel por proyecto.
+            'moGuardadas' => $moGuardadas, 'moObras' => $moObras, 'moObrasInfo' => $moObrasInfo,
             'moHayMesAnterior' => $moHayMesAnterior, 'moMesAnt' => $moMesAnt, 'moAnioAnt' => $moAnioAnt,
         ]);
     }

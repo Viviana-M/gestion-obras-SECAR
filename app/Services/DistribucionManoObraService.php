@@ -4,19 +4,13 @@ namespace App\Services;
 
 use App\Models\Homologacion;
 use App\Models\ManoObraAsignacion;
-use App\Models\TerceroManoObra;
 use App\Models\UnBolsa;
 
 /**
- * Distribución de MANO DE OBRA DIRECTA por persona → obra destino.
- *
- * Igual que la mano de obra de apoyo, el costo por persona = su MO (salario) de la bolsa + la
- * seguridad social atribuida por la autoliquidación (PILA). La diferencia es el maestro: aquí son
- * las personas de "Terceros de mano de obra" (TerceroManoObra), no las de apoyo. Solo aparecen las
- * personas del maestro con MO en la bolsa; las demás ya están distribuidas.
- *
- * El detalle se conserva por (cuenta 14, tercero SIESA) — la persona en el salario y el fondo/EPS
- * en la seguridad social — para generar el plano 14→61 preservando tercero y obra.
+ * Distribución de mano de obra por tercero → obra: genera el plano 14→61 de lo asignado y su
+ * resumen por obra. El desglose por tercero de las bolsas (para el grid) lo calcula
+ * DistribucionService::manoObraPorTercero; aquí solo se construye el plano y el resumen a partir de
+ * lo guardado en mano_obra_asignacion (una fila por UN, cuenta 14, tercero SIESA, obra).
  */
 class DistribucionManoObraService
 {
@@ -27,69 +21,8 @@ class DistribucionManoObraService
     ];
 
     /**
-     * Costo de MO por PERSONA (maestro directa) en una bolsa: salario de la bolsa + SS de PILA
-     * atribuida a esa bolsa, del período. Reutiliza el cálculo de apoyo (costoPorPersona) con el
-     * maestro de mano de obra directa y filtra a la bolsa. El detalle por (cuenta 14, tercero SIESA)
-     * queda en `buckets` para el plano.
-     *
-     * @return array<int, array{tercero:string,doc:string,nombre:string,saldo:float,buckets:array<int,array{cuenta_14:string,tercero:string,monto:float}>}>
-     */
-    public function saldosPorTercero(string $bolsa, int $mes, int $anio): array
-    {
-        $maestro = TerceroManoObra::where('activo', true)->get();
-        if ($maestro->isEmpty()) {
-            return [];
-        }
-
-        $costo = (new RedistribucionMoEspecialService())->costoPorPersona($mes, $anio, $maestro);
-
-        $out = [];
-        foreach ($costo as $ced => $p) {
-            // Solo los buckets (salario + SS) que caen en ESTA bolsa.
-            $buckets = [];
-            $saldo   = 0.0;
-            foreach ($p['buckets'] as $b) {
-                if ((string) $b['un'] !== $bolsa) continue;
-                $monto = round((float) $b['monto'], 2);
-                if ($monto <= 0.005) continue;
-                $saldo += $monto;
-                $k = $b['cuenta'].'|'.$b['tercero'];             // cuenta 14 + tercero SIESA (persona o fondo)
-                if (! isset($buckets[$k])) {
-                    $buckets[$k] = ['cuenta_14' => (string) $b['cuenta'], 'tercero' => (string) $b['tercero'], 'monto' => 0.0];
-                }
-                $buckets[$k]['monto'] += $monto;
-            }
-            if ($saldo <= 0.005) continue;
-
-            foreach ($buckets as &$bk) $bk['monto'] = round($bk['monto'], 2);
-            unset($bk);
-
-            $out[] = [
-                'tercero' => (string) $ced,                       // clave de PERSONA (cédula del maestro)
-                'doc'     => (string) ($p['doc'] ?: $ced),
-                'nombre'  => (string) $p['nombre'],
-                'saldo'   => round($saldo, 2),
-                'buckets' => array_values($buckets),
-            ];
-        }
-
-        usort($out, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
-
-        return $out;
-    }
-
-    /** Total asignado por PERSONA en el período (de mano_obra_asignacion). [persona => monto] */
-    public function asignadoPorTercero(string $bolsa, int $mes, int $anio): array
-    {
-        return ManoObraAsignacion::where('bolsa_un', $bolsa)->where('mes', $mes)->where('anio', $anio)
-            ->selectRaw('persona, SUM(monto) as m')->groupBy('persona')
-            ->pluck('m', 'persona')->map(fn ($v) => round((float) $v, 2))->all();
-    }
-
-    /**
-     * Líneas del plano 14→61 (formato SIESA parcial) desde las asignaciones guardadas. Por cada
-     * asignación: CR 14 en la bolsa (conserva el tercero SIESA: persona en salario, fondo en SS) y
-     * DB 61 homologada en la obra destino (mismo tercero, con centro de costos del departamento).
+     * Líneas del plano 14→61 (SIESA parcial) de una UN: CR la 14 en la bolsa (conserva el tercero)
+     * y DB la 61 homologada en la obra destino (mismo tercero, con centro de costos del depto).
      *
      * @return array<int, array{cuenta:string,tercero:string,unidad:string,centro:?string,debito:float,credito:float}>
      */
@@ -115,7 +48,8 @@ class DistribucionManoObraService
     }
 
     /**
-     * Resumen del costo de MO por obra destino: total por obra y el desglose por persona/cuenta.
+     * Resumen del costo de MO por obra destino (de una UN): total por obra y desglose por
+     * tercero/cuenta.
      *
      * @return array<int, array{obra:string,total:float,detalle:array<int,array{tercero:string,nombre:string,cuenta:string,monto:float}>}>
      */

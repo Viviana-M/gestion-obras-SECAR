@@ -38,6 +38,85 @@ class DistribucionService
         'otros'      => ['label' => 'Otros costos', 'estructuras' => ['EQU-MAT-SUM', 'OTROS COSTO'], 'color' => '#EF9F27'],
     ];
 
+    /** Estructuras de cuenta 14 que son mano de obra (interna, externa, fija). */
+    public const ESTRUCTURAS_MO = ['MOI', 'MOE', 'MOFIJAOPER'];
+
+    /**
+     * Desglose de la MANO DE OBRA de las bolsas por (UN, cuenta, TERCERO real): el saldo por
+     * repartir de cada cuenta de MO abierto por persona (tercero_dcto, o razón social si viene
+     * vacío). Reemplaza al colapso por MAX(razon_social). Se resta la MO del personal de apoyo
+     * (misma base que el "retiro" de saldosBolsasPorCuenta), por (UN, cuenta, tercero), para que
+     * la suma por cuenta cuadre con el saldo mostrado en el grid.
+     *
+     * @return array<string, array<int, array{tercero:string,doc:string,nombre:string,saldo:float}>>  ["un|cuenta" => [líneas por tercero]]
+     */
+    public function manoObraPorTercero(array $codigos, int $anio, int $mes): array
+    {
+        if (empty($codigos)) {
+            return [];
+        }
+        $homol = Homologacion::mapaEn(self::periodoInt($anio, $mes));
+        $esMo  = fn (string $c) => in_array((string) ($homol[$c]->estructura ?? 'OTROS COSTO'), self::ESTRUCTURAS_MO, true);
+
+        $corteAcum = function ($q) use ($anio, $mes) {
+            $q->where('anio', '<', $anio)
+              ->orWhere(fn ($q2) => $q2->where('anio', $anio)->where('mes', '<=', $mes));
+        };
+
+        // Crudo por (UN, cuenta, tercero) de las cuentas de MO; saldo positivo = por repartir.
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where($corteAcum)
+            ->selectRaw('codigo_proyecto as un, cuenta_contable as cuenta, tercero_dcto, razon_social, SUM(estado_er) as er')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
+            ->get();
+
+        $out = [];
+        foreach ($filas as $r) {
+            $cuenta = (string) $r->cuenta;
+            if (! $esMo($cuenta)) continue;
+            $saldo = -1 * (float) $r->er;
+            if ($saldo <= 0.005) continue;
+            $doc = trim((string) $r->tercero_dcto);
+            $nom = trim((string) $r->razon_social);
+            $ter = $doc !== '' ? $doc : $nom;
+            if ($ter === '') continue;
+            $k = $r->un.'|'.$cuenta;
+            if (! isset($out[$k][$ter])) {
+                $out[$k][$ter] = ['tercero' => $ter, 'doc' => $doc, 'nombre' => $nom, 'saldo' => 0.0];
+            }
+            $out[$k][$ter]['saldo'] += $saldo;
+        }
+
+        // Restar la MO del personal de APOYO (salario + SS), por (UN, cuenta, tercero), igual base
+        // que el retiro agregado de saldosBolsasPorCuenta → la suma por cuenta cuadra con el grid.
+        foreach (app(RedistribucionMoEspecialService::class)->costoPorPersona($mes, $anio) as $p) {
+            foreach ($p['buckets'] as $b) {
+                $k = $b['un'].'|'.$b['cuenta'];
+                $ter = (string) $b['tercero'];
+                if (isset($out[$k][$ter])) {
+                    $out[$k][$ter]['saldo'] -= (float) $b['monto'];
+                    if ($out[$k][$ter]['saldo'] <= 0.005) unset($out[$k][$ter]);
+                }
+            }
+        }
+
+        $res = [];
+        foreach ($out as $k => $ters) {
+            $list = array_map(fn ($t) => ['tercero' => $t['tercero'], 'doc' => $t['doc'],
+                'nombre' => $t['nombre'], 'saldo' => round($t['saldo'], 2)], array_values($ters));
+            usort($list, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
+            if (! empty($list)) $res[$k] = $list;
+        }
+        return $res;
+    }
+
+    /** Período AAAAMM (helper local para no depender del orden de carga de Homologacion). */
+    private static function periodoInt(int $anio, int $mes): int
+    {
+        return $anio * 100 + $mes;
+    }
+
     // ───────────────────────── Bolsas de área ─────────────────────────
 
     /**
@@ -145,6 +224,7 @@ class DistribucionService
 
         $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes); // [un => líneas]
         $terceros = $this->tercerosPorCuenta($codigos, $anio, $mes);               // [un|cuenta => tercero]
+        $moTerceros = $this->manoObraPorTercero($codigos, $anio, $mes);            // [un|cuenta => [por tercero]]
         $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
             ->whereIn('un_codigo', $codigos)->get()
             ->keyBy(fn ($m) => $m->un_codigo.'|'.$m->cuenta_14);
@@ -158,6 +238,7 @@ class DistribucionService
                 $edit  = $montos[$key] ?? null;
                 // Sin registro: se distribuye el saldo completo. Editado: lo que quede (tope = saldo).
                 $aDist = $edit ? max(0.0, min($saldo, (float) $edit->monto_distribuir)) : $saldo;
+                $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
                 $porDepto[$depto][] = [
                     'un_codigo'        => (string) $un,
                     'un_nombre'        => (string) ($nombreUn[$un] ?? ''),
@@ -166,6 +247,9 @@ class DistribucionService
                     'nombre'           => $l['nombre'],
                     'tercero'          => $terceros[$key] ?? '',
                     'estructura'       => $l['estructura'],
+                    'es_mo'            => $esMo,
+                    // Desglose por tercero real (solo mano de obra). Se abre en el grid.
+                    'terceros'         => $esMo ? ($moTerceros[$key] ?? []) : [],
                     'periodo'          => $l['periodo'],
                     'saldo'            => round($saldo, 2),
                     'monto_distribuir' => round($aDist, 2),
@@ -185,11 +269,15 @@ class DistribucionService
                 continue;
             }
             usort($lineas, fn ($a, $b) => [$a['un_codigo'], $a['cuenta_14']] <=> [$b['un_codigo'], $b['cuenta_14']]);
+            $mo    = round(array_sum(array_map(fn ($l) => $l['es_mo'] ? $l['saldo'] : 0, $lineas)), 2);
+            $total = round(array_sum(array_column($lineas, 'saldo')), 2);
             $result[] = [
                 'codigo'       => $d,
                 'nombre'       => $nombre,
                 'departamento' => $d,
-                'total'        => round(array_sum(array_column($lineas, 'saldo')), 2),
+                'total'        => $total,
+                'total_mo'     => $mo,                       // subtotal mano de obra
+                'total_sinmo'  => round($total - $mo, 2),    // subtotal sin mano de obra (materiales, etc.)
                 'a_distribuir' => round(array_sum(array_column($lineas, 'monto_distribuir')), 2),
                 'componentes'  => $this->componentesDe($lineas),
                 'lineas'       => $lineas,

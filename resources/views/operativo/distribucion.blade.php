@@ -173,6 +173,11 @@
                     <div style="font-weight:700;color:#854D0E;font-size:14px">🎒 {{ $b['nombre'] }}</div>
                     <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
                 </div>
+                <div style="display:flex;gap:10px;font-size:10.5px;color:#92400E;margin-top:2px">
+                    <span>Sin mano de obra: <b>${{ number_format($b['total_sinmo'] ?? 0, 0, ',', '.') }}</b></span>
+                    <span>·</span>
+                    <span>Mano de obra: <b>${{ number_format($b['total_mo'] ?? 0, 0, ',', '.') }}</b></span>
+                </div>
                 {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
                     <span style="color:#6B7280">Disponible por distribuir</span>
@@ -263,6 +268,7 @@
                 </div>
                 @endunless
             </form>
+            @include('operativo.partials.mo-bolsa', ['b' => $b])
         </div>
         @endforeach
     </div>
@@ -404,8 +410,6 @@
 </div>
 @endif
 </form>
-
-@include('operativo.partials.mano-obra-seccion')
 
 {{-- MODAL: ajustar tolerancia --}}
 <div id="modal-calc" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">

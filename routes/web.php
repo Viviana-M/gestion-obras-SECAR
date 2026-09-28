@@ -160,8 +160,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
         Route::get('/operativo/distribucion/reporte-saldos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reporteSaldos'])->name('operativo.distribucion.reporte-saldos');
 
-        // Distribución de mano de obra (por persona → obra), separada de otros costos.
-        Route::get('/operativo/mano-obra', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'index'])->name('operativo.mano-obra.index');
+        // Distribución de mano de obra por tercero (acciones del grid de bolsas, por departamento).
         Route::post('/operativo/mano-obra/guardar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'guardar'])->name('operativo.mano-obra.guardar');
         Route::post('/operativo/mano-obra/precargar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'precargar'])->name('operativo.mano-obra.precargar');
         Route::get('/operativo/mano-obra/resumen', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'resumen'])->name('operativo.mano-obra.resumen');
