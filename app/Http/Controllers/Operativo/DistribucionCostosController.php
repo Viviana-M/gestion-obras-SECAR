@@ -594,13 +594,13 @@ class DistribucionCostosController extends Controller
         }
         $filas[] = ['', '', 'TOTAL', round(array_sum(array_column($lista, 'saldo_14')), 2)];
 
-        // Hoja "Detalle": el despliegue completo por obra (cuenta, concepto, tercero, documento,
-        // período, débito, crédito y saldo neto).
-        $detalle = [['Obra', 'Cuenta', 'Concepto', 'Tercero', 'Documento', 'Período', 'Débito', 'Crédito', 'Saldo']];
+        // Hoja "Detalle": el despliegue completo por obra hasta el movimiento (cuenta, concepto,
+        // tercero, documento, período, débito, crédito y neto = −SUM(estado_er)).
+        $detalle = [['Obra', 'Cuenta', 'Concepto', 'Tercero', 'Documento', 'Período', 'Débito', 'Crédito', 'Neto']];
         foreach ($lista as $f) {
-            foreach ($this->detalleInactivaData($f['codigo'], $mes, $anio) as $d) {
+            foreach ($this->detalleMovimientos($f['codigo'], null, $mes, $anio) as $d) {
                 $detalle[] = [$f['codigo'], $d['cuenta'], $d['concepto'], $d['tercero'], $d['documento'], $d['periodo'],
-                    round($d['debito'], 2), round($d['credito'], 2), round($d['saldo'], 2)];
+                    round($d['debito'], 2), round($d['credito'], 2), round($d['neto'], 2)];
             }
         }
 
@@ -651,19 +651,60 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Detalle del saldo en cuenta 14 de UNA obra inactiva, para rastrear el origen: agrupa los
-     * movimientos ('Costos por aplicar') al corte acumulado por cuenta + tercero + documento +
-     * período, con SUM(estado_er) y HAVING ABS>0.5, de mayor a menor. Por línea muestra Débito,
-     * Crédito y el Saldo NETO (= SUM(estado_er), orientado en positivo con el signo del total de la
-     * obra), de modo que la suma de los saldos netos cuadre con el "Saldo cuenta 14" del listado y
-     * se vea dónde quedó el residuo (débito y crédito casi iguales con neto pequeño).
+     * NIVEL 1 del despliegue: saldo en cuenta 14 de una obra inactiva NETEADO POR CUENTA. Una fila
+     * por cuenta_contable con Débito, Crédito y Neto (= −SUM(estado_er) = débito − crédito), al
+     * corte acumulado, con HAVING ABS(SUM(estado_er)) > 0.5, de mayor a menor por neto absoluto. La
+     * suma de los netos cuadra con el "Saldo cuenta 14" de la obra (sin volcar todos los documentos).
      *
-     * @return array<int, array{cuenta:string,concepto:string,tercero:string,documento:string,periodo:string,debito:float,credito:float,saldo:float}>
+     * @return array<int, array{cuenta:string,concepto:string,debito:float,credito:float,neto:float}>
      */
     private function detalleInactivaData(string $codigo, int $mes, int $anio): array
     {
         $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('codigo_proyecto', $codigo)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('cuenta_contable, SUM(valor_debito) as debito, SUM(valor_credito) as credito, SUM(estado_er) as neto')
+            ->groupBy('cuenta_contable')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $conceptos = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
+
+        $cuentas = [];
+        foreach ($rows as $r) {
+            $cuenta = (string) $r->cuenta_contable;
+            $cuentas[] = [
+                'cuenta'   => $cuenta,
+                'concepto' => (string) ($conceptos[$cuenta]->nombre ?? ''),
+                'debito'   => round((float) $r->debito, 2),
+                'credito'  => round((float) $r->credito, 2),
+                'neto'     => round(-1 * (float) $r->neto, 2), // −SUM(estado_er) = débito − crédito
+            ];
+        }
+        usort($cuentas, fn ($a, $b) => abs($b['neto']) <=> abs($a['neto']));
+
+        return $cuentas;
+    }
+
+    /**
+     * NIVEL 2 del despliegue: los movimientos de UNA cuenta (o de todas, para el Excel) de una obra,
+     * neteados por tercero + documento + período, para rastrear el residuo hasta el movimiento.
+     * Neto = −SUM(estado_er). HAVING ABS(SUM(estado_er)) > 0.5, de mayor a menor por neto absoluto.
+     *
+     * @return array<int, array{cuenta:string,concepto:string,tercero:string,documento:string,periodo:string,debito:float,credito:float,neto:float}>
+     */
+    private function detalleMovimientos(string $codigo, ?string $cuenta, int $mes, int $anio): array
+    {
+        $rows = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('codigo_proyecto', $codigo)
+            ->when($cuenta !== null && $cuenta !== '', fn ($q) => $q->where('cuenta_contable', $cuenta))
             ->where(function ($q) use ($anio, $mes) {
                 $q->where('anio', '<', $anio)
                   ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
@@ -678,33 +719,32 @@ class DistribucionCostosController extends Controller
             return [];
         }
 
-        // Orientación: el saldo pendiente va negativo; se muestra en positivo con el signo del total
-        // de la obra (así la suma de los saldos netos iguala el "Saldo cuenta 14" del listado).
-        $totalNeto = (float) $rows->sum('neto');
-        $signo = $totalNeto < 0 ? -1 : 1;
-
         $conceptos = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
 
         $detalle = [];
         foreach ($rows as $r) {
-            $cuenta = (string) $r->cuenta_contable;
+            $c = (string) $r->cuenta_contable;
             $detalle[] = [
-                'cuenta'    => $cuenta,
-                'concepto'  => (string) ($conceptos[$cuenta]->nombre ?? ''),
+                'cuenta'    => $c,
+                'concepto'  => (string) ($conceptos[$c]->nombre ?? ''),
                 'tercero'   => trim((string) $r->razon_social) ?: trim((string) $r->tercero_dcto),
                 'documento' => (string) $r->documento,
                 'periodo'   => sprintf('%02d/%d', (int) $r->mes, (int) $r->anio),
                 'debito'    => round((float) $r->debito, 2),
                 'credito'   => round((float) $r->credito, 2),
-                'saldo'     => round($signo * (float) $r->neto, 2),
+                'neto'      => round(-1 * (float) $r->neto, 2),
             ];
         }
-        usort($detalle, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
+        // Ordena por cuenta y, dentro de cada una, por neto absoluto descendente.
+        usort($detalle, fn ($a, $b) => [$a['cuenta'], abs($b['neto'])] <=> [$b['cuenta'], abs($a['neto'])]);
 
         return $detalle;
     }
 
-    /** Detalle (bajo demanda) del saldo en cuenta 14 de una obra inactiva. Respeta el departamento del usuario. */
+    /**
+     * Detalle (bajo demanda) del saldo en cuenta 14 de una obra inactiva. Respeta el departamento
+     * del usuario. Sin `cuenta`: nivel 1 (por cuenta). Con `cuenta`: nivel 2 (movimientos de esa cuenta).
+     */
     public function obrasInactivasDetalle(Request $request)
     {
         $u = $request->user();
@@ -718,10 +758,15 @@ class DistribucionCostosController extends Controller
             'Esa obra no pertenece a tu departamento.');
 
         [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
-        $mes  = (int) $request->get('mes', $mesDef);
-        $anio = (int) $request->get('anio', $anioDef);
+        $mes    = (int) $request->get('mes', $mesDef);
+        $anio   = (int) $request->get('anio', $anioDef);
+        $cuenta = (string) $request->get('cuenta', '');
 
-        return response()->json(['detalle' => $this->detalleInactivaData($codigo, $mes, $anio)]);
+        if ($cuenta !== '') {
+            return response()->json(['detalle' => $this->detalleMovimientos($codigo, $cuenta, $mes, $anio)]);
+        }
+
+        return response()->json(['cuentas' => $this->detalleInactivaData($codigo, $mes, $anio)]);
     }
 
     /**

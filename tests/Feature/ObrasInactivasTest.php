@@ -206,46 +206,62 @@ class ObrasInactivasTest extends TestCase
     }
 
     #[Test]
-    public function el_detalle_de_una_obra_cuadra_con_su_saldo_y_muestra_debito_credito(): void
+    public function el_detalle_netea_por_cuenta_nivel1_y_cuadra_con_el_saldo(): void
     {
         \App\Models\Homologacion::create(['cuenta_14' => '14350105', 'cuenta_61' => '61350105', 'nombre' => 'Materiales',
             'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
         FichaProyecto::create(['codigo_proyecto' => 'MOB09070', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
 
-        // Mismo tercero/cuenta/documento en dos períodos → dos filas; otra cuenta/tercero → otra fila.
+        // Cuenta 14350105: dos movimientos → neto 70.000. Cuenta 14200530: Pedro 30.000 + residuo Ana 100.
         $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
         $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -20000, 7, 2024, 20000, 0);
         $this->mov('MOB09070', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024, 30000, 0);
-        // Residuo: débito y crédito casi iguales, neto pequeño (estado_er = -(déb−cré) = -100).
         $this->mov('MOB09070', '14200530', '333', 'Ana', 'D3', -100, 8, 2024, 80000, 79900);
 
+        // NIVEL 1: una fila por cuenta; la suma de netos cuadra con el saldo de la obra (100.100).
         $resp = $this->actingAs($this->operador())
             ->get(route('operativo.obras-inactivas.detalle', ['codigo' => 'MOB09070', 'mes' => 8, 'anio' => 2024]));
         $resp->assertOk();
-        $det = $resp->json('detalle');
+        $cuentas = collect($resp->json('cuentas'))->keyBy('cuenta');
+        $this->assertCount(2, $cuentas);
+        $this->assertEqualsWithDelta(100100, $cuentas->sum('neto'), 1);
+        $this->assertSame('Materiales', $cuentas['14350105']['concepto']);
+        $this->assertEqualsWithDelta(70000, $cuentas['14350105']['debito'], 1);
+        $this->assertEqualsWithDelta(0, $cuentas['14350105']['credito'], 1);
+        $this->assertEqualsWithDelta(70000, $cuentas['14350105']['neto'], 1);
+        // Cuenta con débito y crédito grandes que netean a poco.
+        $this->assertEqualsWithDelta(110000, $cuentas['14200530']['debito'], 1);
+        $this->assertEqualsWithDelta(79900, $cuentas['14200530']['credito'], 1);
+        $this->assertEqualsWithDelta(30100, $cuentas['14200530']['neto'], 1);
+    }
 
-        // La suma de los saldos NETOS cuadra con el saldo de la obra (100.100).
-        $this->assertCount(4, $det);
-        $this->assertEqualsWithDelta(100100, array_sum(array_column($det, 'saldo')), 1);
+    #[Test]
+    public function el_detalle_nivel2_abre_una_cuenta_por_movimiento_y_muestra_el_residuo(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09071', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+        $this->mov('MOB09071', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024, 30000, 0);
+        // Residuo: débito y crédito casi iguales, neto pequeño (estado_er = -(déb−cré) = -100).
+        $this->mov('MOB09071', '14200530', '333', 'Ana', 'D3', -100, 8, 2024, 80000, 79900);
+        // Movimiento de otra cuenta: NO debe salir al abrir 14200530.
+        $this->mov('MOB09071', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
 
-        // Columnas Débito / Crédito / Saldo neto por línea.
-        $fila = collect($det)->firstWhere('documento', 'D2');
-        $this->assertSame('14200530', $fila['cuenta']);
-        $this->assertSame('Pedro', $fila['tercero']);
-        $this->assertSame('08/2024', $fila['periodo']);
-        $this->assertEqualsWithDelta(30000, $fila['debito'], 1);
-        $this->assertEqualsWithDelta(0, $fila['credito'], 1);
-        $this->assertEqualsWithDelta(30000, $fila['saldo'], 1);
+        $resp = $this->actingAs($this->operador())->get(route('operativo.obras-inactivas.detalle',
+            ['codigo' => 'MOB09071', 'cuenta' => '14200530', 'mes' => 8, 'anio' => 2024]));
+        $resp->assertOk();
+        $det = collect($resp->json('detalle'));
+
+        // Solo movimientos de la cuenta pedida; su suma = neto de la cuenta (30.100).
+        $this->assertCount(2, $det);
+        $this->assertSame(['14200530'], $det->pluck('cuenta')->unique()->values()->all());
+        $this->assertEqualsWithDelta(30100, $det->sum('neto'), 1);
 
         // La línea residuo: débito y crédito grandes casi iguales, con neto pequeño (100).
-        $res = collect($det)->firstWhere('documento', 'D3');
+        $res = $det->firstWhere('documento', 'D3');
+        $this->assertSame('Ana', $res['tercero']);
+        $this->assertSame('08/2024', $res['periodo']);
         $this->assertEqualsWithDelta(80000, $res['debito'], 1);
         $this->assertEqualsWithDelta(79900, $res['credito'], 1);
-        $this->assertEqualsWithDelta(100, $res['saldo'], 1);
-
-        // El concepto sale de la homologación de la cuenta; períodos distintos = filas distintas.
-        $this->assertSame('Materiales', collect($det)->firstWhere('cuenta', '14350105')['concepto']);
-        $this->assertContains('07/2024', array_column($det, 'periodo'));
+        $this->assertEqualsWithDelta(100, $res['neto'], 1);
     }
 
     #[Test]
