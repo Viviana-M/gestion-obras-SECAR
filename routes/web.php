@@ -61,6 +61,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
 
         // Redistribución por % de la mano de obra del personal especial (Grupo B).
         Route::get('/contable/redistribucion-mo', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'index'])->name('contable.redistribucion-mo.index');
+        Route::get('/contable/redistribucion-mo/detalle', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'detalle'])->name('contable.redistribucion-mo.detalle');
         Route::get('/contable/redistribucion-mo/plano', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'plano'])->name('contable.redistribucion-mo.plano');
 
         // Cierre / apertura del período de edición de la Distribución.

@@ -20,7 +20,7 @@ class ForecastAccesoTest extends TestCase
 
         $resp->assertOk();
         // El enlace vive en el menú Administración (se ve en cualquier página con el layout).
-        $resp->assertSee('Proyección de obras', false);
+        $resp->assertSee('Proyección de proyectos', false);
         $resp->assertSee(route('operativo.forecast'), false);
     }
 
@@ -34,6 +34,6 @@ class ForecastAccesoTest extends TestCase
 
         $resp = $this->actingAs($contable)->get(route('contable.autoliquidacion.index'));
         $resp->assertOk();
-        $resp->assertDontSee('Proyección de obras', false);
+        $resp->assertDontSee('Proyección de proyectos', false);
     }
 }

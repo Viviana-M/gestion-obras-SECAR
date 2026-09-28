@@ -61,6 +61,24 @@ class RedistribucionMoEspecialController extends Controller
         return view('contable.redistribucion-mo', compact('personas', 'resumen', 'periodos', 'mes', 'anio', 'sinCruzar', 'descuadres'));
     }
 
+    /**
+     * Detalle en pantalla de los terceros que saldrán en el plano del período: exactamente las
+     * líneas que produce movimientosRedistribucion($mes,$anio) (las mismas del método plano()),
+     * para poder validar antes de descargar el Excel. No cambia la generación del Excel.
+     */
+    public function detalle(Request $request)
+    {
+        abort_unless($request->user()->puedeVerModulo('contabilidad'), 403, 'No tienes permiso para ver Contabilidad.');
+
+        [$mes, $anio] = $this->periodo($request);
+
+        $movimientos = $this->svc->movimientosRedistribucion($mes, $anio);
+        $total       = array_sum(array_map(fn ($m) => (float) $m['monto'], $movimientos));
+        $nombresUn   = UnBolsa::pluck('nombre', 'codigo');
+
+        return view('contable.redistribucion-mo-detalle', compact('movimientos', 'total', 'mes', 'anio', 'nombresUn'));
+    }
+
     /** Plano SIESA de reclasificación 14→61 (por la UN que trae cada línea del cierre). */
     public function plano(Request $request)
     {

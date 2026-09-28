@@ -86,7 +86,7 @@
             <input type="number" name="documento" min="1" value="1" style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
         </div>
         <button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Descargar plano (Excel)</button>
-        <span style="font-size:11.5px;color:#9CA3AF">Período: <b>{{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</b> · <a href="{{ route('contable.redistribucion-mo.index', ['mes'=>$mes,'anio'=>$anio]) }}" style="color:#2563a8;text-decoration:none">ver detalle en MO Apoyo</a></span>
+        <span style="font-size:11.5px;color:#9CA3AF">Período: <b>{{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</b> · <a href="{{ route('contable.redistribucion-mo.detalle', ['mes'=>$mes,'anio'=>$anio]) }}" style="color:#2563a8;text-decoration:none">ver terceros del plano</a></span>
     </form>
 </div>
 

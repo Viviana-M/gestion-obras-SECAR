@@ -285,6 +285,36 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
+    public function el_detalle_muestra_los_terceros_del_plano_del_periodo(): void
+    {
+        // Mismo caso del plano: ARLEY con MO en dos UN. El detalle en pantalla debe listar las
+        // mismas líneas que produce movimientosRedistribucion (lo que contendrá el Excel).
+        $this->homologarMO('14200530');
+        ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
+        $this->moBolsa('MTO00099', '14200530', '111', 700000);
+        $this->moBolsa('INS00099', '14200530', '111', 300000);
+
+        $resp = $this->actingAs($this->contable('ver'))
+            ->get(route('contable.redistribucion-mo.detalle', ['mes' => 4, 'anio' => 2026]));
+        $resp->assertOk();
+
+        $mov = collect($resp->viewData('movimientos'));
+        $this->assertCount(2, $mov);                                   // una línea por UN
+        $this->assertEqualsWithDelta(1000000, $resp->viewData('total'), 0.5);
+
+        // Cada línea: tercero 111, cuenta origen 14 → destino 61, en su UN.
+        foreach ($mov as $m) {
+            $this->assertSame('111', $m['tercero_credito']);
+            $this->assertSame('111', $m['tercero_debito']);
+            $this->assertSame('14200530', $m['cuenta_credito']);
+            $this->assertSame('73950505', $m['cuenta_debito']);
+        }
+        $porUn = $mov->keyBy('un');
+        $this->assertEqualsWithDelta(700000, $porUn['MTO00099']['monto'], 0.5);
+        $this->assertEqualsWithDelta(300000, $porUn['INS00099']['monto'], 0.5);
+    }
+
+    #[Test]
     public function el_plano_conserva_el_fondo_de_ss_en_ambas_patas(): void
     {
         // La SS (tomada de la autoliquidación) va con el fondo/EPS como tercero en AMBAS patas:
