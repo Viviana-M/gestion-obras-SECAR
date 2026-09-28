@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AplicacionCosto;
 use App\Models\Distribucion;
+use App\Models\Homologacion;
 use App\Models\ObraEstado;
 use App\Models\PlanoAplicado;
 use App\Models\ProyectoCerrado;
@@ -36,6 +37,11 @@ class PlanosAplicadosTest extends TestCase
     {
         ProyectoCerrado::create(['codigo_proyecto' => $cod, 'tipo_cierre' => 'total',
             'user_id' => User::factory()->create()->id]);
+    }
+
+    private function homolog(string $c14, string $c61): void
+    {
+        Homologacion::create(['cuenta_14' => $c14, 'cuenta_61' => $c61, 'nombre' => 'Homol']);
     }
 
     private function rf(string $cod, string $cuenta, float $er, int $mes, int $anio, string $origen = 'biable'): void
@@ -78,6 +84,7 @@ class PlanosAplicadosTest extends TestCase
     public function aplicar_reverso_crea_movimientos_de_cuenta_14_y_baja_el_saldo(): void
     {
         $this->cerrar('GM1');
+        $this->homolog('14200105', '61300105');
         $this->rf('GM1', '14200105', -300000, 6, 2026);   // pendiente que el ERP revertirá
 
         $this->assertEqualsWithDelta(-300000, $this->saldo('GM1'), 1);
@@ -93,18 +100,24 @@ class PlanosAplicadosTest extends TestCase
         $this->assertSame('reverso', $plano->tipo);
         $this->assertSame(7, $plano->mes);
         $this->assertSame(2026, $plano->anio);
-        $this->assertSame(1, $plano->n_lineas);
+        $this->assertSame(2, $plano->n_lineas);                       // partida doble: pata 14 + pata 6
         $this->assertEqualsWithDelta(300000, $plano->total_credito, 1);
+        $this->assertEqualsWithDelta(300000, $plano->total_debito, 1); // cuadra
 
-        $gen = RegistroFinanciero::where('origen', 'reverso_plano')->sole();
-        $this->assertSame('14200105', $gen->cuenta_contable);
-        $this->assertSame('Costos por aplicar', $gen->cuenta_mayor);
-        $this->assertEqualsWithDelta(300000, $gen->valor_credito, 1);
-        $this->assertEqualsWithDelta(300000, $gen->estado_er, 1);   // baja el pendiente
-        $this->assertSame(7, $gen->mes);
-        $this->assertSame($plano->id, $gen->plano_aplicado_id);
+        // Pata de cuenta 14 (crédito, baja el pendiente).
+        $g14 = RegistroFinanciero::where('origen', 'reverso_plano')->where('cuenta_contable', '14200105')->sole();
+        $this->assertSame('Costos por aplicar', $g14->cuenta_mayor);
+        $this->assertEqualsWithDelta(300000, $g14->valor_credito, 1);
+        $this->assertEqualsWithDelta(300000, $g14->estado_er, 1);
+        $this->assertSame($plano->id, $g14->plano_aplicado_id);
 
-        // El saldo de la obra ya quedó en cero (el pendiente se reflejó).
+        // Pata de cuenta 6 (contrapartida, costo aplicado, débito).
+        $g6 = RegistroFinanciero::where('origen', 'reverso_plano')->where('cuenta_contable', '61300105')->sole();
+        $this->assertSame('Costos aplicados', $g6->cuenta_mayor);
+        $this->assertEqualsWithDelta(300000, $g6->valor_debito, 1);
+        $this->assertEqualsWithDelta(-300000, $g6->estado_er, 1);
+
+        // El saldo de la cuenta 14 de la obra ya quedó en cero (el pendiente se reflejó).
         $this->assertEqualsWithDelta(0, $this->saldo('GM1'), 1);
     }
 
@@ -112,6 +125,7 @@ class PlanosAplicadosTest extends TestCase
     public function reaplicar_el_mismo_reverso_reemplaza_no_acumula(): void
     {
         $this->cerrar('GM1');
+        $this->homolog('14200105', '61300105');
         $this->rf('GM1', '14200105', -300000, 6, 2026);
         $c = $this->contable();
 
@@ -120,13 +134,14 @@ class PlanosAplicadosTest extends TestCase
         $this->actingAs($c)->post(route('contable.plano-reversion.aplicar'), $datos)->assertRedirect();
 
         $this->assertSame(1, PlanoAplicado::count());                                 // no se duplica
-        $this->assertSame(1, RegistroFinanciero::where('origen', 'reverso_plano')->count());
+        $this->assertSame(2, RegistroFinanciero::where('origen', 'reverso_plano')->count()); // 2 patas, no 4
     }
 
     #[Test]
     public function la_recarga_biable_del_mes_no_borra_los_movimientos_generados(): void
     {
         $this->cerrar('GM1');
+        $this->homolog('14200105', '61300105');
         $this->rf('GM1', '14200105', -300000, 7, 2026);   // pendiente en el mismo mes destino
         $c = $this->contable();
 
@@ -134,7 +149,7 @@ class PlanosAplicadosTest extends TestCase
             'corte_mes' => 7, 'corte_anio' => 2026, 'documento' => 5, 'destino_mes' => 7, 'destino_anio' => 2026,
         ])->assertRedirect();
 
-        $this->assertSame(1, RegistroFinanciero::where('origen', 'reverso_plano')->count());
+        $this->assertSame(2, RegistroFinanciero::where('origen', 'reverso_plano')->count());
 
         // Recarga BIABLE del período 7/2026 (reemplaza SOLO lo biable).
         $this->actingAs($c)->post(route('contable.carga.store'), [
@@ -142,8 +157,8 @@ class PlanosAplicadosTest extends TestCase
             'mes' => 7, 'anio' => 2026,
         ])->assertRedirect();
 
-        // El movimiento generado sobrevive; la fila biable nueva entró.
-        $this->assertSame(1, RegistroFinanciero::where('origen', 'reverso_plano')->where('mes', 7)->where('anio', 2026)->count());
+        // Los movimientos generados sobreviven; la fila biable nueva entró.
+        $this->assertSame(2, RegistroFinanciero::where('origen', 'reverso_plano')->where('anio', 2026)->count());
         $this->assertSame(1, RegistroFinanciero::where('origen', 'biable')->where('codigo_proyecto', 'OT9')->count());
     }
 
@@ -151,6 +166,7 @@ class PlanosAplicadosTest extends TestCase
     public function deshacer_elimina_los_movimientos_y_devuelve_el_saldo(): void
     {
         $this->cerrar('GM1');
+        $this->homolog('14200105', '61300105');
         $this->rf('GM1', '14200105', -300000, 6, 2026);
         $c = $this->contable();
 
@@ -171,7 +187,7 @@ class PlanosAplicadosTest extends TestCase
     // ─────────── Distribución: aplicar en el sistema ───────────
 
     #[Test]
-    public function aplicar_distribucion_crea_el_credito_de_cuenta_14(): void
+    public function aplicar_distribucion_crea_la_partida_doble_14_y_6(): void
     {
         $uid = $this->contable()->id;
         ObraEstado::create(['codigo_proyecto' => 'OB5', 'estado' => 'cerrada', 'user_id' => $uid]);
@@ -190,13 +206,19 @@ class PlanosAplicadosTest extends TestCase
         $plano = PlanoAplicado::sole();
         $this->assertSame('distribucion', $plano->tipo);
         $this->assertSame($d->id, $plano->distribucion_id);
-        $this->assertSame(1, $plano->n_lineas);                       // solo la pata de cuenta 14 (CR 14)
+        $this->assertSame(2, $plano->n_lineas);                       // partida doble: CR 14 + DB 6
 
-        $gen = RegistroFinanciero::where('origen', 'distribucion_plano')->sole();
-        $this->assertSame('14200105', $gen->cuenta_contable);
-        $this->assertEqualsWithDelta(200000, $gen->valor_credito, 1);
-        $this->assertEqualsWithDelta(200000, $gen->estado_er, 1);
-        $this->assertSame($d->id, PlanoAplicado::sole()->distribucion_id);
+        // Pata 14: crédito que baja el pendiente.
+        $g14 = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '14200105')->sole();
+        $this->assertEqualsWithDelta(200000, $g14->valor_credito, 1);
+        $this->assertEqualsWithDelta(200000, $g14->estado_er, 1);
+        $this->assertSame('Costos por aplicar', $g14->cuenta_mayor);
+
+        // Pata 6: débito del costo aplicado.
+        $g6 = RegistroFinanciero::where('origen', 'distribucion_plano')->where('cuenta_contable', '61350105')->sole();
+        $this->assertEqualsWithDelta(200000, $g6->valor_debito, 1);
+        $this->assertEqualsWithDelta(-200000, $g6->estado_er, 1);
+        $this->assertSame('Costos aplicados', $g6->cuenta_mayor);
     }
 
     #[Test]
@@ -216,7 +238,7 @@ class PlanosAplicadosTest extends TestCase
         $this->actingAs($c)->post(route('contable.plano-contable.aplicar', $d->id), $datos)->assertRedirect();
 
         $this->assertSame(1, PlanoAplicado::count());
-        $this->assertSame(1, RegistroFinanciero::where('origen', 'distribucion_plano')->count());
+        $this->assertSame(2, RegistroFinanciero::where('origen', 'distribucion_plano')->count());
     }
 
     // ─────────── Reconciliación: desglose biable vs generado ───────────

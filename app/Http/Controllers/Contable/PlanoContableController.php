@@ -141,7 +141,7 @@ class PlanoContableController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        $lineas14 = $this->lineasCuenta14DePlano($movimientos);
+        $lineas14 = $this->lineasContablesDePlano($movimientos);
         $depto    = (string) $distribucion->departamento;
 
         $plano = $this->aplicarPlanoEnSistema([
@@ -159,7 +159,7 @@ class PlanoContableController extends Controller
         ], $lineas14);
 
         return back()->with('success',
-            "Distribución aplicada en el sistema: {$plano->n_lineas} movimientos de cuenta 14 en el período {$plano->mes}/{$plano->anio}. "
+            "Distribución aplicada en el sistema: {$plano->n_lineas} movimientos (partida doble 14/6) en el período {$plano->mes}/{$plano->anio}. "
             . "El saldo ya se reflejó en Operaciones.");
     }
 

@@ -100,7 +100,12 @@ class PlanoReversionController extends Controller
             return back()->with('error', 'No hay cuentas 14 con saldo contrario para aplicar en este corte.');
         }
 
-        $lineas14 = $this->lineasCuenta14DePlano($lineas);
+        // Verificación de cuadre de la partida doble antes de aplicar.
+        if (! $this->planoCuadra($lineas)) {
+            return back()->with('error', 'El plano de reversión NO cuadra (débitos ≠ créditos). No se aplicó.');
+        }
+
+        $contables = $this->lineasContablesDePlano($lineas);
 
         $plano = $this->aplicarPlanoEnSistema([
             'tipo'             => 'reverso',
@@ -114,10 +119,10 @@ class PlanoReversionController extends Controller
                 . (($corteMes && $corteAnio) ? ' — corte '.sprintf('%02d/%d', $corteMes, $corteAnio) : ' — histórico'),
             'origen'           => 'reverso_plano',
             'user_id'          => $request->user()->id,
-        ], $lineas14);
+        ], $contables);
 
         return back()->with('success',
-            "Reverso aplicado en el sistema: {$plano->n_lineas} movimientos de cuenta 14 en el período {$plano->mes}/{$plano->anio}. "
+            "Reverso aplicado en el sistema: {$plano->n_lineas} movimientos (partida doble 14/6) en el período {$plano->mes}/{$plano->anio}. "
             . "El saldo ya se reflejó (Operaciones no volverá a verlo).");
     }
 
