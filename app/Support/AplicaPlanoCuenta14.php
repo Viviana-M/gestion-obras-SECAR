@@ -96,7 +96,7 @@ trait AplicaPlanoCuenta14
                 ->when($meta['tipo'] === 'mo_distribucion',
                     fn ($q) => $q->where('bolsa_un', $meta['bolsa_un'] ?? null)
                         ->where('mes', $meta['mes'])->where('anio', $meta['anio']))
-                ->when($meta['tipo'] === 'reverso', function ($q) use ($meta) {
+                ->when(in_array($meta['tipo'], ['reverso', 'reverso_apoyo'], true), function ($q) use ($meta) {
                     $q->whereNull('distribucion_id');
                     isset($meta['corte_mes']) && $meta['corte_mes'] !== null
                         ? $q->where('corte_mes', $meta['corte_mes'])

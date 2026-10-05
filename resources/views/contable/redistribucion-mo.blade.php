@@ -95,12 +95,21 @@
             <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#9CA3AF;font-weight:700">Reclasificación 14 → 61 · {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</div>
             <div style="font-size:12px;color:#6B7280;margin-top:2px">Total a reclasificar a costo real: <b style="font-size:16px;color:#15803D">{{ $fmt($resumen['total_reclasificado']) }}</b></div>
         </div>
-        <form method="GET" action="{{ route('contable.redistribucion-mo.plano') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0">
-            <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-            <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:2px">N° doc</label>
-                <input type="number" name="documento" min="1" value="1" style="width:90px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px"></div>
-            <button type="submit" style="padding:8px 14px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Plano (Excel)</button>
-        </form>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <form method="GET" action="{{ route('contable.redistribucion-mo.plano') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0">
+                <input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:2px">N° doc</label>
+                    <input type="number" name="documento" min="1" value="1" style="width:90px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px"></div>
+                <button type="submit" style="padding:8px 14px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Plano (Excel)</button>
+            </form>
+            @if(auth()->user()->puedeEditarModulo('contabilidad'))
+            <form method="POST" action="{{ route('contable.redistribucion-mo.aplicar') }}" style="margin:0"
+                  onsubmit="return confirm('¿Aplicar el reverso de MO de apoyo de {{ $mes }}/{{ $anio }} en el sistema? Escribe la partida doble 14→61 (origen reverso_apoyo); reaplicar reemplaza la corrida del período. Recargar BIABLE no lo borra.');">
+                @csrf<input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                <button type="submit" style="padding:8px 14px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Aplicar en el sistema</button>
+            </form>
+            @endif
+        </div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
         <thead>

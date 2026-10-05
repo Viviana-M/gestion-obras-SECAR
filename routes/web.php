@@ -63,6 +63,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/redistribucion-mo', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'index'])->name('contable.redistribucion-mo.index');
         Route::get('/contable/redistribucion-mo/detalle', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'detalle'])->name('contable.redistribucion-mo.detalle');
         Route::get('/contable/redistribucion-mo/plano', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'plano'])->name('contable.redistribucion-mo.plano');
+        Route::post('/contable/redistribucion-mo/aplicar', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'aplicar'])->name('contable.redistribucion-mo.aplicar');
 
         // Cierre / apertura del período de edición de la Distribución.
         Route::get('/contable/cierre', [\App\Http\Controllers\Contable\CierrePeriodoController::class, 'index'])->name('contable.cierre.index');

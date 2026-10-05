@@ -7,6 +7,7 @@ use App\Models\ManoObraDirecta;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
 use App\Services\RedistribucionMoEspecialService;
+use App\Support\AplicaPlanoCuenta14;
 use App\Support\GeneraPlanoSiesa;
 use Illuminate\Http\Request;
 
@@ -17,6 +18,7 @@ use Illuminate\Http\Request;
 class RedistribucionMoEspecialController extends Controller
 {
     use GeneraPlanoSiesa;
+    use AplicaPlanoCuenta14;
 
     private const TIPO_DOC  = 'CCC';
     private const NIT_SECAR = '890319324';
@@ -110,6 +112,48 @@ class RedistribucionMoEspecialController extends Controller
 
         return response()->download($archivo, 'PLANO_REDISTRIBUCION_MO_'.sprintf('%d_%02d', $anio, $mes).'.xlsx')
             ->deleteFileAfterSend(true);
+    }
+
+    /**
+     * APLICA en el sistema el mismo plano de reverso (14→61) que se exporta al ERP: por cada línea,
+     * crédito a la cuenta 14 (con el tercero del empleado/fondo, NO SECAR) y débito a la cuenta 61
+     * homologada, en la misma UN (INS00099/MTO00099), mismo valor y período del cierre. Se escribe en
+     * registro_financieros con origen='reverso_apoyo' (nunca 'biable'), así la 14 de esas bolsas baja
+     * y cuadra con el ERP sin recargar. Idempotente: reaplicar un período reemplaza su propia corrida.
+     */
+    public function aplicar(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
+
+        [$mes, $anio] = $this->periodo($request);
+
+        // Mismas líneas que el Excel: CR 14 (tercero del empleado/fondo) + DB 61 homologada, misma UN.
+        $lineasPlano = [];
+        foreach ($this->svc->movimientosRedistribucion($mes, $anio) as $m) {
+            $lineasPlano[] = ['cuenta' => (string) $m['cuenta_credito'], 'tercero' => (string) $m['tercero_credito'],
+                'unidad' => (string) $m['un'], 'debito' => 0, 'credito' => (float) $m['monto']];
+            $lineasPlano[] = ['cuenta' => (string) $m['cuenta_debito'], 'tercero' => (string) $m['tercero_debito'],
+                'unidad' => (string) $m['un'], 'debito' => (float) $m['monto'], 'credito' => 0];
+        }
+
+        if (empty($lineasPlano)) {
+            return back()->with('error', 'No hay mano de obra de estas personas para aplicar en este período.');
+        }
+        if (! $this->planoCuadra($lineasPlano)) {
+            return back()->with('error', 'El plano de reverso NO cuadra (débitos ≠ créditos). No se aplicó nada.');
+        }
+
+        $plano = $this->aplicarPlanoEnSistema([
+            'tipo' => 'reverso_apoyo', 'distribucion_id' => null, 'bolsa_un' => null,
+            'corte_mes' => $mes, 'corte_anio' => $anio, 'mes' => $mes, 'anio' => $anio,
+            'numero_documento' => max(1, (int) $request->get('documento', 1)),
+            'referencia' => 'Reverso MO apoyo '.sprintf('%02d/%d', $mes, $anio),
+            'origen' => 'reverso_apoyo', 'user_id' => $request->user()->id,
+        ], $this->lineasContablesDePlano($lineasPlano));
+
+        return back()->with('success',
+            "Reverso de MO de apoyo aplicado en el sistema: {$plano->n_lineas} movimientos (partida doble 14/61) en "
+            .sprintf('%02d/%d', $mes, $anio).". El crédito de la cuenta 14 de las bolsas bajó y cuadra con el ERP.");
     }
 
     /** Auxiliar de centro de costos según la UN de la bolsa (para las cuentas 61). */
