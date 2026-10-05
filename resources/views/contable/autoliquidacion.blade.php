@@ -88,6 +88,29 @@
         <button type="submit" style="padding:8px 16px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Descargar plano (Excel)</button>
         <span style="font-size:11.5px;color:#9CA3AF">Período: <b>{{ $nombresMes[$mes] ?? $mes }} {{ $anio }}</b> · <a href="{{ route('contable.redistribucion-mo.detalle', ['mes'=>$mes,'anio'=>$anio]) }}" style="color:#2563a8;text-decoration:none">ver terceros del plano</a></span>
     </form>
+
+    @if(auth()->user()->puedeEditarModulo('contabilidad'))
+    {{-- Aplicar al sistema (chulito): escribe la partida doble 14→61 en registro_financiero
+         (origen='ajuste_plano'). Sin marcar, el plano solo se descarga para el ERP y no toca la 14. --}}
+    <form method="POST" action="{{ route('contable.redistribucion-mo.aplicar') }}"
+          style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:12px 0 0;border-top:1px dashed #E5E7EB;padding-top:12px"
+          onsubmit="return confirm('¿Aplicar al sistema el plano de MO de apoyo de {{ $nombresMes[$mes] ?? $mes }} {{ $anio }}? Escribe la partida doble 14→61 (origen ajuste_plano); reaplicar reemplaza la corrida del período. Recargar BIABLE no lo duplica ni lo borra.');">
+        @csrf<input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
+            <input type="number" name="documento" min="1" value="1" style="width:100px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Documento (CCC)</label>
+            <input type="text" name="documento_ccc" placeholder="CCC-…" style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;padding-bottom:8px">
+            <input type="checkbox" name="afectar" value="1"> Afectar el sistema con estos movimientos
+        </label>
+        <button type="submit" style="padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Aplicar al sistema</button>
+        <span style="font-size:11.5px;color:#9CA3AF">Lo aplicado se ve y se revierte en <a href="{{ route('contable.planos-aplicados.index') }}" style="color:#2563a8;text-decoration:none">Planos aplicados (cuenta 14)</a>.</span>
+    </form>
+    @endif
 </div>
 
 @if($periodos->isEmpty())

@@ -30,7 +30,7 @@ class PlanosAplicadosController extends Controller
 
         $planos = PlanoAplicado::query()
             ->with('usuario')
-            ->when(in_array($tipo, ['reverso', 'distribucion', 'mo_distribucion'], true), fn ($q) => $q->where('tipo', $tipo))
+            ->when(in_array($tipo, ['reverso', 'reverso_apoyo', 'distribucion', 'mo_distribucion'], true), fn ($q) => $q->where('tipo', $tipo))
             ->when($anio, fn ($q) => $q->where('anio', $anio))
             ->orderByDesc('created_at')
             ->limit(1000)

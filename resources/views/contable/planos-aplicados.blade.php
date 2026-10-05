@@ -26,6 +26,7 @@
         <select name="tipo" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
             <option value="">Todos</option>
             <option value="reverso" {{ $tipo === 'reverso' ? 'selected' : '' }}>Reverso</option>
+            <option value="reverso_apoyo" {{ $tipo === 'reverso_apoyo' ? 'selected' : '' }}>Reverso MO apoyo</option>
             <option value="distribucion" {{ $tipo === 'distribucion' ? 'selected' : '' }}>Distribución</option>
             <option value="mo_distribucion" {{ $tipo === 'mo_distribucion' ? 'selected' : '' }}>Distribución MO</option>
         </select>
@@ -67,8 +68,9 @@
             @forelse($planos as $p)
             <tr style="border-bottom:1px solid #E5E7EB">
                 <td style="padding:9px 14px">
-                    <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:{{ $p->tipo === 'reverso' ? '#FEF3C7' : '#EFF6FF' }};color:{{ $p->tipo === 'reverso' ? '#854D0E' : '#1B3F6E' }}">
-                        {{ ['reverso'=>'Reverso','distribucion'=>'Distribución','mo_distribucion'=>'Distribución MO'][$p->tipo] ?? 'Distribución' }}
+                    @php $esReverso = in_array($p->tipo, ['reverso', 'reverso_apoyo'], true); @endphp
+                    <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:{{ $esReverso ? '#FEF3C7' : '#EFF6FF' }};color:{{ $esReverso ? '#854D0E' : '#1B3F6E' }}">
+                        {{ ['reverso'=>'Reverso','reverso_apoyo'=>'Reverso MO apoyo','distribucion'=>'Distribución','mo_distribucion'=>'Distribución MO'][$p->tipo] ?? 'Distribución' }}
                     </span>
                 </td>
                 <td style="padding:9px 14px;color:#374151">{{ $p->referencia ?: '—' }}</td>

@@ -142,6 +142,24 @@ class RedistribucionMoApoyoAplicarTest extends TestCase
     }
 
     #[Test]
+    public function aparece_en_planos_aplicados_y_se_puede_deshacer(): void
+    {
+        $this->base();
+        $c = $this->contable();
+        $this->aplicar($c);
+
+        // Aparece en "Planos aplicados (cuenta 14)".
+        $plano = PlanoAplicado::where('tipo', 'reverso_apoyo')->sole();
+        $listados = collect($this->actingAs($c)->get(route('contable.planos-aplicados.index'))->viewData('planos'))->pluck('id');
+        $this->assertTrue($listados->contains($plano->id));
+
+        // Deshacer revierte: desaparecen las filas ajuste_plano y el neto vuelve al pendiente.
+        $this->actingAs($c)->post(route('contable.planos-aplicados.deshacer', $plano))->assertRedirect()->assertSessionHas('success');
+        $this->assertSame(0, RegistroFinanciero::where('origen', 'ajuste_plano')->count());
+        $this->assertEqualsWithDelta(-500000, $this->netoIns14(), 1);
+    }
+
+    #[Test]
     public function el_borrado_por_mes_de_biable_no_toca_el_ajuste_plano(): void
     {
         $this->base();
