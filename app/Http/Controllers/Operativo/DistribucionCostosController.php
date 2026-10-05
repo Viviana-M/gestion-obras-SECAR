@@ -420,8 +420,8 @@ class DistribucionCostosController extends Controller
             ];
         }
         usort($inactivasConSaldo, fn ($a, $b) => $b['inventario_obra'] <=> $a['inventario_obra']);
-        // Acota el aviso ("Hay N obras…") al departamento permitido del usuario, igual que el listado.
-        $inactivasConSaldo = $this->soloDepartamentoPermitido($inactivasConSaldo, $usuario);
+        // Acota el aviso ("Hay N obras…") al departamento filtrado en pantalla (y al permitido del usuario).
+        $inactivasConSaldo = $this->soloDepartamentoPermitido($inactivasConSaldo, $usuario, $depEfectivo);
 
         $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto, $bolsaCodigos) {
             if (isset($bolsaCodigos[$o['codigo']])) return false;
@@ -578,11 +578,12 @@ class DistribucionCostosController extends Controller
         [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
         $mes  = (int) $request->get('mes', $mesDef);
         $anio = (int) $request->get('anio', $anioDef);
+        $departamento = $request->get('departamento');
 
-        $lista = $this->inactivasConSaldoData($mes, $anio, $u);
+        $lista = $this->inactivasConSaldoData($mes, $anio, $u, $departamento);
 
         return view('operativo.inactivas-con-saldo', [
-            'lista' => $lista, 'mes' => $mes, 'anio' => $anio,
+            'lista' => $lista, 'mes' => $mes, 'anio' => $anio, 'departamento' => $departamento,
             'total' => array_sum(array_column($lista, 'saldo_14')),
         ]);
     }
@@ -597,8 +598,9 @@ class DistribucionCostosController extends Controller
         [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
         $mes  = (int) $request->get('mes', $mesDef);
         $anio = (int) $request->get('anio', $anioDef);
+        $departamento = $request->get('departamento');
 
-        $lista = $this->inactivasConSaldoData($mes, $anio, $u);
+        $lista = $this->inactivasConSaldoData($mes, $anio, $u, $departamento);
 
         $filas = [['Código', 'Obra', 'Cliente', 'Saldo cuenta 14']];
         foreach ($lista as $f) {
@@ -626,7 +628,7 @@ class DistribucionCostosController extends Controller
      *
      * @return array<int, array{codigo:string,nombre:string,cliente:string,saldo_14:float}>
      */
-    private function inactivasConSaldoData(int $mes, int $anio, ?\App\Models\User $u = null): array
+    private function inactivasConSaldoData(int $mes, int $anio, ?\App\Models\User $u = null, ?string $departamento = null): array
     {
         $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where(function ($q) use ($anio, $mes) {
@@ -658,8 +660,8 @@ class DistribucionCostosController extends Controller
         }
         usort($lista, fn ($a, $b) => $b['saldo_14'] <=> $a['saldo_14']);
 
-        // Solo las obras del departamento al que el usuario tiene acceso (admin/total: todas).
-        return $this->soloDepartamentoPermitido($lista, $u);
+        // Solo las obras del departamento filtrado (y del que el usuario tiene acceso).
+        return $this->soloDepartamentoPermitido($lista, $u, $departamento);
     }
 
     /**
@@ -789,12 +791,21 @@ class DistribucionCostosController extends Controller
      * @param  array<int, array{codigo:string, ...}>  $lista
      * @return array<int, array<string,mixed>>
      */
-    private function soloDepartamentoPermitido(array $lista, ?\App\Models\User $u): array
+    private function soloDepartamentoPermitido(array $lista, ?\App\Models\User $u, ?string $departamentoElegido = null): array
     {
-        if (! $u || ! $u->tieneFiltroDepartamento()) {
-            return $lista; // admin o acceso total: ve todo (comportamiento actual)
+        // Mismo criterio que la distribución principal: el supervisor manda con su departamento
+        // único; si es director/admin, se aplica el departamento elegido en el filtro de pantalla.
+        $depUsuario  = $u?->departamentoUnico();                 // 'mantenimiento' | 'instalaciones' | null
+        $depEfectivo = $depUsuario ?: ($departamentoElegido ?: null);
+
+        if ($depEfectivo && in_array($depEfectivo, ['mantenimiento', 'instalaciones'], true)) {
+            $prefijos = \App\Models\User::prefijosDeDepartamento($depEfectivo);
+        } elseif ($u && $u->tieneFiltroDepartamento()) {
+            $prefijos = $u->departamentosPermitidos();           // ve ambos y no eligió: sus prefijos
+        } else {
+            return $lista;                                       // admin sin filtro: ve todo
         }
-        $prefijos = array_filter(array_map('strtoupper', $u->departamentosPermitidos()));
+        $prefijos = array_filter(array_map('strtoupper', $prefijos));
 
         return array_values(array_filter($lista, function ($o) use ($prefijos) {
             $cod = strtoupper((string) ($o['codigo'] ?? ''));

@@ -315,6 +315,44 @@ class ObrasInactivasTest extends TestCase
     }
 
     #[Test]
+    public function el_listado_respeta_el_departamento_elegido_en_el_filtro(): void
+    {
+        // Admin (ve todo): el listado se acota al departamento elegido en el filtro de pantalla.
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09065', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+        FichaProyecto::create(['codigo_proyecto' => 'GIX09065', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
+        $this->rf('MOB09065', 'Costos por aplicar', -50000, 8, 2024, '14350105');
+        $this->rf('GIX09065', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $admin = User::factory()->create(['rol' => 'admin', 'activo' => true]);
+
+        // Filtro = instalaciones → solo la obra de instalaciones (total 70k).
+        $inst = $this->actingAs($admin)->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024, 'departamento' => 'instalaciones']));
+        $this->assertSame(['GIX09065'], collect($inst->viewData('lista'))->pluck('codigo')->all());
+        $this->assertEqualsWithDelta(70000, $inst->viewData('total'), 1);
+
+        // Filtro = mantenimiento → solo la de mantenimiento (total 50k).
+        $mant = $this->actingAs($admin)->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024, 'departamento' => 'mantenimiento']));
+        $this->assertSame(['MOB09065'], collect($mant->viewData('lista'))->pluck('codigo')->all());
+        $this->assertEqualsWithDelta(50000, $mant->viewData('total'), 1);
+    }
+
+    #[Test]
+    public function el_aviso_en_distribucion_respeta_el_departamento_elegido_en_el_filtro(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09066', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
+        FichaProyecto::create(['codigo_proyecto' => 'GIX09066', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
+        $this->rf('MOB09066', 'Costos por aplicar', -50000, 8, 2024, '14350105');
+        $this->rf('GIX09066', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $admin = User::factory()->create(['rol' => 'admin', 'activo' => true]);
+
+        $inact = collect($this->actingAs($admin)
+            ->get('/operativo/distribucion?mes=8&anio=2024&departamento=instalaciones')
+            ->viewData('inactivasConSaldo'))->pluck('codigo')->all();
+
+        $this->assertContains('GIX09066', $inact);
+        $this->assertNotContains('MOB09066', $inact); // el aviso respeta el departamento elegido
+    }
+
+    #[Test]
     public function el_aviso_de_inactivas_en_distribucion_respeta_el_departamento(): void
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09061', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);

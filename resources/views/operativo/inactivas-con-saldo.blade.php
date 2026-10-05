@@ -7,11 +7,12 @@
     Obras marcadas como <b>inactivas</b> en el maestro que <b>todavía tienen saldo</b> en la cuenta 14.
     No se cerraron automáticamente: revísalas y aplica/traslada su saldo antes de cerrarlas.
     <x-slot:actions>
-        <a href="{{ route('operativo.obras-inactivas.excel', ['mes' => $mes, 'anio' => $anio]) }}" class="btn-banner">⬇ Exportar Excel</a>
+        <a href="{{ route('operativo.obras-inactivas.excel', ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento ?? null]) }}" class="btn-banner">⬇ Exportar Excel</a>
     </x-slot:actions>
 </x-page-banner>
 
 <form method="GET" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+    @if(!empty($departamento))<input type="hidden" name="departamento" value="{{ $departamento }}">@endif
     <div>
         <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Mes</label>
         <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
