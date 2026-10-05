@@ -114,6 +114,11 @@ trait AplicaPlanoCuenta14
 
             $plano = PlanoAplicado::create([
                 'tipo'             => $meta['tipo'],
+                // Control "Afectar el sistema": quién lo marcó y cuándo. Solo se persiste un plano
+                // cuando afecta (si no, el plano solo se genera para el ERP y no llega aquí).
+                'afecta_sistema'   => $meta['afecta_sistema'] ?? true,
+                'afectado_por'     => $meta['afectado_por'] ?? ($meta['user_id'] ?? null),
+                'afectado_en'      => $meta['afectado_en'] ?? now(),
                 'distribucion_id'  => $meta['distribucion_id'] ?? null,
                 'bolsa_un'         => $meta['bolsa_un'] ?? null,
                 'corte_mes'        => $meta['corte_mes'] ?? null,
@@ -121,6 +126,7 @@ trait AplicaPlanoCuenta14
                 'mes'              => $meta['mes'],
                 'anio'             => $meta['anio'],
                 'numero_documento' => $meta['numero_documento'] ?? null,
+                'documento_ccc'    => $meta['documento_ccc'] ?? null,  // el CCC con que se contabiliza en el ERP
                 'referencia'       => $meta['referencia'] ?? null,
                 'total_debito'     => 0,
                 'total_credito'    => 0,
@@ -136,7 +142,10 @@ trait AplicaPlanoCuenta14
 
             $ahora     = now();
             $periodo   = sprintf('%04d%02d', $meta['anio'], $meta['mes']);
-            $documento = $meta['numero_documento'] ? (string) $meta['numero_documento'] : null;
+            // Documento del movimiento: el CCC con que se contabiliza en el ERP si viene; si no, el n°.
+            $documento = ! empty($meta['documento_ccc'])
+                ? (string) $meta['documento_ccc']
+                : ($meta['numero_documento'] ? (string) $meta['numero_documento'] : null);
             $totalDeb  = 0.0;
             $totalCre  = 0.0;
             $rows = [];

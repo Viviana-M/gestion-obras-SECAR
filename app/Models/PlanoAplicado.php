@@ -15,13 +15,15 @@ class PlanoAplicado extends Model
     protected $table = 'planos_aplicados';
 
     protected $fillable = [
-        'tipo', 'distribucion_id', 'bolsa_un', 'corte_mes', 'corte_anio', 'mes', 'anio',
-        'numero_documento', 'referencia', 'total_debito', 'total_credito', 'n_lineas', 'user_id',
+        'tipo', 'afecta_sistema', 'distribucion_id', 'bolsa_un', 'corte_mes', 'corte_anio', 'mes', 'anio',
+        'numero_documento', 'documento_ccc', 'referencia', 'total_debito', 'total_credito', 'n_lineas',
+        'user_id', 'afectado_por', 'afectado_en',
     ];
 
     protected function casts(): array
     {
         return [
+            'afecta_sistema'   => 'boolean',
             'distribucion_id'  => 'integer',
             'corte_mes'        => 'integer',
             'corte_anio'       => 'integer',
@@ -31,6 +33,7 @@ class PlanoAplicado extends Model
             'total_debito'     => 'float',
             'total_credito'    => 'float',
             'n_lineas'         => 'integer',
+            'afectado_en'      => 'datetime',
         ];
     }
 

@@ -103,10 +103,15 @@
                 <button type="submit" style="padding:8px 14px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">⬇ Plano (Excel)</button>
             </form>
             @if(auth()->user()->puedeEditarModulo('contabilidad'))
-            <form method="POST" action="{{ route('contable.redistribucion-mo.aplicar') }}" style="margin:0"
-                  onsubmit="return confirm('¿Aplicar el reverso de MO de apoyo de {{ $mes }}/{{ $anio }} en el sistema? Escribe la partida doble 14→61 (origen reverso_apoyo); reaplicar reemplaza la corrida del período. Recargar BIABLE no lo borra.');">
+            <form method="POST" action="{{ route('contable.redistribucion-mo.aplicar') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0"
+                  onsubmit="return confirm('¿Aplicar el reverso de MO de apoyo de {{ $mes }}/{{ $anio }} en el sistema? Escribe la partida doble 14→61 (origen ajuste_plano); reaplicar reemplaza la corrida del período. Recargar BIABLE no lo duplica ni lo borra.');">
                 @csrf<input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                <button type="submit" style="padding:8px 14px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Aplicar en el sistema</button>
+                <div><label style="font-size:11px;color:#6B7280;display:block;margin-bottom:2px">Documento (CCC)</label>
+                    <input type="text" name="documento_ccc" placeholder="CCC-…" style="width:110px;padding:6px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px"></div>
+                <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#374151;white-space:nowrap;padding-bottom:7px">
+                    <input type="checkbox" name="afectar" value="1"> Afectar el sistema con estos movimientos
+                </label>
+                <button type="submit" style="padding:8px 14px;background:#15803D;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Aplicar</button>
             </form>
             @endif
         </div>

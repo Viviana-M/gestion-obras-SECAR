@@ -125,6 +125,11 @@ class RedistribucionMoEspecialController extends Controller
     {
         abort_unless($request->user()->puedeEditarModulo('contabilidad'), 403, 'No tienes permiso para editar en Contabilidad.');
 
+        // Chulito "Afectar el sistema con estos movimientos": sin marcar, no se escribe en la cuenta 14.
+        if (! $request->boolean('afectar')) {
+            return back()->with('error', 'Marca "Afectar el sistema con estos movimientos" para aplicar el plano en la cuenta 14.');
+        }
+
         [$mes, $anio] = $this->periodo($request);
 
         // Mismas líneas que el Excel: CR 14 (tercero del empleado/fondo) + DB 61 homologada, misma UN.
@@ -147,8 +152,10 @@ class RedistribucionMoEspecialController extends Controller
             'tipo' => 'reverso_apoyo', 'distribucion_id' => null, 'bolsa_un' => null,
             'corte_mes' => $mes, 'corte_anio' => $anio, 'mes' => $mes, 'anio' => $anio,
             'numero_documento' => max(1, (int) $request->get('documento', 1)),
+            'documento_ccc' => trim((string) $request->get('documento_ccc')) ?: null,
             'referencia' => 'Reverso MO apoyo '.sprintf('%02d/%d', $mes, $anio),
-            'origen' => 'reverso_apoyo', 'user_id' => $request->user()->id,
+            'origen' => 'ajuste_plano', 'user_id' => $request->user()->id,
+            'afecta_sistema' => true, 'afectado_por' => $request->user()->id, 'afectado_en' => now(),
         ], $this->lineasContablesDePlano($lineasPlano));
 
         return back()->with('success',

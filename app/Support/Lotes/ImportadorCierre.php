@@ -126,6 +126,10 @@ class ImportadorCierre implements ImportadorLotes
 
     public function resumen(int $mes, int $anio, array $meta): array
     {
+        // Ya insertados todos los lotes de BIABLE: deduplicar contra los ajustes de plano aplicados
+        // (si la recarga ya los trae contabilizados, se retira el 'ajuste_plano' duplicado).
+        MovimientoBiableImport::deduplicarAjustes($mes, $anio);
+
         $n = RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->count();
 
         return ['mensaje' => "Cierre {$mes}/{$anio}: {$n} registros contables cargados."];

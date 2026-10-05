@@ -77,6 +77,10 @@ class ProcesarArchivoFinanciero implements ShouldQueue
         $import = new MovimientoBiableImport($this->mes, $this->anio);
         Excel::import($import, $archivo);
 
+        // Deduplicar contra los ajustes de plano ya aplicados: si la recarga ya trae el ajuste
+        // contabilizado, se retira el 'ajuste_plano' duplicado (prevalece 'biable'); si no, se conserva.
+        MovimientoBiableImport::deduplicarAjustes((int) $this->mes, (int) $this->anio);
+
         CargaFinanciera::where('id', $this->cargaId)->update([
             'estado'    => 'completado',
             'error'     => null,

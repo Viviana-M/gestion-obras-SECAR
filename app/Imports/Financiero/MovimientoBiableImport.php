@@ -2,6 +2,7 @@
 
 namespace App\Imports\Financiero;
 
+use App\Models\RegistroFinanciero;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\ToCollection;
@@ -171,6 +172,41 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             $unidad, $cuenta, (string) $tercero, (string) $documento,
             number_format($debito, 2, '.', ''), number_format($credito, 2, '.', ''), $periodo,
         ]));
+    }
+
+    /**
+     * Tras recargar BIABLE de un período, retira los ajustes de plano (origen='ajuste_plano') que la
+     * recarga ya trae: si una fila BIABLE recién importada coincide con un ajuste por huella
+     * (UN + cuenta + tercero + valores; el período lo acota el mes/año) se conserva UNA sola — el
+     * ajuste ya vino en BIABLE, así que prevalece el 'biable' y se retira el 'ajuste_plano' duplicado
+     * (1:1). Si la recarga no trae el ajuste, el ajuste se conserva. Devuelve cuántos ajustes retiró.
+     */
+    public static function deduplicarAjustes(int $mes, int $anio): int
+    {
+        $huella = fn ($r) => implode('|', [
+            (string) $r->codigo_proyecto, (string) $r->cuenta_contable, (string) ($r->tercero_dcto ?? ''),
+            number_format((float) $r->valor_debito, 2, '.', ''), number_format((float) $r->valor_credito, 2, '.', ''),
+        ]);
+
+        $biable = RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->where('origen', 'biable')
+            ->get(['codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'valor_debito', 'valor_credito']);
+        $conteo = [];
+        foreach ($biable as $r) { $k = $huella($r); $conteo[$k] = ($conteo[$k] ?? 0) + 1; }
+        if (empty($conteo)) {
+            return 0; // la recarga no trae nada que coincida: los ajustes se conservan
+        }
+
+        $ajustes = RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->where('origen', 'ajuste_plano')
+            ->get(['id', 'codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'valor_debito', 'valor_credito']);
+        $aBorrar = [];
+        foreach ($ajustes as $r) {
+            $k = $huella($r);
+            if (($conteo[$k] ?? 0) > 0) { $aBorrar[] = $r->id; $conteo[$k]--; }
+        }
+        if (! empty($aBorrar)) {
+            RegistroFinanciero::whereIn('id', $aBorrar)->delete();
+        }
+        return count($aBorrar);
     }
 
     // ═══════════════════ Destino 2: saldos_balance ═══════════════════
