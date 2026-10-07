@@ -354,6 +354,25 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function la_vista_mes_muestra_el_neto_del_mes_y_todo_el_acumulado(): void
+    {
+        // Movimiento en agosto (−10M) y en septiembre (−15M) en la misma bolsa/cuenta.
+        $this->bolsa('INS00099', 10000000, 8, 2026, '14200530');
+        $this->bolsa('INS00099', 15000000, 9, 2026, '14200530');
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 9);
+
+        // "Solo el movimiento del mes" (septiembre) → solo 15M.
+        $mesVista = collect($svc->bolsasGrandes('instalaciones', $periodo, 2026, 9, 'mes'))->first();
+        $this->assertEqualsWithDelta(15000000, $mesVista['total'], 1);
+
+        // "Todo el inventario pendiente" (acumulado a septiembre) → 25M.
+        $todo = collect($svc->bolsasGrandes('instalaciones', $periodo, 2026, 9, 'todo'))->first();
+        $this->assertEqualsWithDelta(25000000, $todo['total'], 1);
+    }
+
+    #[Test]
     public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
     {
         $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // -41M por repartir

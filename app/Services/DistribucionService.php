@@ -230,7 +230,7 @@ class DistribucionService
      *
      * @return array<int, array{codigo:string,nombre:string,departamento:string,total:float,a_distribuir:float,componentes:array,lineas:array}>
      */
-    public function bolsasGrandes(?string $departamento, int $periodo, int $anio, int $mes): array
+    public function bolsasGrandes(?string $departamento, int $periodo, int $anio, int $mes, string $vista = 'todo'): array
     {
         $q = UnBolsa::where('activo', true);
         if ($departamento) {
@@ -244,7 +244,7 @@ class DistribucionService
         $nombreUn  = $uns->pluck('nombre', 'codigo');
         $deptoDeUn = $uns->pluck('departamento', 'codigo');
 
-        $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes); // [un => líneas]
+        $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes, $vista); // [un => líneas], según la vista
         $terceros = $this->tercerosPorCuenta($codigos, $anio, $mes);               // [un|cuenta => tercero]
         $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes);       // [cédula => costo completo + buckets]
         $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
@@ -407,24 +407,30 @@ class DistribucionService
      *
      * @return array<string, array<int, array>>  [codigo_bolsa => [ líneas ]]
      */
-    public function saldosBolsasPorCuenta(array $codigos, int $periodo, int $anio, int $mes): array
+    public function saldosBolsasPorCuenta(array $codigos, int $periodo, int $anio, int $mes, string $vista = 'todo'): array
     {
         if (empty($codigos)) {
             return [];
         }
         $homol = Homologacion::mapaEn($periodo);
 
-        // Corte "acumulado al mes": anio anterior, o mismo anio hasta el mes filtrado.
-        $corteAcum = function ($q) use ($anio, $mes) {
-            $q->where('anio', '<', $anio)
-              ->orWhere(function ($q2) use ($anio, $mes) {
-                  $q2->where('anio', $anio)->where('mes', '<=', $mes);
-              });
-        };
+        // Ventana según la vista:
+        //  - 'mes'  → SOLO el movimiento del mes/año elegido (neto del mes: SUM(débito − crédito)).
+        //  - 'todo' → acumulado al mes (inventario en tránsito pendiente). Incluye biable + ajuste_plano.
+        $ventana = $vista === 'mes'
+            ? function ($q) use ($anio, $mes) {
+                $q->where('anio', $anio)->where('mes', $mes);
+            }
+            : function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            };
 
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
-            ->where($corteAcum)
+            ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5') // cualquier saldo distinto de cero (ambos signos)
@@ -453,10 +459,10 @@ class DistribucionService
         }
 
         // Antigüedad (período más viejo) de cada cuenta, para repartir FIFO al guardar.
-        // Mismo corte acumulado al mes filtrado.
+        // Misma ventana que el saldo (acumulado, o solo el mes si la vista es 'mes').
         $per = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
-            ->where($corteAcum)
+            ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
             ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->get();

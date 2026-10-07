@@ -461,7 +461,7 @@ class DistribucionCostosController extends Controller
         // Panel: DOS bolsas grandes (Mantenimiento e Instalaciones). Cada una con su total
         // (saldo de todas sus UN), su "a distribuir" (suma de montos editados en el cierre) y
         // el disponible = a_distribuir − lo ya asignado en este borrador.
-        $bolsas = $this->svc->bolsasGrandes($depEfectivo, $periodo, $anio, $mes);
+        $bolsas = $this->svc->bolsasGrandes($depEfectivo, $periodo, $anio, $mes, $vista);
         foreach ($bolsas as &$bp) {
             $bp['asignado']   = (float) ($asignPorBolsa[$bp['codigo']] ?? 0);
             $bp['disponible'] = max(0.0, round($bp['a_distribuir'] - $bp['asignado'], 2));
