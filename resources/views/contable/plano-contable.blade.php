@@ -9,29 +9,31 @@
     $fmt = fn($n) => '$'.number_format($n, 0, ',', '.');
 @endphp
 
-<h1 class="page-title">Plano contable — Versiones enviadas</h1>
+<x-page-banner title="Plano contable — Versiones enviadas" icon="📄">
+    Revisa las versiones de costos enviadas a contabilidad por período y genera el plano para SIESA.
+</x-page-banner>
 
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('contable.plano-contable') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+<x-filtros-panel>
+    <form method="GET" action="{{ route('contable.plano-contable') }}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach($nombresMes as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Filtrar</button>
+        <button type="submit" class="btn-filtrar">Filtrar</button>
     </form>
-</div>
+</x-filtros-panel>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -113,6 +115,42 @@
                 El <b>tercero de cada línea es el proveedor real</b>, resuelto en FIFO contra las compras de la cuenta 14.
                 Los costos de mano de obra y prestaciones no tienen proveedor: esos quedan a nombre de Secar.
                 Si la observación se deja vacía, se usa la sugerida.
+            </div>
+        </div>
+
+        {{-- ══════ APLICAR EN EL SISTEMA (cuenta 14) ══════ --}}
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:12px 14px;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:#15803D;margin-bottom:8px">Aplicar en el sistema (cuenta 14)</div>
+            <form method="POST" action="{{ route('contable.plano-contable.aplicar', $v['id']) }}"
+                  onsubmit="return confirm('¿Aplicar esta distribución en el sistema? Se crearán los movimientos de cuenta 14 (origen distribucion_plano) en el período destino; el pendiente bajará de inmediato en Operaciones. Podrás deshacerlo desde «Planos aplicados».');"
+                  style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+                @csrf
+                <div style="flex:0 0 140px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N.° de documento *</label>
+                    <input type="number" name="documento" min="1" required placeholder="Ej: 385"
+                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                </div>
+                <div style="flex:0 0 150px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Período destino (mes)</label>
+                    <select name="destino_mes" style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                        @foreach($nombresMes as $i => $m)
+                        <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div style="flex:0 0 100px">
+                    <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
+                    <input type="number" name="destino_anio" min="2000" value="{{ $anio }}"
+                        style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                </div>
+                <button type="submit"
+                    style="padding:8px 18px;background:#15803D;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">
+                    ✓ Aplicar en el sistema
+                </button>
+            </form>
+            <div style="font-size:11px;color:#6B7280;margin-top:8px;line-height:1.5">
+                Crea sólo los movimientos que afectan la <b>cuenta 14</b> (origen <code>distribucion_plano</code>), para que el saldo
+                cuadre con el ERP sin recargar BIABLE. Idempotente: re-aplicar reemplaza los movimientos de esta versión.
             </div>
         </div>
         @endif

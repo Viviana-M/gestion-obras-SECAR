@@ -3,32 +3,35 @@
 @section('title', 'Forecast de costos')
 
 @section('content')
-<h1 class="page-title">Forecast de costos — Módulo operativo</h1>
+<x-page-banner title="Forecast de costos" icon="📈">
+    Planifica cuánto costo mover desde la <b>cuenta 14</b> a cada obra y revisa cómo queda el margen antes de enviarlo a contabilidad.
+</x-page-banner>
 
 {{-- FILTROS --}}
-<div class="card" style="margin-bottom:1rem">
-    <form method="GET" action="{{ route('operativo.forecast') }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Mes</label>
-            <select name="mes" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+<x-filtros-panel>
+    <form method="GET" action="{{ route('operativo.forecast') }}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div class="filtro-field" style="flex:1 1 150px">
+            <label class="filtro-label">Mes</label>
+            <select name="mes" class="filtro-select">
                 @foreach(['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] as $i => $m)
                     <option value="{{ $i+1 }}" {{ ($i+1) == $mes ? 'selected' : '' }}>{{ $m }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Año</label>
-            <select name="anio" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+        <div class="filtro-field" style="flex:1 1 120px">
+            <label class="filtro-label">Año</label>
+            <select name="anio" class="filtro-select">
                 @for($y = env('ANIO_INICIO_SISTEMA', 2022); $y <= date('Y'); $y++)
                     <option value="{{ $y }}" {{ $y == $anio ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
         </div>
-        <button type="submit" style="padding:7px 20px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">
+        <button type="submit" class="btn-filtrar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             Filtrar
         </button>
     </form>
-</div>
+</x-filtros-panel>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">

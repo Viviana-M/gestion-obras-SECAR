@@ -8,7 +8,6 @@
 return [
     'gestion_financiera' => 'Gestión financiera',
     'operacion'          => 'Operación',
-    'comercial'          => 'Comercial',
     'contabilidad'       => 'Contabilidad',
 
     // Departamentos (controlan qué obras ve cada quien en Distribución de costos)

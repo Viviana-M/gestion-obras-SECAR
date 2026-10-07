@@ -24,7 +24,6 @@ class User extends Authenticatable
         'rol',
         'sede',
         'menu_colapsado',
-        'modulos_permitidos',
         'permisos_modulos',
         'activo',
     ];
@@ -35,7 +34,6 @@ class User extends Authenticatable
             'email_verified_at'  => 'datetime',
             'password'           => 'hashed',
             'menu_colapsado'     => 'boolean',
-            'modulos_permitidos' => 'array',
             'permisos_modulos'   => 'array',
             'activo'             => 'boolean',
         ];
@@ -51,38 +49,34 @@ class User extends Authenticatable
         return $this->rol === 'admin';
     }
 
-    public function modulosLegado(): array
+    /**
+     * ¿Pertenece a gerencia? (puede aprobar/rechazar autorizaciones de distribución)
+     * Cuenta como gerencia: administrador, cargo gerente, o cualquier director
+     * (roles que empiezan por 'dir_' o 'director', p. ej. dir_operaciones,
+     * dir_instalaciones, dir_mantenimiento, director_comercial, director_compras,
+     * dir_admin_auditoria).
+     */
+    public function esGerencia(): bool
     {
-        return [
-            'financiero' => ['gestion_financiera'],
-            'operativo'  => ['operacion'],
-            'comercial'  => ['comercial'],
-            'contable'   => ['contabilidad'],
-        ][$this->rol] ?? [];
+        if ($this->esAdmin()) {
+            return true;
+        }
+
+        $rol = (string) $this->rol;
+
+        return $rol === 'gerente'
+            || str_starts_with($rol, 'dir_')
+            || str_starts_with($rol, 'director');
     }
 
     /**
      * Mapa efectivo de permisos: modulo => 'ver'|'editar'.
-     * Prioridad: permisos_modulos (nuevo) -> modulos_permitidos (viejo) -> rol. Los dos
-     * ultimos se reconstruyen como 'editar' para no quitarle acceso a usuarios existentes.
+     * Fuente única: permisos_modulos. La columna vieja modulos_permitidos se
+     * consolidó a esta y se eliminó (ver migración de consolidación).
      */
     public function mapaPermisos(): array
     {
-        $mapa = $this->permisos_modulos ?? [];
-        if (!empty($mapa)) {
-            return $mapa;
-        }
-
-        $viejos = $this->modulos_permitidos ?? [];
-        if (empty($viejos)) {
-            $viejos = $this->modulosLegado();
-        }
-
-        $recon = [];
-        foreach ($viejos as $m) {
-            $recon[$m] = in_array($m, self::DEPARTAMENTOS, true) ? 'ver' : 'editar';
-        }
-        return $recon;
+        return $this->permisos_modulos ?? [];
     }
 
     // ¿Puede VER este módulo? (ver o editar cuentan como ver)
@@ -101,6 +95,30 @@ class User extends Authenticatable
             return true;
         }
         return ($this->mapaPermisos()[$clave] ?? null) === 'editar';
+    }
+
+    /**
+     * Página de inicio del usuario: el PRIMER módulo que pueda ver, en el orden del
+     * menú lateral. Los roles son cargos, así que el inicio NO depende del rol sino
+     * de los permisos: cada quien aterriza donde tiene acceso (el admin ve todo, así
+     * que cae en el primero, el financiero). Sin ningún módulo → a un lugar seguro.
+     */
+    public function paginaInicio(): string
+    {
+        $modulos = [
+            'gestion_financiera' => '/dashboard',
+            'operacion'          => '/operativo/distribucion',
+            'contabilidad'       => '/contable/homologaciones',
+        ];
+
+        foreach ($modulos as $clave => $ruta) {
+            if ($this->puedeVerModulo($clave)) {
+                return $ruta;
+            }
+        }
+
+        // Sin acceso a ningún módulo: al perfil (siempre disponible para autenticados).
+        return '/profile';
     }
 
     // Nivel de un modulo: 'editar' | 'ver' | null (sin acceso). Admin -> 'editar'.
@@ -146,6 +164,20 @@ class User extends Authenticatable
             'mantenimiento' => ['C', 'R', 'MO', 'GM'],
             'instalaciones' => ['GI', 'O'],
         ][$dep] ?? [];
+    }
+
+    /** Departamento al que pertenece un código de obra según su prefijo. */
+    public static function departamentoDeCodigo(string $cod): ?string
+    {
+        $cod = strtoupper(trim($cod));
+        foreach (['mantenimiento', 'instalaciones'] as $dep) {
+            foreach (self::prefijosDeDepartamento($dep) as $p) {
+                if (str_starts_with($cod, strtoupper($p))) {
+                    return $dep;
+                }
+            }
+        }
+        return null;
     }
 
     public function tieneFiltroDepartamento(): bool

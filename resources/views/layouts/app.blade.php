@@ -21,7 +21,15 @@
         .btn-logout:hover { background: rgba(255,255,255,0.1); }
 
         .layout { display: flex; min-height: calc(100vh - 56px); }
-        .sidebar { width: 220px; background: #FFFFFF; border-right: 1px solid #E5E7EB; padding: 0.75rem 0; flex-shrink: 0; transition: width .2s ease; overflow: hidden; }
+        .sidebar {
+            width: 220px; background: #FFFFFF; border-right: 1px solid #E5E7EB; padding: 0.75rem 0; flex-shrink: 0; transition: width .2s ease;
+            position: sticky;
+            top: 56px;                 /* alto de la .navbar */
+            align-self: flex-start;    /* imprescindible para que sticky funcione dentro del flex .layout */
+            height: calc(100vh - 56px);
+            overflow-y: auto;          /* barra de desplazamiento propia del menú */
+            overflow-x: hidden;        /* reemplaza el overflow: hidden anterior */
+        }
         .layout.collapsed .sidebar { width: 58px; }
 
         .module-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 1.25rem; background: transparent; border: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #374151; text-align: left; }
@@ -33,10 +41,12 @@
         .module.open .chevron { transform: rotate(90deg); }
 
         .submenu { max-height: 0; overflow: hidden; transition: max-height .2s ease; }
-        .module.open .submenu { max-height: 500px; }
+        .module.open .submenu { max-height: 640px; }
         .submenu a { display: flex; align-items: center; gap: 6px; padding: 8px 1.25rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; white-space: nowrap; }
         .submenu a:hover { background: #F3F4F6; color: #1B3F6E; }
         .submenu a.active { background: #D6E4F7; color: #1B3F6E; border-left-color: #1B3F6E; font-weight: 500; }
+        .submenu-group-label { padding: 9px 1.25rem 3px 1.9rem; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #9CA3AF; white-space: nowrap; }
+        .submenu-group-label:first-child { padding-top: 4px; }
 
         .pill { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: #FEF9C3; color: #854D0E; line-height: 1.5; }
         .dot-alerta { position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: #D97706; border: 1.5px solid #FFFFFF; }
@@ -51,6 +61,36 @@
         .page-title { font-size: 18px; font-weight: 600; color: #1B3F6E; margin-bottom: 1.25rem; }
         .card { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
         .card h3 { font-size: 14px; font-weight: 600; color: #3D3D3D; margin-bottom: 10px; }
+
+        /* ===== Banner de título de página (componente page-banner) ===== */
+        .page-banner { background: #1B3F6E; background: linear-gradient(120deg, #1B3F6E, #2C5FA0); border-radius: 14px; padding: 16px 22px; margin-bottom: 1.25rem; color: #fff; box-shadow: 0 6px 18px rgba(27,63,110,.18); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .page-banner-main { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; min-width: 0; }
+        .page-banner-ico { flex: 0 0 auto; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; line-height: 1; color: #fff; background: rgba(255,255,255,.15); border-radius: 12px; }
+        .page-banner-ico svg { width: 24px; height: 24px; display: block; }
+        .page-banner-title { font-size: 21px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .page-banner-badge { font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 10px; background: rgba(255,255,255,.18); color: #fff; }
+        .page-banner-sub { font-size: 12.5px; color: #DCE6F5; margin-top: 3px; max-width: 78ch; line-height: 1.5; }
+        .page-banner-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .page-banner-actions a, .page-banner-actions button { font-size: 12.5px; font-weight: 600; text-decoration: none; }
+        /* Botón de acción sobre el banner azul: alto contraste (fondo claro, texto azul). */
+        .btn-banner { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 16px; background: #fff; color: #1B3F6E; border: 1px solid rgba(255,255,255,.9); border-radius: 8px; cursor: pointer; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.08); transition: background .15s ease, color .15s ease; }
+        .btn-banner:hover { background: #EAF1FB; color: #14315a; }
+
+        /* ===== Panel de filtros (componente filtros-panel) ===== */
+        .filtros-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+        .filtros-head-title { font-weight: 700; color: #1B3F6E; font-size: 13px; }
+        .filtro-field { display: flex; flex-direction: column; }
+        .filtro-label { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: #8A94A6; margin-bottom: 5px; }
+        .filtro-select, .filtro-input { width: 100%; height: 38px; padding: 8px 12px; border: 1px solid #D8DEE9; border-radius: 9px; font-size: 13px; background: #fff; color: #1F2937; transition: border-color .15s, box-shadow .15s; }
+        .filtro-select { cursor: pointer; }
+        .filtro-select:hover, .filtro-input:hover { border-color: #B9C4D4; }
+        .filtro-select:focus, .filtro-input:focus { outline: none; border-color: #2C5FA0; box-shadow: 0 0 0 3px rgba(44,95,160,.15); }
+        .filtro-select:disabled { background: #F3F4F6; color: #9CA3AF; cursor: not-allowed; }
+        .btn-filtrar { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 22px; background: #1B3F6E; color: #fff; border: none; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
+        .btn-filtrar:hover { background: #16345C; }
+
+        /* Celda modificada por Operaciones (valor distinto al pendiente/saldo completo). */
+        input.celda-tocada { background: #FEF3C7 !important; border-color: #F59E0B !important; box-shadow: 0 0 0 2px rgba(245,158,11,.18); }
     </style>
 </head>
 <body>
@@ -66,7 +106,6 @@
 
     $finActive = request()->is('dashboard') || request()->is('financiero/*');
     $opActive  = request()->is('operativo/*');
-    $comActive = request()->is('comercial/*');
     $conActive = request()->is('contable/*') && !$adminEnContable;
     $admActive = request()->is('admin/*') || $adminEnContable;
 
@@ -111,9 +150,11 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
-                <a href="/dashboard" class="{{ request()->is('dashboard') ? 'active' : '' }}">Tablero gerencial</a>
+                <div class="submenu-group-label">Tableros</div>
+                <a href="/dashboard" class="{{ request()->is('dashboard') ? 'active' : '' }}">Panel gerencial</a>
                 <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Proyectos en curso</a>
-                <a href="/financiero/historicos" class="{{ request()->is('financiero/historicos') ? 'active' : '' }}">Obras cerradas</a>
+                <div class="submenu-group-label">Consulta</div>
+                <a href="/financiero/historicos" class="{{ request()->is('financiero/historicos') ? 'active' : '' }}">Proyectos cerrados</a>
                 <a href="/financiero/estados-financieros" class="{{ request()->is('financiero/estados-financieros') ? 'active' : '' }}">Estados financieros</a>
             </div>
         </div>
@@ -123,29 +164,25 @@
         <div class="module {{ $opActive ? 'open active-mod' : '' }}">
             <button type="button" class="module-head">
                 <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2"/><circle cx="15" cy="16" r="2"/></svg></span>
-                <span class="module-name">Operación</span>
+                <span class="module-name">Operaciones</span>
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                <div class="submenu-group-label">Distribución</div>
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
-                <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Mis distribuciones</a>
+                <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución del mes</a>
+                <div class="submenu-group-label">Consultas</div>
+                <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Proyectos en revisión</a>
+                <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
+                <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
             </div>
         </div>
         @endif
 
-        @if($usuario->puedeVerModulo('comercial'))
-        <div class="module {{ $comActive ? 'open active-mod' : '' }}">
-            <button type="button" class="module-head">
-                <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9-9-9z"/><circle cx="8" cy="8" r="1.5"/></svg></span>
-                <span class="module-name">Comercial</span>
-                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-            </button>
-            <div class="submenu">
-                <a href="/comercial/cotizaciones" class="{{ request()->is('comercial/cotizaciones') ? 'active' : '' }}">Cotizaciones y ofertas</a>
-            </div>
-        </div>
-        @endif
+        {{-- El flujo de "Autorizaciones · distribución sin ingreso" se retiró: Operaciones
+             puede cargar costos en órdenes abiertas (sin ingreso) sin autorización. --}}
+
 
         @if($usuario->puedeVerModulo('contabilidad'))
         <div class="module {{ $conActive ? 'open active-mod' : '' }}">
@@ -155,8 +192,26 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
-                <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano contable</a>
+                <div class="submenu-group-label">Carga mensual</div>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
+                <a href="{{ route('contable.autoliquidacion.index') }}" class="{{ request()->is('contable/autoliquidacion') ? 'active' : '' }}">Planilla PILA</a>
+                <a href="{{ route('contable.movimiento-comercial.index') }}" class="{{ request()->is('contable/movimiento-comercial') ? 'active' : '' }}">Movimientos comerciales</a>
+                <div class="submenu-group-label">Cierre y ajustes</div>
+                <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano de cierre</a>
+                <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano de reclasificación</a>
+                <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">Plano reclasificación MO apoyo</a>
+                <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Reabrir período</a>
+                <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
+                <a href="{{ route('contable.conciliacion-cierre.index') }}" class="{{ request()->is('contable/conciliacion-cierre') ? 'active' : '' }}">Conciliación y cierre de cuenta 14</a>
+                <a href="{{ route('contable.sobre-reversion.index') }}" class="{{ request()->is('contable/sobre-reversion') ? 'active' : '' }}">Validación de sobre-reversión</a>
+                <a href="{{ route('contable.planos-aplicados.index') }}" class="{{ request()->is('contable/planos-aplicados') ? 'active' : '' }}">Planos aplicados (cuenta 14)</a>
+                <div class="submenu-group-label">Conciliación</div>
+                <a href="{{ route('contable.cruce-secar.index') }}" class="{{ request()->is('contable/cruce-secar') ? 'active' : '' }}">Conciliación con SECAR</a>
+                <a href="{{ route('contable.recon14.index') }}" class="{{ request()->is('contable/recon14') ? 'active' : '' }}">Conciliación vs ERP</a>
+                <a href="{{ route('contable.duplicados.index') }}" class="{{ request()->is('contable/duplicados') ? 'active' : '' }}">Revisión de duplicados</a>
+                <div class="submenu-group-label">Mano de obra</div>
+                <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra de apoyo</a>
+                <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Mano de obra directa</a>
             </div>
         </div>
         @endif
@@ -172,15 +227,20 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                <div class="submenu-group-label">Accesos</div>
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
+                <div class="submenu-group-label">Herramientas</div>
+                <a href="{{ route('operativo.forecast') }}" class="{{ request()->is('operativo/forecast') ? 'active' : '' }}">Proyección de proyectos</a>
+                <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
-                <a href="{{ route('admin.terceros-mano-obra.index') }}">Terceros mano de obra</a>
-                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación cuentas</a>
+                <a href="{{ route('admin.llave-items.index') }}" class="{{ request()->is('admin/llave-items') ? 'active' : '' }}">Cuentas por ítem</a>
+                <div class="submenu-group-label">Contabilidad avanzada</div>
+                <a href="/contable/homologaciones" class="{{ request()->is('contable/homologaciones') ? 'active' : '' }}">Homologación de cuentas</a>
                 <a href="/contable/reclasificaciones" class="{{ request()->is('contable/reclasificaciones*') ? 'active' : '' }}">
                     Reclasificaciones
                     @if($reclasPendientes > 0)<span class="pill">{{ $reclasPendientes }}</span>@endif
                 </a>
-                <a href="/contable/cierre-obras" class="{{ request()->is('contable/cierre-obras') ? 'active' : '' }}">Cierre de obras</a>
+                <a href="/contable/cierre-obras" class="{{ request()->is('contable/cierre-obras') ? 'active' : '' }}">Cierre de proyectos</a>
             </div>
         </div>
         @endif

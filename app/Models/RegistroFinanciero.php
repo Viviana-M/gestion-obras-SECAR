@@ -13,6 +13,8 @@ protected $fillable = [
     'descripcion',
     'tercero_dcto',      // ← agregar
     'razon_social',      // ← agregar
+    'documento',         // Docto. del BIABLE (para reconciliar contra el ERP)
+    'dedup_hash',        // huella anti-duplicados (ver importador)
     'valor_debito',
     'valor_credito',
     'movto_libro2',
@@ -24,5 +26,6 @@ protected $fillable = [
     'mes',
     'anio',
     'origen',
+    'plano_aplicado_id',   // aplicación de plano que generó el movimiento (null = biable)
 ];
 }
