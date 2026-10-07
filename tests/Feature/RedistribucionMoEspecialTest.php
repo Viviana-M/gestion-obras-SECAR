@@ -401,25 +401,37 @@ class RedistribucionMoEspecialTest extends TestCase
     }
 
     #[Test]
-    public function retira_la_mo_de_los_terceros_registrados_de_las_bolsas_de_operaciones(): void
+    public function el_saldo_de_la_bolsa_es_el_total_de_la_cuenta_14_desglosado_por_tercero(): void
     {
+        // El total de la bolsa refleja el saldo REAL de la cuenta 14 (SUM débito − crédito) de todos
+        // sus terceros. La MO de apoyo YA NO se descuenta aquí: se reclasifica cuando Contabilidad
+        // aplica su plano (origen='ajuste_plano'), que acredita la 14. Registrar a una persona en el
+        // maestro no cambia el saldo de la bolsa.
         $this->homologarMO('14200506');
-        $this->moBolsa('MTO00099', '14200506', '111', 600000, 4, 2026); // MO de ARLEY (abril)
-        $this->moBolsa('MTO00099', '14200506', '999', 400000, 4, 2026); // MO de otro (abril)
+        $this->moBolsa('MTO00099', '14200506', '111', 600000, 4, 2026); // tercero ARLEY (abril)
+        $this->moBolsa('MTO00099', '14200506', '999', 400000, 4, 2026); // otro tercero (abril)
 
         $svc     = app(DistribucionService::class);
         $periodo = Homologacion::periodo(2026, 4);
 
-        // Sin registrar a ARLEY: la bolsa muestra la MO completa (600k + 400k).
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
+
+        // El saldo de la cuenta = suma de todos los terceros (600k + 400k).
         $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
 
-        // Al registrar a ARLEY, su MO del mes se retira de la bolsa: queda solo la del otro (400k).
+        // Una fila por cada tercero con su saldo, ordenadas de mayor a menor.
+        $this->assertCount(2, $linea['terceros']);
+        $this->assertEqualsWithDelta(600000, $linea['terceros'][0]['saldo'], 0.5);
+        $this->assertSame('111', $linea['terceros'][0]['doc']);
+        $this->assertEqualsWithDelta(400000, $linea['terceros'][1]['saldo'], 0.5);
+        $this->assertSame('999', $linea['terceros'][1]['doc']);
+
+        // Registrar a ARLEY en el maestro NO retira su MO del saldo de la bolsa.
         ManoObraDirecta::create(['cedula' => '111', 'nombre' => 'ARLEY', 'activo' => true]);
         $saldos = $svc->saldosBolsasPorCuenta(['MTO00099'], $periodo, 2026, 4);
         $linea  = collect($saldos['MTO00099'])->firstWhere('cuenta_14', '14200506');
-        $this->assertEqualsWithDelta(400000, $linea['pendiente'], 0.5);
+        $this->assertEqualsWithDelta(1000000, $linea['pendiente'], 0.5);
     }
 
     #[Test]

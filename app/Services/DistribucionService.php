@@ -244,8 +244,7 @@ class DistribucionService
         $nombreUn  = $uns->pluck('nombre', 'codigo');
         $deptoDeUn = $uns->pluck('departamento', 'codigo');
 
-        $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes, $vista); // [un => líneas], según la vista
-        $terceros = $this->tercerosPorCuenta($codigos, $anio, $mes);               // [un|cuenta => tercero]
+        $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes, $vista); // [un => líneas con su desglose por tercero]
         $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes);       // [cédula => costo completo + buckets]
         $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
             ->whereIn('un_codigo', $codigos)->get()
@@ -277,13 +276,16 @@ class DistribucionService
                 // Sin registro: se distribuye el saldo completo. Editado: lo que quede (tope = saldo).
                 $aDist = $edit ? max(0.0, min($saldo, (float) $edit->monto_distribuir)) : $saldo;
                 $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
+                $terceros = $l['terceros'] ?? [];
                 $porDepto[$depto][] = [
                     'un_codigo'        => (string) $un,
                     'un_nombre'        => (string) ($nombreUn[$un] ?? ''),
                     'cuenta_14'        => $l['cuenta_14'],
                     'cuenta_61'        => $l['cuenta_61'],
                     'nombre'           => $l['nombre'],
-                    'tercero'          => $terceros[$key] ?? '',
+                    // Etiqueta representativa (mayor saldo) + el desglose completo por tercero.
+                    'tercero'          => (string) ($terceros[0]['tercero'] ?? ''),
+                    'terceros'         => $terceros,
                     'estructura'       => $l['estructura'],
                     'es_mo'            => $esMo,
                     'periodo'          => $l['periodo'],
@@ -428,33 +430,51 @@ class DistribucionService
                   });
             };
 
+        // Desglose por (UN, cuenta, TERCERO): una fila por cada tercero con su saldo. El saldo es
+        // deb − cré = −SUM(estado_er) (costo por repartir positivo; saldo a favor negativo).
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
             ->where($ventana)
-            ->selectRaw('codigo_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
-            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5') // cualquier saldo distinto de cero (ambos signos)
             ->get();
 
-        $out = [];
+        // Agrega por (UN, cuenta): el saldo de la cuenta es la SUMA de todos sus terceros, y se guarda
+        // la lista de terceros para mostrar una fila por cada uno en el grid.
+        $porCuenta = [];
         foreach ($filas as $f) {
-            $saldo = round((float) $f->saldo, 2);
-            if (abs($saldo) <= 0.5) {
-                continue; // sin saldo material
+            $pend = round(-1 * (float) $f->saldo, 2);
+            if (abs($pend) <= 0.5) continue; // tercero sin saldo material
+            $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
+            $key = $un.'|'.$cuenta;
+            if (! isset($porCuenta[$key])) {
+                $porCuenta[$key] = ['un' => $un, 'cuenta' => $cuenta, 'descripcion' => (string) $f->descripcion, 'total' => 0.0, 'terceros' => []];
             }
-            $h = $homol[(string) $f->cuenta_contable] ?? null;
+            $doc = trim((string) $f->tercero_dcto);
+            $nom = trim((string) $f->razon_social);
+            $porCuenta[$key]['total'] += $pend;
+            $porCuenta[$key]['terceros'][] = ['tercero' => ($nom ?: $doc ?: '—'), 'doc' => $doc, 'saldo' => $pend];
+        }
+
+        $out = [];
+        foreach ($porCuenta as $c) {
+            $h = $homol[$c['cuenta']] ?? null;
             $estructura = $h->estructura ?? 'OTROS COSTO';
             if (!isset(self::CATEGORIAS[$estructura])) {
                 $estructura = 'OTROS COSTO';
             }
-            $out[$f->codigo_proyecto][] = [
-                'cuenta_14'  => (string) $f->cuenta_contable,
+            $terceros = $c['terceros'];
+            usort($terceros, fn ($a, $b) => $b['saldo'] <=> $a['saldo']);
+            $out[$c['un']][] = [
+                'cuenta_14'  => $c['cuenta'],
                 'cuenta_61'  => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
-                'nombre'     => $h->nombre ?? $f->descripcion,
+                'nombre'     => $h->nombre ?? $c['descripcion'],
                 'estructura' => $estructura,
                 'periodo'    => 0,
-                // Costo por repartir (estado_er < 0) → positivo; saldo contrario (a favor) → negativo.
-                'pendiente'  => round(-1 * $saldo, 2),
+                // Saldo de la cuenta = SUM(débito − crédito) de TODOS sus terceros.
+                'pendiente'  => round($c['total'], 2),
+                'terceros'   => $terceros, // una entrada por tercero con su saldo
             ];
         }
 
@@ -478,24 +498,9 @@ class DistribucionService
         }
         unset($lineas);
 
-        // Retiro de la MO del personal de apoyo administrativo y operativo: esas cuentas 14 las
-        // gestiona Contabilidad (módulo MO Apoyo), así que se descuentan del "por repartir" de la
-        // bolsa para que Operaciones no las distribuya. Si no hay personas registradas, no cambia nada.
-        $retiro = app(RedistribucionMoEspecialService::class)->retiroAcumuladoPorUnCuenta($anio, $mes, $codigos);
-        if (! empty($retiro)) {
-            foreach ($out as $cod => &$lineas) {
-                foreach ($lineas as $i => &$l) {
-                    $r = (float) ($retiro[$cod.'|'.$l['cuenta_14']] ?? 0);
-                    if ($r <= 0.005 || $l['pendiente'] <= 0.5) continue; // solo el costo por repartir (positivo)
-                    $l['pendiente'] = max(0.0, round($l['pendiente'] - $r, 2));
-                    if ($l['pendiente'] <= 0.5) unset($lineas[$i]);
-                }
-                unset($l);
-                $lineas = array_values($lineas);
-            }
-            unset($lineas);
-            $out = array_filter($out, fn ($ls) => ! empty($ls));
-        }
+        // La MO del personal de apoyo YA NO se descuenta aquí: el total de la bolsa refleja el saldo
+        // real de la cuenta 14 (SUM(débito − crédito)). Esa MO se reclasifica cuando Contabilidad
+        // aplica su plano de apoyo (origen='ajuste_plano'), que acredita la 14 y baja el saldo real.
 
         return $out;
     }

@@ -220,7 +220,13 @@
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
                             <td style="padding:5px 8px;font-family:monospace">{{ $l['cuenta_14'] }}</td>
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['nombre'], 26) }}</td>
-                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['tercero'], 24) }}</td>
+                            @php $tercs = $l['terceros'] ?? []; @endphp
+                            <td style="padding:5px 8px;color:#6B7280">
+                                {{ Str::limit($l['tercero'], 24) }}
+                                @if(count($tercs) > 1)
+                                    <span style="color:#9CA3AF">· +{{ count($tercs) - 1 }}</span>
+                                @endif
+                            </td>
                             <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
                             <td style="padding:5px 8px;text-align:right">
                                 @if($puedeEditarBolsa)
@@ -243,6 +249,19 @@
                                 @endif
                             </td>
                         </tr>
+                        @if(count($tercs) > 1)
+                            @foreach($tercs as $t)
+                            <tr style="background:#FFFDF5">
+                                <td style="padding:3px 8px"></td>
+                                <td style="padding:3px 8px"></td>
+                                <td style="padding:3px 8px"></td>
+                                <td style="padding:3px 8px;color:#9CA3AF;font-size:10px;text-align:right">↳</td>
+                                <td style="padding:3px 8px;color:#6B7280;font-size:11px">{{ Str::limit($t['tercero'], 28) }}@if(!empty($t['doc']) && $t['doc'] !== $t['tercero'])<span style="color:#9CA3AF"> · {{ $t['doc'] }}</span>@endif</td>
+                                <td style="padding:3px 8px;text-align:right;color:#A16207;font-size:11px">${{ number_format($t['saldo'], 0, ',', '.') }}</td>
+                                <td></td><td></td><td></td>
+                            </tr>
+                            @endforeach
+                        @endif
                         @endforeach
                         <tr style="background:#FFFBEB;font-weight:700;border-top:2px solid #FDE68A">
                             <td colspan="5" style="padding:7px 8px;text-align:right;color:#92400E">Disponible = suma de "a distribuir"</td>

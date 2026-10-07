@@ -372,6 +372,46 @@ class DistribucionBolsasTest extends TestCase
         $this->assertEqualsWithDelta(25000000, $todo['total'], 1);
     }
 
+    /** Movimiento de cuenta 14 de una UN de bolsa con un TERCERO concreto (costo por repartir va negativo). */
+    private function bolsaTercero(string $un, string $cc, string $tercero, string $razon, float $monto, int $mes, int $anio): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $un, 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $cc,
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $tercero, 'razon_social' => $razon,
+            'estado_er' => -abs($monto), 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    #[Test]
+    public function el_total_de_la_bolsa_suma_todos_los_terceros_desglosados_por_cuenta(): void
+    {
+        // Instalaciones en septiembre: varios terceros en la misma cuenta 14 de una UN.
+        // El total NO debe colapsar a un solo tercero (MAX): debe sumar TODOS = SUM(débito − crédito).
+        $this->bolsaTercero('INS00099', '14200530', '111', 'JUAN PEREZ',    9000000, 9, 2026);
+        $this->bolsaTercero('INS00099', '14200530', '222', 'MARIA GOMEZ',   4760000, 9, 2026);
+        $this->bolsaTercero('INS00099', '14200530', '333', 'PEDRO LOPEZ',   2000000, 9, 2026);
+
+        $svc     = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 9);
+
+        // El saldo de la cuenta = suma de los tres terceros = 15,76M.
+        $saldos = $svc->saldosBolsasPorCuenta(['INS00099'], $periodo, 2026, 9, 'mes');
+        $linea  = collect($saldos['INS00099'])->firstWhere('cuenta_14', '14200530');
+        $this->assertEqualsWithDelta(15760000, $linea['pendiente'], 1);
+
+        // Una fila por cada tercero con su saldo, ordenadas de mayor a menor.
+        $this->assertCount(3, $linea['terceros']);
+        $this->assertSame(['111', '222', '333'], array_column($linea['terceros'], 'doc'));
+        $this->assertEqualsWithDelta(15760000, array_sum(array_column($linea['terceros'], 'saldo')), 1);
+
+        // El total de la bolsa grande también suma todas las líneas.
+        $bolsa = collect($svc->bolsasGrandes('instalaciones', $periodo, 2026, 9, 'mes'))->first();
+        $this->assertEqualsWithDelta(15760000, $bolsa['total'], 1);
+        // La línea de la bolsa trae su desglose por tercero para pintar una fila por cada uno.
+        $l = collect($bolsa['lineas'])->firstWhere('cuenta_14', '14200530');
+        $this->assertCount(3, $l['terceros']);
+    }
+
     #[Test]
     public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
     {
