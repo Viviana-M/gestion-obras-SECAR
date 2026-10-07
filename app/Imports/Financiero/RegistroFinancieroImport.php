@@ -100,7 +100,9 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
 
     private function clasificarCuenta($cuenta): string
     {
-        if (str_starts_with($cuenta, '1420')) return 'Costos por aplicar';
+        // TODA la cuenta 14 (no solo 1420): incluye los créditos de reverso del ERP en subcuentas
+        // como 14552505, para que el neto (débito − crédito) de la bolsa cuadre con el Libro 1.
+        if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';

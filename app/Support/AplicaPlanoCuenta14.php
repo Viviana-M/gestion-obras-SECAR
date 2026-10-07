@@ -26,7 +26,8 @@ trait AplicaPlanoCuenta14
     /** Clasificación de cuenta mayor, idéntica a la del importador (MovimientoBiableImport). */
     private function clasificarCuentaPlano(string $cuenta): string
     {
-        if (str_starts_with($cuenta, '1420')) return 'Costos por aplicar';
+        // TODA la cuenta 14 entra como "Costos por aplicar" (idéntico al importador BIABLE).
+        if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';

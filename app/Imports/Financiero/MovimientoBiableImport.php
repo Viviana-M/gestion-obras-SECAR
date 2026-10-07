@@ -277,7 +277,12 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     private function clasificarCuenta(string $cuenta): string
     {
-        if (str_starts_with($cuenta, '1420')) return 'Costos por aplicar';
+        // TODA la cuenta 14 (no solo 1420) entra como "Costos por aplicar". El ERP postea los
+        // reversos con el crédito en otras subcuentas 14 (p. ej. 14552505, contrapartida del débito
+        // en 1420xx). Si solo trajéramos el débito (1420) y botáramos el crédito (1455) como "Activo",
+        // la bolsa quedaría inflada. Traer ambos lados deja el neto (débito − crédito) consistente con
+        // el Libro 1 del ERP. estado_er y signo ya tratan todas las 14 igual.
+        if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';
