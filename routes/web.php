@@ -94,6 +94,10 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get   ('/contable/reclasificaciones/{homologacion}/plano',[PlanoReclasificacionController::class, 'descargar'])->name('contable.reclasificaciones.descargar');
         Route::post  ('/contable/reclasificaciones/{homologacion}/marcar',[PlanoReclasificacionController::class, 'marcar']) ->name('contable.reclasificaciones.marcar');
 
+        // Plano de reclasificación de saldos de cuenta 14 al costo (cierre de proyectos inactivos),
+        // en el formato de 4 hojas de SIESA. Filtrable por departamento/proyecto/monto.
+        Route::get('/contable/plano-cierre-14', [\App\Http\Controllers\Contable\PlanoCierre14Controller::class, 'descargar'])->name('contable.plano-cierre-14.descargar');
+
         // Cruce cuenta 14 vs tercero SECAR (saldo real por aplicar contra terceros reales).
         Route::get('/contable/cruce-secar', [\App\Http\Controllers\Contable\CruceSecarController::class, 'index'])->name('contable.cruce-secar.index');
         Route::get('/contable/cruce-secar/excel', [\App\Http\Controllers\Contable\CruceSecarController::class, 'excel'])->name('contable.cruce-secar.excel');

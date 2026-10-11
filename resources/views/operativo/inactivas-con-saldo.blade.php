@@ -3,6 +3,7 @@
 @section('title', 'Obras inactivas con saldo')
 
 @section('content')
+@php $puedeContable = auth()->user()?->puedeVerModulo('contabilidad'); @endphp
 <x-page-banner title="Obras inactivas con saldo en cuenta 14" icon="⚠️">
     Obras marcadas como <b>inactivas</b> en el maestro que <b>todavía tienen saldo</b> en la cuenta 14.
     No se cerraron automáticamente: revísalas y aplica/traslada su saldo antes de cerrarlas.
@@ -10,6 +11,10 @@
         <a href="{{ route('operativo.obras-inactivas.excel', ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento ?? null]) }}" class="btn-banner">⬇ Exportar Excel</a>
     </x-slot:actions>
 </x-page-banner>
+
+@if(session('error'))
+<div style="margin-bottom:1rem;padding:10px 14px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#991B1B;font-size:13px">{{ session('error') }}</div>
+@endif
 
 <form method="GET" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
     @if(!empty($departamento))<input type="hidden" name="departamento" value="{{ $departamento }}">@endif
@@ -32,10 +37,35 @@
     <button type="submit" style="padding:7px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Ver</button>
 </form>
 
+@if($puedeContable)
+<form id="planoForm" method="GET" action="{{ route('contable.plano-cierre-14.descargar') }}"
+      style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem;padding:12px 14px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px">
+    <input type="hidden" name="mes" value="{{ $mes }}">
+    <input type="hidden" name="anio" value="{{ $anio }}">
+    @if(!empty($departamento))<input type="hidden" name="departamento" value="{{ $departamento }}">@endif
+    <div style="font-size:12px;color:#0C4A6E;font-weight:600;align-self:center;margin-right:4px">
+        Plano de reclasificación<br><span style="font-weight:400;color:#075985">CR 14 · DB 61 homologada · cuadra a $0</span>
+    </div>
+    <div>
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">N° documento (CCC)</label>
+        <input type="number" name="documento" min="1" value="1" style="width:110px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Monto mínimo por proyecto</label>
+        <input type="number" name="monto" min="0" step="0.01" placeholder="0" style="width:150px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+    </div>
+    <button type="submit" style="padding:7px 18px;background:#0369A1;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">⬇ Descargar plano de reclasificación</button>
+    <span style="font-size:11px;color:#075985;align-self:center">Marca proyectos para cerrar solo esos; si no marcas ninguno, se incluyen todos los de la lista.</span>
+</form>
+@endif
+
 <div class="card" style="padding:0;overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
         <thead>
             <tr style="background:#1B3F6E;color:white">
+                @if($puedeContable)
+                <th style="padding:10px 14px;text-align:center;width:34px"><input type="checkbox" id="chkAll" title="Seleccionar todo" onclick="toggleAll(this)"></th>
+                @endif
                 <th style="padding:10px 14px;text-align:left">Código</th>
                 <th style="padding:10px 14px;text-align:left">Obra</th>
                 <th style="padding:10px 14px;text-align:left">Cliente</th>
@@ -45,6 +75,11 @@
         <tbody>
             @forelse($lista as $o)
             <tr style="border-bottom:1px solid #E5E7EB;cursor:pointer" onclick="toggleDetalle(this, '{{ $o['codigo'] }}')">
+                @if($puedeContable)
+                <td style="padding:10px 14px;text-align:center" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="chkObra" name="codigos[]" value="{{ $o['codigo'] }}" form="planoForm">
+                </td>
+                @endif
                 <td style="padding:10px 14px;font-family:monospace;font-weight:600;color:#1B3F6E">
                     <span class="chevron" style="display:inline-block;width:14px;color:#9CA3AF;transition:transform .15s">▸</span>{{ $o['codigo'] }}
                 </td>
@@ -53,18 +88,18 @@
                 <td style="padding:10px 14px;text-align:right;font-weight:600;color:#B45309">${{ number_format($o['saldo_14'], 0, ',', '.') }}</td>
             </tr>
             <tr class="detalle-row" style="display:none;background:#F9FAFB">
-                <td colspan="4" style="padding:0 14px 10px 34px">
+                <td colspan="{{ $puedeContable ? 5 : 4 }}" style="padding:0 14px 10px 34px">
                     <div class="detalle-cont" style="font-size:12px;color:#9CA3AF;padding:10px 0">Cargando…</div>
                 </td>
             </tr>
             @empty
-            <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay obras inactivas con saldo en cuenta 14 para este período. 🎉</td></tr>
+            <tr><td colspan="{{ $puedeContable ? 5 : 4 }}" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay obras inactivas con saldo en cuenta 14 para este período. 🎉</td></tr>
             @endforelse
         </tbody>
         @if(count($lista))
         <tfoot>
             <tr style="border-top:2px solid #E5E7EB;background:#F9FAFB">
-                <td colspan="3" style="padding:10px 14px;text-align:right;font-weight:700;color:#374151">TOTAL</td>
+                <td colspan="{{ $puedeContable ? 4 : 3 }}" style="padding:10px 14px;text-align:right;font-weight:700;color:#374151">TOTAL</td>
                 <td style="padding:10px 14px;text-align:right;font-weight:700;color:#B45309">${{ number_format($total, 0, ',', '.') }}</td>
             </tr>
         </tfoot>
@@ -73,6 +108,10 @@
 </div>
 
 <script>
+// Seleccionar / deseleccionar todos los proyectos para el plano de reclasificación.
+window.toggleAll = function (master) {
+    document.querySelectorAll('.chkObra').forEach(c => { c.checked = master.checked; });
+};
 (function () {
     const base = @json(route('operativo.obras-inactivas.detalle'));
     const mes = @json((int) $mes), anio = @json((int) $anio);
