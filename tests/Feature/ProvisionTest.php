@@ -135,6 +135,37 @@ class ProvisionTest extends TestCase
     }
 
     #[Test]
+    public function la_proyeccion_de_costos_suma_provisiones_y_otros_costos_distribuidos(): void
+    {
+        $svc = new \App\Services\DistribucionService();
+        $base = [
+            'ingreso_mes' => 0, 'ingreso_acum' => 0,
+            'costo_apl_mes' => 0, 'costo_apl_acum' => 1000000,   // reconocido en cuenta 6
+            'sum_aplicar' => 500000,                             // 14→6 del propio proyecto (ya en inventario_obra)
+            'sum_prov' => 0, 'sum_bolsa' => 0,
+            'inventario_obra' => 200000, 'inventario_almacen' => 0,
+            'valor_oferta' => 5000000, 'costo_presup' => 2000000, 'ofertado' => null,
+        ];
+
+        // Sin provisión ni otros costos distribuidos: costo total = reconocido + inventario propio.
+        // sum_aplicar NO se suma (ya está representado en inventario_obra).
+        $o = $base;
+        $svc->calcularMargenes($o);
+        $this->assertEqualsWithDelta(1200000, $o['pr_costo_total'], 0.5);
+
+        // Con provisión (150.000) y otros costos distribuidos desde bolsa de área (300.000):
+        // el total de la proyección sube por AMBOS conceptos.
+        $o = array_merge($base, ['sum_prov' => 150000, 'sum_bolsa' => 300000]);
+        $svc->calcularMargenes($o);
+        $this->assertEqualsWithDelta(1650000, $o['pr_costo_total'], 0.5); // 1.200.000 + 300.000 + 150.000
+
+        // MC % proyectado baja al subir el costo: (5.000.000 − 1.650.000) / 5.000.000 = 67%.
+        $this->assertEqualsWithDelta(67.0, $o['pr_mc_proy'], 0.05);
+        // Avance de ejecución también sube: 1.650.000 / 2.000.000 = 82,5%.
+        $this->assertEqualsWithDelta(82.5, $o['pr_avance_ejec'], 0.05);
+    }
+
+    #[Test]
     public function el_plano_registra_14_a_26_al_crear_y_26_a_14_al_reversar(): void
     {
         $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',

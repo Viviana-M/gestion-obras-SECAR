@@ -3,6 +3,21 @@
 @section('title', 'Distribución de costos')
 
 @section('content')
+<style>
+    /* Tarjeta-resumen del proyecto flotante: se queda visible mientras el usuario hace scroll por
+       las cuentas/terceros de ese proyecto. Se pega justo debajo de la barra superior sticky
+       (su alto lo calcula el JS en --topbar-h). z-index por debajo de la barra superior (50). */
+    .obra-sticky {
+        position: sticky;
+        top: calc(var(--topbar-h, 0px) + 6px);
+        z-index: 20;
+        background: #fff;
+    }
+    /* En móvil no debe tapar el contenido: se comporta como una tarjeta normal (no flotante). */
+    @media (max-width: 768px) {
+        .obra-sticky { position: static; }
+    }
+</style>
 @php
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
     $depPrefijo = ['mantenimiento' => 'MT', 'instalaciones' => 'IN'];
@@ -24,23 +39,13 @@
     @endif
 </x-page-banner>
 
-@if(!$edicionAbierta)
-<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
-    🔒 <b>Mes en curso — solo lectura.</b> La edición se habilita cuando Contabilidad abra el cierre de este mes.
-</div>
-@elseif($puedeOperacion)
-<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#15803D;margin-bottom:1rem">
-    🔓 <b>Cierre abierto — puedes editar</b> la distribución de este mes.
-</div>
-@else
-<div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
-    👁 Modo solo lectura. Puedes consultar la distribución pero no guardar cambios.
-</div>
-@endif
-
 <x-filtros-panel>
     <form method="GET" action="{{ route('operativo.distribucion') }}" id="form-filtros"
           style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <button type="submit" class="btn-filtrar" style="order:-1">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtrar
+        </button>
         @if(is_null($depUsuario))
         {{-- Director/admin: elige el departamento. El supervisor no ve esto (ya está fijo). --}}
         {{-- Al cambiar el departamento el formulario se envía solo: así el servidor recalcula
@@ -106,21 +111,33 @@
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="btn-filtrar">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            Filtrar
-        </button>
     </form>
 
-    {{-- Nota de ayuda de "Qué mostrar" --}}
-    <div style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;padding:10px 12px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:9px;font-size:11px;color:#64748B;line-height:1.55">
-        <span style="flex:0 0 auto">ℹ️</span>
-        <div>
+    {{-- Ayuda secundaria colapsable: no ocupa espacio fijo hasta que el usuario la abre. --}}
+    <details style="margin-top:12px">
+        <summary style="cursor:pointer;font-size:11.5px;color:#64748B;list-style:none;display:inline-flex;align-items:center;gap:6px">
+            <span>ℹ️</span> <span style="text-decoration:underline;text-underline-offset:2px">¿Qué significa cada opción de «Qué mostrar»?</span>
+        </summary>
+        <div style="margin-top:8px;padding:10px 12px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:9px;font-size:11px;color:#64748B;line-height:1.55">
             <b style="color:#475569">Todo el inventario en tránsito pendiente</b>: todas las obras que aún tienen inventario en tránsito sin repartir; el mes/año solo mueve la fecha de corte de los números.
             <b style="color:#475569">Solo el movimiento del mes elegido</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
         </div>
-    </div>
+    </details>
 </x-filtros-panel>
+
+@if(!$edicionAbierta)
+<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#854D0E;margin-bottom:1rem">
+    🔒 <b>Mes en curso — solo lectura.</b> La edición se habilita cuando Contabilidad abra el cierre de este mes.
+</div>
+@elseif($puedeOperacion)
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#15803D;margin-bottom:1rem">
+    🔓 <b>Cierre abierto — puedes editar</b> la distribución de este mes.
+</div>
+@else
+<div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#6B7280;margin-bottom:1rem">
+    👁 Modo solo lectura. Puedes consultar la distribución pero no guardar cambios.
+</div>
+@endif
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -155,7 +172,7 @@
 @if($kpiObras > 0 || !empty($bolsas))
 {{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones.
      Se muestra aunque no haya obras, para que el panel de bolsas siempre esté visible. --}}
-<div style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
+<div id="barra-superior" style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
     @if(!empty($bolsas))
     {{-- Panel de bolsas de área: origen del costo por repartir --}}
     <div style="margin-bottom:10px;border-bottom:1px solid #F3F4F6;padding-bottom:10px">
@@ -1471,4 +1488,23 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 @endif
+
+<script>
+// Tarjeta-resumen flotante: el offset superior de los .obra-sticky es el alto de la barra superior
+// sticky (bolsas + totales), para que se peguen justo debajo y no se solapen. Se recalcula al
+// cargar, al redimensionar y cuando cambia el alto de la barra (p. ej. al expandir las bolsas).
+(function () {
+    const barra = document.getElementById('barra-superior');
+    function medir() {
+        const h = barra ? Math.round(barra.getBoundingClientRect().height) : 0;
+        document.documentElement.style.setProperty('--topbar-h', h + 'px');
+    }
+    medir();
+    window.addEventListener('resize', medir);
+    window.addEventListener('load', medir);
+    if (barra && 'ResizeObserver' in window) {
+        new ResizeObserver(medir).observe(barra);
+    }
+})();
+</script>
 @endsection

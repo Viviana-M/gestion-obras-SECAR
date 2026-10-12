@@ -696,7 +696,13 @@ class DistribucionService
         $costoPresup  = $o['costo_presup'];
         $factTotal    = $ingAcum;
         $costoAcumTot = $o['costo_apl_acum'];
-        $costoTotal   = $costoAcumTot + $o['inventario_obra'] + $o['inventario_almacen'];
+        // Costo total proyectado = costo acumulado reconocido (cuenta 6) + lo que sigue pendiente en
+        // la cuenta 14 (inventario en tránsito propio y de almacén) + los OTROS COSTOS distribuidos
+        // al proyecto desde las bolsas de área (sum_bolsa, otra UN: no está en inventario_obra) + las
+        // PROVISIONES incluidas (viven en el modelo Provision, tampoco están en la 14). sum_aplicar NO
+        // se suma: reclasifica la 14 propia del proyecto y ya está contado en inventario_obra.
+        $costoTotal   = $costoAcumTot + $o['inventario_obra'] + $o['inventario_almacen']
+                      + $sumBolsa + (float) ($o['sum_prov'] ?? 0);
 
         $o['pr_valor_oferta'] = $valorOferta;
         $o['pr_dif_facturar'] = $valorOferta - $factTotal;

@@ -5,8 +5,12 @@
     $semMes  = \App\Services\DistribucionService::COLORES_SEMAFORO[\App\Services\DistribucionService::nivelMargen($o['mc_mes_pct'] ?? null, $depMargen)];
     $semAcum = \App\Services\DistribucionService::COLORES_SEMAFORO[\App\Services\DistribucionService::nivelMargen($o['mc_acum_cierre_pct'] ?? null, $depMargen)];
 @endphp
-<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['nombre'] ?? '').' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}" style="margin-bottom:10px;padding:0;overflow:hidden">
+<div class="card obra-card" id="card-{{ $cod }}" data-buscar="{{ strtolower($cod.' '.($o['nombre'] ?? '').' '.($o['cliente'] ?? '')) }}" data-sin-ingreso="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}" style="margin-bottom:10px;padding:0;border-radius:12px">
 
+    {{-- Resumen del proyecto (costos, margen, saldo por distribuir): flotante (sticky) mientras se
+         hace scroll por las cuentas/terceros de esta obra. Sin overflow:hidden en la tarjeta para
+         no romper el sticky; las esquinas se redondean con border-radius. --}}
+    <div class="obra-sticky" style="border-top-left-radius:12px;border-top-right-radius:12px;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -89,6 +93,7 @@
             </div>
         </div>
     </div>
+    </div>{{-- /obra-sticky --}}
 
     {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
     @php
