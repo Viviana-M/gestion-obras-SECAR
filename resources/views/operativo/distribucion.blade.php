@@ -83,34 +83,45 @@
                 @endfor
             </select>
         </div>
-        <div class="filtro-field" style="flex:1 1 130px">
-            <label class="filtro-label">Tipo de obra</label>
-            @php
-                if ($depEfectivo === 'instalaciones') {
-                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
-                } elseif ($depEfectivo === 'mantenimiento') {
-                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías'];
-                } else {
-                    $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías','otro'=>'Otros'];
-                }
-                // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
-                $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
-            @endphp
-            <select name="tipo" id="sel-tipo" class="filtro-select"
-                {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}>
-                @foreach($opcionesTipo as $k => $v)
-                    <option value="{{ $k }}" {{ $tipoSel == $k ? 'selected' : '' }}>{{ $v }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div class="filtro-field" style="flex:1 1 120px">
-            <label class="filtro-label">Estado</label>
-            <select name="estado" class="filtro-select">
-                @foreach(['todos'=>'Todos','abierta'=>'Abiertas','parcial'=>'Parciales','cerrada'=>'Cerradas'] as $k => $v)
-                    <option value="{{ $k }}" {{ $estadoFiltro == $k ? 'selected' : '' }}>{{ $v }}</option>
-                @endforeach
-            </select>
-        </div>
+        @php
+            if ($depEfectivo === 'instalaciones') {
+                $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
+            } elseif ($depEfectivo === 'mantenimiento') {
+                $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías'];
+            } else {
+                $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','contrato'=>'Contratos','reparacion'=>'Reparaciones','garantia'=>'Garantías','otro'=>'Otros'];
+            }
+            // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
+            $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
+            // Filtros secundarios: solo se abren por defecto si vienen activos (≠ Todos).
+            $masFiltrosActivo = ($tipoSel !== 'todos') || ($estadoFiltro !== 'todos');
+        @endphp
+        {{-- Filtros secundarios (los que casi no usan): Tipo de obra y Estado, dentro de "Más filtros". --}}
+        <details class="mas-filtros" style="flex:1 1 100%;margin-top:2px" {{ $masFiltrosActivo ? 'open' : '' }}>
+            <summary style="cursor:pointer;font-size:12px;color:#1B3F6E;font-weight:600;list-style:none;display:inline-flex;align-items:center;gap:6px">
+                <span>⚙️ Más filtros</span>
+                @if($masFiltrosActivo)<span style="font-size:10px;font-weight:600;background:#EFF6FF;color:#1B3F6E;border:1px solid #BFDBFE;border-radius:8px;padding:1px 7px">activos</span>@endif
+            </summary>
+            <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">
+                <div class="filtro-field" style="flex:1 1 150px">
+                    <label class="filtro-label">Tipo de obra</label>
+                    <select name="tipo" id="sel-tipo" class="filtro-select"
+                        {{ is_null($depUsuario) && !$depEfectivo ? 'disabled' : '' }}>
+                        @foreach($opcionesTipo as $k => $v)
+                            <option value="{{ $k }}" {{ $tipoSel == $k ? 'selected' : '' }}>{{ $v }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="filtro-field" style="flex:1 1 150px">
+                    <label class="filtro-label">Estado</label>
+                    <select name="estado" class="filtro-select">
+                        @foreach(['todos'=>'Todos','abierta'=>'Abiertas','parcial'=>'Parciales','cerrada'=>'Cerradas'] as $k => $v)
+                            <option value="{{ $k }}" {{ $estadoFiltro == $k ? 'selected' : '' }}>{{ $v }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+        </details>
     </form>
 
     {{-- Ayuda secundaria colapsable: no ocupa espacio fijo hasta que el usuario la abre. --}}
@@ -123,6 +134,12 @@
             <b style="color:#475569">Solo el movimiento del mes elegido</b>: únicamente las obras que tuvieron movimiento de inventario en tránsito en ese mes y año.
         </div>
     </details>
+
+    {{-- Referencia: qué significa el resaltado amarillo de las celdas (antes estaba en la barra de acciones). --}}
+    <div style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#92400E">
+        <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEF3C7;border:1px solid #F59E0B"></span>
+        Celda modificada por Operaciones
+    </div>
 </x-filtros-panel>
 
 @if(!$edicionAbierta)
@@ -185,21 +202,22 @@
                 $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
                 $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
             @endphp
-            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:280px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-                    <div style="font-weight:700;color:#854D0E;font-size:14px">🎒 {{ $b['nombre'] }}</div>
-                    <div style="font-size:11px;color:#9CA3AF">Total ${{ number_format($b['total'], 0, ',', '.') }}</div>
+            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:300px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:8px 12px">
+                {{-- Línea 1: nombre · Total · botón de detalle --}}
+                <div style="display:flex;align-items:center;gap:10px">
+                    <span style="font-weight:700;color:#854D0E;font-size:13px;white-space:nowrap">🎒 {{ $b['nombre'] }}</span>
+                    <span style="font-size:10px;color:#9CA3AF;white-space:nowrap">Total ${{ number_format($b['total'], 0, ',', '.') }}</span>
+                    <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-left:auto;font-size:11px;padding:3px 9px;border:1px solid #D97706;border-radius:6px;background:white;color:#B45309;cursor:pointer;white-space:nowrap"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</button>
                 </div>
-                {{-- Disponible + barra de progreso (lo consumido baja la barra) --}}
-                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin:7px 0 3px">
-                    <span style="color:#6B7280">Disponible por distribuir</span>
-                    <b id="bolsa-disp-{{ $b['codigo'] }}" style="color:#B45309">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
+                {{-- Línea 2: "Disponible por distribuir" como etiqueta + barra + valor --}}
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                    <span style="font-size:10px;color:#6B7280;white-space:nowrap">Disponible por distribuir</span>
+                    <div style="flex:1;height:8px;border-radius:4px;background:#FDE68A;overflow:hidden">
+                        <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
+                    </div>
+                    <b id="bolsa-disp-{{ $b['codigo'] }}" style="font-size:12px;color:#B45309;white-space:nowrap">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
+                    <span id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;white-space:nowrap;display:{{ $b['disponible'] <= 0.5 ? 'inline-block' : 'none' }}">✓ distribuida</span>
                 </div>
-                <div style="height:8px;border-radius:4px;background:#FDE68A;overflow:hidden">
-                    <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
-                </div>
-                <div id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;margin-top:4px;display:{{ $b['disponible'] <= 0.5 ? 'block' : 'none' }}">✓ Bolsa distribuida</div>
-                <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-top:8px;font-size:11px;padding:4px 10px;border:1px solid #D97706;border-radius:6px;background:white;color:#B45309;cursor:pointer"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</button>
             </div>
             @endforeach
         </div>
@@ -304,51 +322,55 @@
     </div>
     @endif
     @if($kpiObras > 0)
-    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
-        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-            <div>
-                <div style="font-size:10px;color:#854D0E">Pendiente por distribuir</div>
-                <div style="font-size:16px;font-weight:700;color:#854D0E">${{ number_format($kpiPendiente, 0, ',', '.') }}</div>
-            </div>
-            <div>
-                <div style="font-size:10px;color:#6B7280">Obras</div>
-                <div style="font-size:16px;font-weight:700;color:#1B3F6E">{{ $kpiObras }}</div>
-            </div>
-            <div>
-                <div style="font-size:10px;color:#DC2626">Bajo margen</div>
-                <div style="font-size:16px;font-weight:700;color:#DC2626">{{ $kpiAlertas }}</div>
-            </div>
+    {{-- KPIs: tres indicadores pequeños en una sola fila (separados de los filtros) --}}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;align-items:baseline;gap:6px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:5px 10px">
+            <span style="font-size:10px;color:#92400E">Pendiente por distribuir</span>
+            <b style="font-size:14px;color:#854D0E">${{ number_format($kpiPendiente, 0, ',', '.') }}</b>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="buscador" placeholder="🔎 Código, proyecto o cliente…" autocomplete="off"
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:190px">
-            <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
-            <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
-            <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
-               style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500">⬇ Excel saldos 14</a>
-            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#92400E">
-                <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEF3C7;border:1px solid #F59E0B"></span>
-                Celda modificada por Operaciones
-            </span>
+        <div style="display:flex;align-items:baseline;gap:6px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:5px 10px">
+            <span style="font-size:10px;color:#1B3F6E">Obras</span>
+            <b style="font-size:14px;color:#1B3F6E">{{ $kpiObras }}</b>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:6px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:5px 10px">
+            <span style="font-size:10px;color:#DC2626">Bajo margen</span>
+            <b style="font-size:14px;color:#DC2626">{{ $kpiAlertas }}</b>
         </div>
     </div>
+
+    {{-- Barra de acciones (toolbar): buscador + expandir/colapsar + Excel, agrupados y alineados --}}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
+        <input type="text" id="buscador" placeholder="🔎 Código, proyecto o cliente…" autocomplete="off"
+            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:230px;flex:1 1 200px;max-width:280px">
+        <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
+        <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+        <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
+           style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500;white-space:nowrap">⬇ Excel saldos 14</a>
+    </div>
+
+    {{-- Semáforo de margen: referencia, colapsable tras un ícono de ayuda (no ocupa espacio fijo) --}}
     @php
         $depsLeyenda = $depEfectivo ? [$depEfectivo] : array_keys(\App\Services\DistribucionService::UMBRALES_MARGEN);
         $CSEM = \App\Services\DistribucionService::COLORES_SEMAFORO;
     @endphp
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
-        <span style="font-size:11px;font-weight:700;color:#6B7280">Semáforo de margen:</span>
-        @foreach($depsLeyenda as $dl)
-            @php $u = \App\Services\DistribucionService::UMBRALES_MARGEN[$dl]; @endphp
-            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#374151">
-                <b style="color:#4B5563">{{ \App\Services\DistribucionService::DEPARTAMENTOS[$dl] ?? $dl }}</b>
-                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['verde'][0] }};color:{{ $CSEM['verde'][1] }}">≥ {{ $u['verde'] }}%</span>
-                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['amarillo'][0] }};color:{{ $CSEM['amarillo'][1] }}">≥ {{ $u['amarillo'] }}%</span>
-                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['rojo'][0] }};color:{{ $CSEM['rojo'][1] }}">≥ {{ $u['rojo'] }}%</span>
-                <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['gris'][0] }};color:{{ $CSEM['gris'][1] }}">&lt; {{ $u['rojo'] }}%</span>
-            </span>
-        @endforeach
-    </div>
+    <details style="margin-top:10px;border-top:1px solid #F3F4F6;padding-top:8px">
+        <summary style="cursor:pointer;font-size:11px;color:#6B7280;list-style:none;display:inline-flex;align-items:center;gap:5px">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid #9CA3AF;font-size:9px;font-weight:700">ⓘ</span>
+            <span style="text-decoration:underline;text-underline-offset:2px">Semáforo de margen</span>
+        </summary>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:8px">
+            @foreach($depsLeyenda as $dl)
+                @php $u = \App\Services\DistribucionService::UMBRALES_MARGEN[$dl]; @endphp
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#374151">
+                    <b style="color:#4B5563">{{ \App\Services\DistribucionService::DEPARTAMENTOS[$dl] ?? $dl }}</b>
+                    <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['verde'][0] }};color:{{ $CSEM['verde'][1] }}">≥ {{ $u['verde'] }}%</span>
+                    <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['amarillo'][0] }};color:{{ $CSEM['amarillo'][1] }}">≥ {{ $u['amarillo'] }}%</span>
+                    <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['rojo'][0] }};color:{{ $CSEM['rojo'][1] }}">≥ {{ $u['rojo'] }}%</span>
+                    <span style="padding:1px 7px;border-radius:8px;font-weight:700;background:{{ $CSEM['gris'][0] }};color:{{ $CSEM['gris'][1] }}">&lt; {{ $u['rojo'] }}%</span>
+                </span>
+            @endforeach
+        </div>
+    </details>
     @if(!$bloqueado && $puedeEditar)
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
         <span style="font-size:12px;color:#6B7280">Acciones rápidas <span style="color:#9CA3AF">(solo obras con ingreso)</span>:</span>
@@ -955,7 +977,7 @@ function fmtBolsaDisp(c){
     const pct = total > 0 ? Math.round(disp / total * 100) : 0;
     const dispEl = document.getElementById('bolsa-disp-'+c); if(dispEl) dispEl.textContent = fmt(disp);
     const barEl  = document.getElementById('bolsa-bar-'+c);  if(barEl)  barEl.style.width = pct + '%';
-    const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'block' : 'none';
+    const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'inline-block' : 'none';
     // El disponible cambió: refrescar el indicador dentro de cada obra que muestre esta bolsa.
     refrescarDispObras();
 }
