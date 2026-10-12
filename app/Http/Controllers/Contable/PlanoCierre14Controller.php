@@ -13,16 +13,19 @@ use Illuminate\Http\Request;
 /**
  * PLANO DE RECLASIFICACIÓN DE SALDOS DE CUENTA 14 AL COSTO (cierre de proyectos).
  *
- * Toma el saldo pendiente de la cuenta 14 de cada proyecto, desglosado por (proyecto, cuenta,
- * tercero) en Libro 1 PCGA (débito − crédito, con pesos y centavos) y genera el asiento que lo
- * reclasifica al costo:
+ * Toma el saldo pendiente NETO de la cuenta 14 de cada proyecto, agrupado por (proyecto, cuenta) en
+ * Libro 1 PCGA (NETO = SUM(débito − crédito), con pesos y centavos) y genera UNA sola reclasificación
+ * de ese saldito al costo:
  *
- *     Crédito → cuenta 14            (sale el pendiente)
+ *     Crédito → cuenta 14            (sale el pendiente neto)
  *     Débito  → cuenta 61 homologada (entra al costo), con centro de costos del departamento
  *
- * Para los saldos contrarios (a favor, débito − crédito < 0) la partida se invierte (DB 14 / CR 61)
- * para que la cuenta 14 quede en $0 igual. El plano completo cuadra a $0 (cada saldo aporta un par
- * débito/crédito del mismo monto). Documento tipo CCC, descargable en el formato de 4 hojas de SIESA.
+ * NO se abre por tercero ni se reversa el bruto (SECAR + cada proveedor): eso movería millones en vez
+ * del remanente. El tercero del ajuste es SIEMPRE SECAR (890319324), una sola línea por (proyecto,
+ * cuenta). Para los saldos contrarios (a favor, neto < 0) la partida se invierte (DB 14 / CR 61) para
+ * dejar la cuenta 14 en $0 igual. El plano completo cuadra a $0 (cada neto aporta un par débito/crédito
+ * del mismo monto) y su efecto es dejar la cuenta 14 del proyecto en cero para poder cerrarlo.
+ * Documento tipo CCC, descargable en el formato de 4 hojas de SIESA.
  *
  * Se puede acotar por departamento, por proyectos concretos (los que contabilidad elige cerrar) y
  * por un monto mínimo de saldo por proyecto. La lógica es la misma, ya probada, del plano de
@@ -118,18 +121,18 @@ class PlanoCierre14Controller extends Controller
         $periodo = Homologacion::periodo($anio, $mes);
         $homol   = Homologacion::mapaEn($periodo);
 
-        // Saldo pendiente por (proyecto, cuenta 14, tercero) en Libro 1 = débito − crédito,
-        // al corte acumulado del mes/año. Se conservan pesos y centavos.
+        // Saldo pendiente NETO por (proyecto, cuenta 14) en Libro 1 = SUM(débito − crédito), al corte
+        // acumulado del mes/año. NO se abre por tercero: solo interesa el saldito neto que mantiene el
+        // proyecto abierto. Se conservan pesos y centavos.
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where(function ($q) use ($anio, $mes) {
                 $q->where('anio', '<', $anio)
                   ->orWhere(fn ($x) => $x->where('anio', $anio)->where('mes', '<=', $mes));
             })
             ->when(! empty($codigos), fn ($q) => $q->whereIn('codigo_proyecto', $codigos))
-            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, '
-                . 'MAX(razon_social) as razon_social, '
+            ->selectRaw('codigo_proyecto, cuenta_contable, '
                 . 'SUM(valor_debito) as deb, SUM(valor_credito) as cred')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
             ->havingRaw('ABS(SUM(valor_debito) - SUM(valor_credito)) > 0.005')
             ->get();
 
@@ -158,7 +161,7 @@ class PlanoCierre14Controller extends Controller
             if (! isset($permitidos[$cod])) continue;
             if ($montoMin > 0 && abs((float) ($totalProyecto[$cod] ?? 0)) + 0.005 < $montoMin) continue;
 
-            $saldo = round((float) $f->deb - (float) $f->cred, 2); // Libro 1 PCGA
+            $saldo = round((float) $f->deb - (float) $f->cred, 2); // NETO Libro 1 PCGA de la cuenta
             if (abs($saldo) < 0.005) continue;
 
             $c14 = (string) $f->cuenta_contable;
@@ -168,18 +171,18 @@ class PlanoCierre14Controller extends Controller
                 continue;
             }
 
-            $tercero = trim((string) $f->tercero_dcto) ?: null;
-            $cc      = self::CENTRO_COSTOS[User::departamentoDeCodigo($cod)] ?? null;
-            $monto   = abs($saldo);
+            // UNA sola reclasificación del neto, con tercero SECAR (no el detalle por proveedor).
+            $cc    = self::CENTRO_COSTOS[User::departamentoDeCodigo($cod)] ?? null;
+            $monto = abs($saldo);
 
             if ($saldo > 0) {
                 // Costo pendiente: saca de la 14 (crédito) y reconócelo en la 61 (débito).
-                $movimientos[] = $this->filaPlano(0, $c14, $tercero, $cod, null, 0, $monto);
-                $movimientos[] = $this->filaPlano(0, $c61, $tercero, $cod, $cc, $monto, 0);
+                $movimientos[] = $this->filaPlano(0, $c14, self::NIT_SECAR, $cod, null, 0, $monto);
+                $movimientos[] = $this->filaPlano(0, $c61, self::NIT_SECAR, $cod, $cc, $monto, 0);
             } else {
                 // Saldo a favor (contrario): invierte para dejar la 14 en $0.
-                $movimientos[] = $this->filaPlano(0, $c14, $tercero, $cod, null, $monto, 0);
-                $movimientos[] = $this->filaPlano(0, $c61, $tercero, $cod, $cc, 0, $monto);
+                $movimientos[] = $this->filaPlano(0, $c14, self::NIT_SECAR, $cod, null, $monto, 0);
+                $movimientos[] = $this->filaPlano(0, $c61, self::NIT_SECAR, $cod, $cc, 0, $monto);
             }
             $totalDeb += $monto;
             $totalCred += $monto;

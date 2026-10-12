@@ -70,18 +70,18 @@ class PlanoCierre14Test extends TestCase
         $cr = $movs->firstWhere('cuenta', '14350105');
         $db = $movs->firstWhere('cuenta', '61350105');
 
-        // Crédito a la 14 (sin centro de costos), con el tercero del saldo.
+        // Crédito a la 14 (sin centro de costos). El tercero del ajuste es SIEMPRE SECAR.
         $this->assertEqualsWithDelta(1287000.50, $cr['credito'], 0.001);
         $this->assertEqualsWithDelta(0, $cr['debito'], 0.001);
         $this->assertNull($cr['centro_costos']);
-        $this->assertSame('900', $cr['tercero']);
+        $this->assertSame('890319324', $cr['tercero']);
         $this->assertSame('CCC', $cr['tipo_doc']);
 
-        // Débito a la 61 homologada, con centro de costos de mantenimiento y el mismo tercero.
+        // Débito a la 61 homologada, con centro de costos de mantenimiento y el mismo tercero SECAR.
         $this->assertEqualsWithDelta(1287000.50, $db['debito'], 0.001);
         $this->assertEqualsWithDelta(0, $db['credito'], 0.001);
         $this->assertSame('30020105', $db['centro_costos']);
-        $this->assertSame('900', $db['tercero']);
+        $this->assertSame('890319324', $db['tercero']);
         $this->assertSame('MOB09100', $db['unidad']);
 
         // Cuadra a $0 (débitos = créditos), con centavos.
@@ -109,24 +109,27 @@ class PlanoCierre14Test extends TestCase
     }
 
     #[Test]
-    public function netea_por_proyecto_cuenta_y_tercero_antes_de_reclasificar(): void
+    public function reclasifica_solo_el_neto_de_la_cuenta_en_una_sola_linea_con_secar(): void
     {
         $this->homolog('14350105', '61350105');
         FichaProyecto::create(['codigo_proyecto' => 'MOB09102', 'nombre_obra' => 'Neteo', 'activa' => false]);
-        // Mismo tercero/cuenta en dos meses: 30.000 + 20.000 = 50.000 (una sola línea por par).
-        $this->rf('MOB09102', '14350105', '900', 30000, 0, 7, 2024);
-        $this->rf('MOB09102', '14350105', '900', 20000, 0, 8, 2024);
-        // Otro tercero en la misma cuenta: línea aparte.
-        $this->rf('MOB09102', '14350105', '901', 10000, 0, 8, 2024);
+        // Varios terceros y movimientos en la misma cuenta. El neto que queda abierto es el saldito:
+        // (1.000.000 + 20.000) débito − 970.000 crédito = 50.000. NO se debe reversar el bruto.
+        $this->rf('MOB09102', '14350105', '900', 1000000, 0, 7, 2024);  // proveedor A (débito)
+        $this->rf('MOB09102', '14350105', '901', 0, 970000, 8, 2024);   // proveedor B (crédito)
+        $this->rf('MOB09102', '14350105', '902', 20000, 0, 8, 2024);    // proveedor C (débito)
 
         $r = $this->svc()->construirMovimientos(8, 2024, $this->contable(), null);
         $movs = collect($r['movimientos']);
 
-        // 2 terceros × 2 patas = 4 líneas.
-        $this->assertCount(4, $movs);
-        $cr900 = $movs->first(fn ($m) => $m['cuenta'] === '14350105' && $m['tercero'] === '900');
-        $this->assertEqualsWithDelta(50000, $cr900['credito'], 0.001);
-        $this->assertEqualsWithDelta(60000, $r['total_debito'], 0.001); // 50k + 10k
+        // UNA sola reclasificación (2 patas) del neto, con tercero SECAR — no una línea por tercero.
+        $this->assertCount(2, $movs);
+        $this->assertSame(['890319324'], $movs->pluck('tercero')->unique()->values()->all());
+
+        $cr = $movs->firstWhere('cuenta', '14350105');
+        $this->assertEqualsWithDelta(50000, $cr['credito'], 0.001);   // solo el remanente neto
+        $this->assertEqualsWithDelta(50000, $r['total_debito'], 0.001);
+        $this->assertEqualsWithDelta($r['total_debito'], $r['total_credito'], 0.001);
     }
 
     #[Test]
