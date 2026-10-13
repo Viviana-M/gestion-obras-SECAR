@@ -329,14 +329,17 @@ class DistribucionService
             // Invariante: neto = disponible (positivos) − reversado de más (negativos).
             $neto           = round($total - $totalReversado, 2);
 
-            // Mano de obra DIRECTA a distribuir = costo completo de las personas del maestro (Y).
-            // El resto de la bolsa (X = Total − Y) es lo demás (materiales, seguros y la MO que no
-            // es de estas personas, que ya trae su obra en el ERP). Se topa a Total para que X ≥ 0.
+            // DOS POOLS DISTINTOS (no sumados), para no inflar "otros costos" con la mano de obra:
+            //  · "Mano de obra del personal" = costo completo (sueldos + parafiscales vía PILA) de las
+            //    personas del maestro Mano de obra directa; se distribuye por persona a los proyectos.
+            //  · "Otros costos" = la bolsa MENOS esa mano de obra (materiales, servicios…).
+            // La MO de apoyo (otro maestro) NO entra aquí: se reclasifica por su propio plano 14→61.
             $personas = array_values($personasPorDepto[$d] ?? []);
             foreach ($personas as &$per) $per['total'] = round($per['total'], 2);
             unset($per);
             usort($personas, fn ($a, $b) => $b['total'] <=> $a['total']);
-            $mo = round(min($total, array_sum(array_column($personas, 'total'))), 2);
+            $mo         = round(min($total, array_sum(array_column($personas, 'total'))), 2);
+            $otrosCostos = round($total - $mo, 2);
 
             $result[] = [
                 'codigo'       => $d,
@@ -345,8 +348,10 @@ class DistribucionService
                 'total'        => $total,                    // distribuible = suma de netos positivos (cuadra con el detalle)
                 'neto'         => $neto,                      // saldo de la bolsa (positivos − negativos): reconcilia con contabilidad
                 'total_reversado' => $totalReversado,        // netos negativos (reversado de más / por revisar), solo lectura
-                'total_mo'     => $mo,                       // MO directa a distribuir (costo por persona)
-                'total_sinmo'  => round($total - $mo, 2),    // resto de la bolsa
+                'otros_costos' => $otrosCostos,              // pool "Otros costos" = la bolsa menos la MO del personal
+                'mano_obra'    => $mo,                        // pool "Mano de obra del personal" (maestro directa)
+                'total_mo'     => $mo,                        // alias retrocompat: MO directa a distribuir (costo por persona)
+                'total_sinmo'  => $otrosCostos,              // alias retrocompat: otros costos (ya sin MO)
                 'mo_personas'  => $personas,                 // una fila por persona del maestro (con buckets)
                 'a_distribuir' => round(array_sum(array_column($lineas, 'monto_distribuir')), 2),
                 'componentes'  => $this->componentesDe($lineas),

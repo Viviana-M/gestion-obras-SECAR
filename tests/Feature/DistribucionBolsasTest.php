@@ -65,10 +65,11 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('Saldo de la bolsa', false);              // número grande = neto
+        $resp->assertSee('Otros costos', false);                   // subtema 1
+        $resp->assertSee('Mano de obra del personal', false);      // subtema 2
         $resp->assertSee('Disponible por distribuir', false);
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);   // bolsa grande por departamento
-        $resp->assertSee('id="bolsa-neto-mantenimiento"', false);  // el número grande es el saldo neto
+        $resp->assertSee('id="bolsa-otros-mantenimiento"', false); // número grande = otros costos (sin MO)
         $resp->assertSee('Ver detalle por cuenta', false);
         $resp->assertSee('MTO00099', false);                        // la UN aparece en el detalle
         $resp->assertSee('Asignar desde bolsa de área', false);

@@ -94,10 +94,36 @@ class DistribucionManoObraTest extends TestCase
         $this->assertEqualsWithDelta(600000, $personas['111']['total'], 1);
         $this->assertCount(2, $personas['111']['buckets']); // salario + SS
 
-        // Subtotales: MO directa a distribuir (Y) + resto (X) = Total.
-        $this->assertEqualsWithDelta(600000, $b['total_mo'], 1);
-        $this->assertEqualsWithDelta(200000, $b['total_sinmo'], 1);
-        $this->assertEqualsWithDelta($b['total'], $b['total_mo'] + $b['total_sinmo'], 1);
+        // DOS pools distintos (no sumados): "Otros costos" = la bolsa MENOS la MO del personal
+        // (800k − 600k = 200k, materiales); "Mano de obra" = 600k (Juan). El saldo de la cuenta 14 de
+        // la bolsa sigue siendo 800k (la MO se reclasifica al distribuirla por persona).
+        $this->assertEqualsWithDelta(800000, $b['total'], 1);        // saldo cuenta 14 de la bolsa
+        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1); // otros costos = bolsa − MO
+        $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);    // pool de MO del personal
+        $this->assertEqualsWithDelta(600000, $b['total_mo'], 1);     // alias retrocompat
+        $this->assertEqualsWithDelta(200000, $b['total_sinmo'], 1);  // alias retrocompat (otros costos)
+    }
+
+    #[Test]
+    public function la_tarjeta_muestra_otros_costos_y_mano_de_obra_como_dos_subtemas(): void
+    {
+        $this->base();
+
+        $resp = $this->actingAs($this->op('ver'))
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')->assertOk();
+        $html = $resp->getContent();
+
+        // Dos subtemas en la tarjeta de la bolsa.
+        $this->assertStringContainsString('Otros costos', $html);
+        $this->assertStringContainsString('Mano de obra del personal', $html);
+        // "Otros costos" ya SIN la MO: 200.000 (materiales); MO del personal aparte: 600.000.
+        $this->assertStringContainsString('$200.000', $html);
+        $this->assertStringContainsString('$600.000', $html);
+
+        // "Otros costos" = bolsa − MO: 800k − 600k = 200k (el número grande de la tarjeta).
+        $b = $this->bolsaMto($resp);
+        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1);
+        $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);
     }
 
     #[Test]

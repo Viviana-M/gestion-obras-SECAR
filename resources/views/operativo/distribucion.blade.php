@@ -331,15 +331,13 @@
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
                 <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
             </div>
-            {{-- Número grande = Saldo de la bolsa (neto = positivos − negativos): reconcilia con contabilidad. --}}
-            <div style="font-size:10.5px;color:#6B7686">Saldo de la bolsa</div>
-            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 7px">
-                <b id="bolsa-neto-{{ $b['codigo'] }}" style="font-size:22px;font-weight:800;color:#1B4C7A" title="Saldo neto de la bolsa (positivos − negativos); cuadra con contabilidad">${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
-            </div>
-            {{-- Debajo, en menor tamaño: la descomposición. Siempre: Saldo = Disponible − Reversado. --}}
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#6B7686;padding:2px 0">
-                <span>Disponible por distribuir</span>
-                <b style="color:#15803D">${{ number_format($b['total'], 0, ',', '.') }}</b>
+
+            {{-- SUBTEMA 1 · OTROS COSTOS = la bolsa MENOS la mano de obra del personal (materiales,
+                 servicios…). Es el valor que operaciones reparte desde la bolsa. --}}
+            <div style="font-size:10px;font-weight:800;color:#1B4C7A;letter-spacing:.03em;text-transform:uppercase">Otros costos</div>
+            <div style="font-size:10.5px;color:#6B7686;margin-top:2px">Disponible por distribuir (sin mano de obra)</div>
+            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 6px">
+                <b id="bolsa-otros-{{ $b['codigo'] }}" style="font-size:22px;font-weight:800;color:#1B4C7A" title="La bolsa (materiales, servicios…) ya sin la mano de obra del personal.">${{ number_format($b['otros_costos'] ?? $b['total'], 0, ',', '.') }}</b>
             </div>
             @if(($b['total_reversado'] ?? 0) > 0.5)
             <div style="display:flex;justify-content:space-between;font-size:11px;color:#B91C1C;padding:2px 0" title="Llaves (U.N., cuenta) con neto negativo; no se distribuyen">
@@ -347,8 +345,25 @@
                 <b>${{ number_format($b['total_reversado'], 0, ',', '.') }}</b>
             </div>
             @endif
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:#95A0AF;padding:1px 0" title="Saldo neto de la cuenta 14 de la bolsa (otros costos + mano de obra − reversado); reconcilia con contabilidad">
+                <span>Saldo cuenta 14 (bolsa)</span>
+                <b>${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
+            </div>
+
+            {{-- SUBTEMA 2 · MANO DE OBRA DEL PERSONAL (pool distinto, NO sumado a otros costos). Es el
+                 costo completo (sueldos + parafiscales vía PILA) del maestro de mano de obra directa;
+                 se distribuye por persona a los proyectos (no se queda como saldo en la bolsa). --}}
+            <div style="margin-top:9px;padding-top:9px;border-top:1px dashed #E5E9F0">
+                <div style="font-size:10px;font-weight:800;color:#0E7490;letter-spacing:.03em;text-transform:uppercase">Mano de obra del personal</div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px">
+                    <span style="font-size:10.5px;color:#6B7686">A distribuir por persona</span>
+                    <b style="font-size:16px;font-weight:800;color:#0E7490" title="Costo del personal del maestro Mano de obra directa (sueldos + parafiscales de la PILA). Se reparte a los proyectos, no es saldo de la bolsa.">${{ number_format($b['mano_obra'] ?? 0, 0, ',', '.') }}</b>
+                </div>
+                <div style="font-size:10px;color:#95A0AF;margin-top:2px">Se reparte a cada proyecto (abajo en “Mano de obra directa”).</div>
+            </div>
+
             {{-- Indicador visual (NO es un botón): acompaña el hover/clic de toda la tarjeta. --}}
-            <div class="detbtn" style="margin-top:7px">
+            <div class="detbtn" style="margin-top:9px">
                 <span><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</span>
                 <span class="chev" aria-hidden="true">›</span>
             </div>
