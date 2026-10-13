@@ -79,7 +79,7 @@
                     :columnas="$columnasBiable">
                     Las columnas <b>Docto.</b>, <b>Tercero Docto</b> y <b>Razón social Docto</b> son obligatorias para el plano de cargue al ERP.
                     Con <b>Fecha del documento</b> y <b>Tipo de documento</b> se arma el documento completo (ej. <b>FSE-7970</b>) y se ordena el cruce de saldos.<br>
-                    El archivo debe incluir <b>todas las cuentas</b> del período: 14, <b>26 (provisiones)</b>, <b>28 (facturación anticipada)</b>, 41, 42, 61…<br>
+                    El archivo debe incluir <b>todas las cuentas</b> del período: 14 (inventario en tránsito), <b>26 (provisiones)</b>, <b>28 (facturación anticipada)</b>, 41 (ingresos operacionales), 42 (ingresos no operacionales), 61 (costo de ventas).<br>
                     <span style="color:#DC2626">⚠ Guarda el archivo como <b>Valores</b> en Excel antes de subir (sin fórmulas).</span>
                 </x-columnas-plano>
             </div>
