@@ -9,13 +9,16 @@
        borde superior del viewport). */
     .obra-sticky {
         position: sticky;
-        top: 8px;
-        z-index: 20;
+        top: 0;
+        z-index: 30;
         background: #fff;
+        transition: box-shadow .15s;
     }
+    /* Sombra sutil solo cuando el resumen queda pegado al tope (se nota que flota). */
+    .obra-sticky.stuck { box-shadow: 0 10px 18px -12px rgba(16,32,54,.35); }
     /* En móvil no debe tapar el contenido: se comporta como una tarjeta normal (no flotante). */
     @media (max-width: 768px) {
-        .obra-sticky { position: static; }
+        .obra-sticky { position: static; box-shadow: none !important; }
     }
 
     /* Ícono de ayuda ⓘ con tooltip al pasar el cursor (reemplaza textos fijos de jerga contable). */
@@ -1060,6 +1063,9 @@ function recalc(cod){
     const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
     const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
+    // "Costos por llevar a este proyecto": el inventario propio que aún no se ha aplicado (baja al
+    // escribir montos). sumA = lo aplicado 14→6 del propio proyecto (la bolsa viene de otra UN).
+    const porll=document.getElementById('porllevar-'+cod); if(porll) porll.textContent=fmt(Math.max(0, (d.pend||0) - sumA));
     const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado14a6);
     const psa=document.getElementById('provsa-'+cod); if(psa) psa.textContent=fmt(prov);
 
@@ -1714,4 +1720,22 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 @endif
+
+<script>
+// Sombra sutil del resumen flotante de cada tarjeta: se activa solo cuando el bloque queda pegado
+// al tope del viewport (top <= 0), para que se note que flota. Throttle con requestAnimationFrame.
+(function () {
+    let pend = false;
+    function marcarStuck() {
+        pend = false;
+        document.querySelectorAll('.obra-sticky').forEach(function (r) {
+            r.classList.toggle('stuck', r.getBoundingClientRect().top <= 0);
+        });
+    }
+    function onScroll() { if (!pend) { pend = true; requestAnimationFrame(marcarStuck); } }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    marcarStuck();
+})();
+</script>
 @endsection

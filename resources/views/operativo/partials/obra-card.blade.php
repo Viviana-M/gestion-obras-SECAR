@@ -34,9 +34,15 @@
             </div>
             <div style="font-size:11px;color:#6B7280;margin-top:3px" id="metodo-{{ $cod }}">Método: {{ $o['metodo'] }}</div>
         </div>
-        <div style="text-align:right;flex:none">
-            <div style="font-size:11px;color:#854D0E">A aplicar</div>
-            <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
+        <div style="display:flex;gap:18px;align-items:flex-start;flex:none">
+            <div style="text-align:right">
+                <div style="font-size:11px;color:#6B7280">Costos por llevar a este proyecto</div>
+                <div style="font-weight:700;color:#1B3F6E" id="porllevar-{{ $cod }}">{{ $fmt(max(0, $o['total_pendiente'] - $o['sum_aplicar'])) }}</div>
+            </div>
+            <div style="text-align:right">
+                <div style="font-size:11px;color:#854D0E">En esta distribución</div>
+                <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
+            </div>
         </div>
     </div>
 

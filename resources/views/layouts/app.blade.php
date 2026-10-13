@@ -57,7 +57,10 @@
         .layout.collapsed .submenu { display: none; }
         .layout.collapsed .module.active-mod .module-ico { color: #1B3F6E; }
 
-        .content { flex: 1; padding: 1.5rem; overflow-x: hidden; min-width: 0; }
+        /* overflow-x: clip (no 'hidden') recorta el desborde horizontal SIN crear un contenedor de
+           scroll, para no romper position:sticky en descendientes (p. ej. el resumen flotante de la
+           tarjeta de proyecto en Distribución de costos). */
+        .content { flex: 1; padding: 1.5rem; overflow-x: clip; min-width: 0; }
         .page-title { font-size: 18px; font-weight: 600; color: #1B3F6E; margin-bottom: 1.25rem; }
         .card { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
         .card h3 { font-size: 14px; font-weight: 600; color: #3D3D3D; margin-bottom: 10px; }
