@@ -450,6 +450,7 @@ class DistribucionService
         // Desglose por (UN, cuenta, TERCERO): una fila por cada tercero con su saldo. El saldo es
         // deb − cré = −SUM(estado_er) (costo por repartir positivo; saldo a favor negativo).
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', self::PREFIJO_BOLSA.'%') // solo 1420xx (otras 14xx son inventario en tránsito)
             ->whereIn('codigo_proyecto', $codigos)
             ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
@@ -526,6 +527,15 @@ class DistribucionService
     public const NIT_SECAR = '890319324';
 
     /**
+     * Prefijo de cuenta de la BOLSA DE OTROS COSTOS: solo 1420xx. Las demás 14xx (p. ej. 1455xx,
+     * inventario/cruce como 14552599 "Materiales y repuestos AA" o 14552505) pertenecen al flujo de
+     * inventario en tránsito, NO a la bolsa de otros costos, así que se excluyen del disponible, del
+     * detalle por cuenta, del cruce (U.N., cuenta) y del plano que se genera de ahí. Siguen cargándose
+     * en el importador (para inventario en tránsito); solo se excluyen del cálculo de la bolsa.
+     */
+    public const PREFIJO_BOLSA = '1420';
+
+    /**
      * Detalle por TERCERO de las bolsas, para la tabla plana de "Detalle por cuenta". Una fila por
      * (UN, cuenta, tercero) con: fecha del movimiento (Fecha_docto), nombre del proyecto, auxiliar
      * (cuenta) y su descripción, NIT, razón social, documento y el SALDO NETO ya con el CRUCE DE SECAR
@@ -549,6 +559,7 @@ class DistribucionService
             };
 
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', self::PREFIJO_BOLSA.'%') // solo 1420xx (otras 14xx son inventario en tránsito)
             ->whereIn('codigo_proyecto', $codigos)
             ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '

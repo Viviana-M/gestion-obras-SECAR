@@ -597,6 +597,34 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function la_bolsa_de_otros_costos_solo_considera_cuentas_1420(): void
+    {
+        // En la bolsa MTO00099 conviven una 1420 (otros costos) y una 1455 (inventario en tránsito).
+        // La bolsa / disponible / detalle / cruce deben considerar SOLO la 1420; la 1455 se excluye
+        // (sigue cargada para inventario, pero fuera de la bolsa de otros costos).
+        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS',        1000000, 6, 2026); // 1420 → bolsa
+        $this->bolsaTercero('MTO00099', '14552599', '222', 'MATERIALES AA', 4000000, 6, 2026); // 1455 → inventario
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 7);
+
+        // Disponible de la tarjeta: solo la 1420 (1M); la 1455 (4M) NO entra.
+        $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 7))->first();
+        $this->assertEqualsWithDelta(1000000, $mant['total'], 0.5);
+        $cuentas = collect($mant['lineas'])->pluck('cuenta_14')->all();
+        $this->assertContains('14200530', $cuentas);
+        $this->assertNotContains('14552599', $cuentas);
+
+        // Detalle por cuenta: tampoco incluye la 1455.
+        $det = $svc->detalleBolsaTerceros(['MTO00099'], $periodo, 2026, 7, 'todo');
+        $cuentasDet = collect($det['MTO00099'] ?? [])->pluck('cuenta_14')->unique()->values()->all();
+        $this->assertSame(['14200530'], $cuentasDet);
+
+        // Pero la 1455 SÍ sigue cargada en la base (solo se excluye del cálculo de la bolsa).
+        $this->assertSame(1, RegistroFinanciero::where('cuenta_contable', '14552599')->count());
+    }
+
+    #[Test]
     public function la_bolsa_distribuye_solo_los_netos_positivos_y_reporta_aparte_los_negativos(): void
     {
         $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // +41M por repartir (distribuible)

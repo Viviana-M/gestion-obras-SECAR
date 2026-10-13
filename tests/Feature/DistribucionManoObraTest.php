@@ -56,12 +56,12 @@ class DistribucionManoObraTest extends TestCase
     private function base(): void
     {
         $this->homolog('14200530', '73950505', 'MOI');          // MO (está en CUENTAS_MO)
-        $this->homolog('14350105', '61350105', 'EQU-MAT-SUM');  // materiales (resto)
+        $this->homolog('14209905', '61350105', 'EQU-MAT-SUM');  // materiales (resto) — bolsa = solo 1420xx
         TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
 
         $this->rf('MTO00099', '14200530', '111', 'Juan Perez', 500000);  // salario de Juan
         $this->rf('MTO00099', '14200530', '800100', 'EPS SURA', 100000); // seguridad social (fondo) en la 14
-        $this->rf('MTO00099', '14350105', '900', 'Ferreteria', 200000);  // materiales (resto)
+        $this->rf('MTO00099', '14209905', '900', 'Ferreteria', 200000);  // materiales (resto), cuenta 1420
 
         AutoliquidacionAporte::create([
             'cedula' => '800100', 'razon_social' => 'EPS SURA', 'empleado' => '111', 'empleado_nombre' => 'Juan Perez',
