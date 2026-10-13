@@ -380,7 +380,7 @@
                         <tbody>
                         @forelse($det as $l)
                         @php
-                            $k = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'];
+                            $k = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'].'|'.$l['documento'];
                             $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
                         @endphp
                         <tr class="{{ !empty($l['alerta']) ? 'bz-alerta' : ($l['cero'] ? 'bz-row' : '') }}" data-saldo="{{ round($l['saldo']) }}" @if(!empty($l['alerta'])) style="background:#FEF2F2" @endif>

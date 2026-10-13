@@ -538,6 +538,48 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function tras_el_cruce_sobrevive_el_documento_reciente_con_su_remanente_no_el_agregado(): void
+    {
+        // Cuenta 14200563 de INS00006, mismo tercero: dos documentos positivos (uno antiguo, uno
+        // reciente) y una nota crédito que consume. El FIFO consume el MÁS ANTIGUO primero: FSE-1 cae a
+        // $0 y FSE-2 (reciente) sobrevive con su remanente. La fila debe mostrar la fecha/documento del
+        // que sobrevive (FSE-2, reciente), con su remanente — NO la fecha del antiguo ni el saldo sumado.
+        $rf = function (string $t, string $tipo, string $doc, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'INS00006', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200563',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => 'Tercero '.$t,
+                'tipo_documento' => $tipo, 'documento' => $doc,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+            ]);
+        };
+        $rf('111', 'FSE', '1', 300000, 0, '2026-06-10');   // documento antiguo (+300k)
+        $rf('111', 'FSE', '2', 500000, 0, '2026-08-20');   // documento reciente (+500k)
+        $rf('222', 'NC',  '9', 0, 400000, '2026-09-30');   // nota crédito (−400k) consume FIFO
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 8);
+        $det = collect($svc->detalleBolsaTerceros(['INS00006'], $periodo, 2026, 8, 'todo')['INS00006']);
+
+        // El documento reciente sobrevive con su remanente (500k − 100k = 400k) y su propia fecha.
+        $reciente = $det->firstWhere('documento', 'FSE-00000002');
+        $this->assertNotNull($reciente);
+        $this->assertEqualsWithDelta(400000, $reciente['saldo'], 1);
+        $this->assertSame('2026-08-20', $reciente['fecha']);
+        $this->assertFalse($reciente['cero']);
+
+        // El documento antiguo queda consumido en $0 (oculto como cruzado), con su propia fecha.
+        $antiguo = $det->firstWhere('documento', 'FSE-00000001');
+        $this->assertNotNull($antiguo);
+        $this->assertEqualsWithDelta(0, $antiguo['saldo'], 1);
+        $this->assertSame('2026-06-10', $antiguo['fecha']);
+        $this->assertTrue($antiguo['cero']);
+
+        // El neto de la cuenta se conserva (300k + 500k − 400k = 400k), todo en el documento superviviente.
+        $this->assertEqualsWithDelta(400000, $det->sum('saldo'), 1);
+    }
+
+    #[Test]
     public function el_cruce_no_pasa_entre_distintas_un_aunque_compartan_la_cuenta(): void
     {
         // Misma cuenta 14200563 en DOS U.N. distintas. INS00004 neta negativo (reversado de más) y

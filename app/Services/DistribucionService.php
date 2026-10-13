@@ -536,12 +536,16 @@ class DistribucionService
     public const PREFIJO_BOLSA = '1420';
 
     /**
-     * Detalle por TERCERO de las bolsas, para la tabla plana de "Detalle por cuenta". Una fila por
-     * (UN, cuenta, tercero) con: fecha del movimiento (Fecha_docto), nombre del proyecto, auxiliar
-     * (cuenta) y su descripción, NIT, razón social, documento y el SALDO NETO ya con el CRUCE DE SECAR
-     * atribuido (SECAR trae negativo y consume FIFO los saldos más antiguos; SECAR y los consumidos
-     * quedan en $0). También trae el "a distribuir"/observaciones guardados por tercero (default =
-     * saldo). NO cambia los totales por cuenta: el cruce solo reatribuye el mismo neto entre terceros.
+     * Detalle por DOCUMENTO de las bolsas, para la tabla plana de "Detalle por cuenta". Una fila por
+     * (UN, cuenta, tercero, DOCUMENTO) con: fecha del movimiento (fecha_docto), nombre del proyecto,
+     * auxiliar (cuenta) y su descripción, NIT, razón social, documento y el remanente de ESE documento
+     * tras el CRUCE FIFO por (U.N., cuenta).
+     *
+     * IMPORTANTE: el cruce consume los documentos más ANTIGUOS primero (quedan en $0 y se ocultan); los
+     * que sobreviven son los más RECIENTES y cada fila muestra la fecha/documento/saldo de ese documento
+     * real, nunca la fecha del más antiguo con el saldo agregado. El saldo de la fila = el remanente del
+     * documento después del cruce. También trae el "a distribuir"/observaciones guardados por documento
+     * (default = saldo). NO cambia los totales por cuenta: el cruce solo reatribuye el mismo neto.
      *
      * @return array<string, array<int, array<string,mixed>>>  [un_codigo => líneas]
      */
@@ -558,15 +562,16 @@ class DistribucionService
                   ->orWhere(fn ($q2) => $q2->where('anio', $anio)->where('mes', '<=', $mes));
             };
 
+        // Grano por DOCUMENTO real: se agrupa también por tipo/numero de documento y fecha, para que cada
+        // fila sea un movimiento concreto (y su remanente tras el cruce), no un agregado por tercero.
         $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('cuenta_contable', 'like', self::PREFIJO_BOLSA.'%') // solo 1420xx (otras 14xx son inventario en tránsito)
             ->whereIn('codigo_proyecto', $codigos)
             ->where($ventana)
-            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '
+            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, tipo_documento, documento, fecha_docto, '
                 . 'MAX(nombre_proyecto) as nombre_proyecto, MAX(descripcion) as descripcion, '
-                . 'MAX(documento) as documento, MAX(tipo_documento) as tipo_doc, MIN(fecha_docto) as fecha, '
                 . 'MIN(anio*100+mes) as periodo, MIN(id) as min_id, SUM(estado_er) as saldo_er')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social', 'tipo_documento', 'documento', 'fecha_docto')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
             ->get();
 
@@ -579,11 +584,11 @@ class DistribucionService
         foreach ($filas as $f) {
             $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
             $key = $un.'|'.$cuenta;
-            $fecha = $f->fecha ? substr((string) $f->fecha, 0, 10) : null;
+            $fecha = $f->fecha_docto ? substr((string) $f->fecha_docto, 0, 10) : null;
             $ord = $fecha ? (int) str_replace('-', '', $fecha) : ((int) $f->periodo) * 100; // FIFO: lo más antiguo primero
             // Documento completo TIPO-NÚMERO con el número a 8 dígitos (ej. CCC-00002462). Si BIABLE ya
             // trae el documento completo en un solo campo (con prefijo de letras), se deja tal cual.
-            $docCompleto = $this->documentoCompleto((string) $f->tipo_doc, (string) $f->documento);
+            $docCompleto = $this->documentoCompleto((string) $f->tipo_documento, (string) $f->documento);
             $porCuenta[$key][] = [
                 'un'             => $un,
                 'cuenta'         => $cuenta,
@@ -607,15 +612,15 @@ class DistribucionService
             $h      = $homol[$cuenta] ?? null;
             $nombreCuenta = $h->nombre ?? $terceros[0]['descripcion'];
 
-            // "A distribuir"/observaciones guardados por (UN, cuenta, tercero). Default: el saldo.
+            // "A distribuir"/observaciones guardados por (UN, cuenta, tercero, DOCUMENTO). Default: el saldo.
             $guardados = BolsaMonto::where('mes', $mes)->where('anio', $anio)
                 ->where('un_codigo', $un)->where('cuenta_14', $cuenta)->get()
-                ->keyBy(fn ($m) => (string) $m->tercero);
+                ->keyBy(fn ($m) => (string) $m->tercero.'∷'.(string) $m->documento);
 
             foreach ($terceros as $t) {
                 $saldo  = round((float) $t['saldo'], 2);
                 $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
-                $g      = $guardados[$t['tercero_dcto']] ?? null;
+                $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
                 // La alerta no se distribuye; en lo demás, por defecto se distribuye el saldo completo.
                 $aDist  = $alerta ? 0.0 : ($g ? max(0.0, min($saldo, (float) $g->monto_distribuir)) : $saldo);
                 $out[$un][] = [

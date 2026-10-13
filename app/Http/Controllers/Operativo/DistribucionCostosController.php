@@ -858,7 +858,7 @@ class DistribucionCostosController extends Controller
                 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
         }
 
-        $montos = (array) $request->input('monto', []); // ["UN|cuenta|tercero" => valor]
+        $montos = (array) $request->input('monto', []); // ["UN|cuenta|tercero|documento" => valor]
         $obs    = (array) $request->input('obs', []);
         $departamento = $request->input('departamento');
 
@@ -874,10 +874,10 @@ class DistribucionCostosController extends Controller
 
         $n = 0;
         foreach ($montos as $key => $val) {
-            [$un, $cuenta, $tercero] = array_pad(explode('|', (string) $key, 3), 3, '');
+            [$un, $cuenta, $tercero, $documento] = array_pad(explode('|', (string) $key, 4), 4, '');
             if ($un === '' || $cuenta === '') continue;
             BolsaMonto::updateOrCreate(
-                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta, 'tercero' => $tercero],
+                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta, 'tercero' => $tercero, 'documento' => $documento],
                 [
                     // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
                     'monto_distribuir' => max(0.0, (float) preg_replace('/[^\d]/', '', (string) $val)),
@@ -904,8 +904,8 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Exporta a Excel el detalle por tercero de una bolsa (las mismas columnas de la tabla plana),
-     * con el cruce FIFO de SECAR ya aplicado. Por defecto solo las líneas con saldo (no las $0).
+     * Exporta a Excel el detalle por documento de una bolsa (las mismas columnas de la tabla plana),
+     * con el cruce FIFO por (U.N., cuenta) ya aplicado. Por defecto solo las líneas con saldo (no las $0).
      */
     public function exportarDetalleBolsa(Request $request)
     {
