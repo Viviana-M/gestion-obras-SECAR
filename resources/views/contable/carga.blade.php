@@ -94,7 +94,7 @@
             'prepararUrl' => route('contable.carga.preparar'),
             'procesarUrl' => route('contable.carga.procesar'),
         ])
-        <p style="font-size:11px;color:#9CA3AF;margin-top:8px">El archivo se procesa por partes, con barra de progreso, para que no se corte aunque tenga miles de filas.</p>
+        <p style="font-size:11px;color:#9CA3AF;margin-top:8px">Procesamiento por lotes con progreso en tiempo real — optimizado para cierres de miles de registros.</p>
     </div>
 
     @if($historial->count() > 0)
