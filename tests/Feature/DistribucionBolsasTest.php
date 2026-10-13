@@ -65,9 +65,10 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
+        $resp->assertSee('Saldo de la bolsa', false);              // número grande = neto
         $resp->assertSee('Disponible por distribuir', false);
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);   // bolsa grande por departamento
-        $resp->assertSee('id="bolsa-disp-mantenimiento"', false);
+        $resp->assertSee('id="bolsa-neto-mantenimiento"', false);  // el número grande es el saldo neto
         $resp->assertSee('Ver detalle por cuenta', false);
         $resp->assertSee('MTO00099', false);                        // la UN aparece en el detalle
         $resp->assertSee('Asignar desde bolsa de área', false);
@@ -338,6 +339,54 @@ class DistribucionBolsasTest extends TestCase
         $this->assertContains('MTO00001', $uns);
         $this->assertContains('MTO00002', $uns);
         $this->assertNotContains('INS00001', $uns);
+    }
+
+    #[Test]
+    public function el_detalle_trae_filtros_alerta_de_periodo_anterior_y_conciliacion(): void
+    {
+        // Cerrando septiembre 2026. Una línea del mes (sept) y otra de un mes ANTERIOR (agosto),
+        // más una cuenta que neta negativo (reversado de más) para la conciliación del footer.
+        $rf = function (string $cc, string $t, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $cc,
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => 'Tercero '.$t,
+                'tipo_documento' => 'FSE', 'documento' => substr($cc, -2), 'fecha_docto' => $fecha,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'mes' => (int) substr($fecha, 5, 2), 'anio' => 2026,
+            ]);
+        };
+        $rf('14200530', '111', 1000000, 0, '2026-09-10'); // mes de cierre → normal
+        $rf('14200531', '222', 400000, 0, '2026-08-05');  // mes anterior → ANTERIOR
+        $rf('14200599', '999', 0, 300000, '2026-09-30');  // cuenta neta negativa → reversado de más
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=9&anio=2026&departamento=mantenimiento&vista=todo');
+
+        $resp->assertStatus(200);
+        $html = $resp->getContent();
+
+        // 1) Fila de filtros por columna + botón limpiar + encabezado/filtros sticky (clase bd-filtros).
+        $this->assertStringContainsString('bd-filtros', $html);
+        $this->assertStringContainsString('limpiarFiltrosBolsa(', $html);
+        $this->assertStringContainsString('filtrarBolsaDet(', $html);
+
+        // 2) Alerta de periodo anterior: indicador "Cerrando", leyenda, fila marcada y etiqueta ANTERIOR.
+        $this->assertStringContainsString('Cerrando: Septiembre 2026', $html);
+        $this->assertStringContainsString('bd-anterior', $html);
+        $this->assertStringContainsString('ANTERIOR', $html);
+
+        // 3) Conciliación en el footer: Disponible − Reversado = Saldo de la bolsa (neto).
+        $this->assertStringContainsString('= Saldo de la bolsa (neto)', $html);
+        $this->assertStringContainsString('(−) Reversado de más / por revisar', $html);
+
+        // El servicio cumple la invariante: neto = disponible − reversado.
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 9);
+        $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 9, 'todo'))->first();
+        $this->assertEqualsWithDelta(1400000, $mant['total'], 1);          // disponible = 1M + 400k
+        $this->assertEqualsWithDelta(300000, $mant['total_reversado'], 1); // reversado
+        $this->assertEqualsWithDelta(1100000, $mant['neto'], 1);           // 1.4M − 0.3M
+        $this->assertEqualsWithDelta($mant['total'] - $mant['total_reversado'], $mant['neto'], 1);
     }
 
     #[Test]

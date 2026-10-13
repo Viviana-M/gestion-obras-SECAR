@@ -98,6 +98,23 @@
     .bd-tbl th.bd-act { background:#EAF1F8; color:#1B4C7A }
     .bd-tbl td.bd-act { background:#F7FBFF }
     .bd-tbl tfoot td { font-weight:800; background:#F6FCF8; color:#15803D; border-top:2px solid #CDE9D6 }
+    /* Encabezado + fila de filtros fijos (sticky) al hacer scroll por el detalle. */
+    .bd-tbl thead th { position:sticky; top:0; z-index:3 }
+    .bd-tbl thead tr.bd-filtros th { top:28px; z-index:2; background:#FAFBFD; padding:4px 6px; text-transform:none }
+    .bd-tbl thead tr.bd-filtros input { width:100%; min-width:58px; border:1px solid #E5E9F0; border-radius:6px;
+        padding:3px 6px; font-size:10.5px; font-weight:400; color:#1E2A38; background:#fff }
+    .bd-tbl thead tr.bd-filtros .bd-nofilter { background:#F3F6FA }
+    /* Filas de un periodo ANTERIOR al mes que se está cerrando: resalte ámbar + barra lateral. */
+    .bd-tbl tr.bd-anterior td { background:#FFF7E6 }
+    .bd-tbl tr.bd-anterior td:first-child { box-shadow: inset 4px 0 0 #D97706 }
+    .bd-ant-tag { display:inline-block; background:#FDE9C8; color:#92631A; border-radius:5px; font-size:9px;
+        font-weight:800; padding:1px 6px; margin-left:5px; letter-spacing:.03em; vertical-align:middle }
+    .bd-cerrando { font-size:11px; font-weight:700; color:#92631A; background:#FFF7E6; border:1px solid #F3D9A6;
+        border-radius:7px; padding:3px 10px }
+    .bd-leyenda { font-size:10.5px; color:#92631A; display:inline-flex; align-items:center; gap:6px }
+    .bd-leyenda .sw { width:11px; height:11px; border-radius:3px; background:#FFF7E6; border:1px solid #D97706; display:inline-block }
+    .bd-limpiar { font-size:11px; padding:5px 10px; border:1px solid #D7DEE8; border-radius:8px; background:#fff; color:#6B7686; cursor:pointer }
+    .bd-limpiar:hover { background:#F3F5F9 }
     .bd-inp { border:1px solid #BBD3EA; border-radius:8px; padding:5px 8px; width:120px; text-align:right; font-weight:700; color:#1B4C7A; background:#fff; font-size:12px }
     .bd-obs { border:1px solid #E5E9F0; border-radius:8px; padding:5px 8px; width:150px; font-size:12px; background:#fff }
     .bd-qv { font-weight:800; color:#15803D }
@@ -293,37 +310,33 @@
          SECAR sobre fondo blanco; el color fuerte solo aparece en "Bajo margen" cuando hay alerta. --}}
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;margin-bottom:12px">
         @foreach(($bolsas ?? []) as $b)
-        @php
-            $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
-            $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
-        @endphp
         <div id="bolsa-box-{{ $b['codigo'] }}" class="bolsa"
              role="button" tabindex="0"
              aria-label="Ver detalle por cuenta de {{ $b['nombre'] }}"
              onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleBolsaDetalle('{{ $b['codigo'] }}');}"
              style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
                 <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
-                {{-- Saldo NETO de la bolsa (positivos − negativos): el que reconcilia con contabilidad. --}}
-                <span style="font-size:12px;color:#6B7686" title="Saldo neto de la bolsa (positivos − negativos); reconcilia con contabilidad">Saldo bolsa ${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</span>
             </div>
-            <div style="font-size:10.5px;color:#6B7686">Disponible por distribuir</div>
-            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 6px">
-                <b id="bolsa-disp-{{ $b['codigo'] }}" style="font-size:18px;font-weight:800;color:#1B4C7A">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
-                <span id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:700;white-space:nowrap;display:{{ $b['disponible'] <= 0.5 ? 'inline-block' : 'none' }}">✓ distribuida</span>
+            {{-- Número grande = Saldo de la bolsa (neto = positivos − negativos): reconcilia con contabilidad. --}}
+            <div style="font-size:10.5px;color:#6B7686">Saldo de la bolsa</div>
+            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 7px">
+                <b id="bolsa-neto-{{ $b['codigo'] }}" style="font-size:22px;font-weight:800;color:#1B4C7A" title="Saldo neto de la bolsa (positivos − negativos); cuadra con contabilidad">${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
             </div>
-            <div style="height:7px;background:#EEF1F6;border-radius:20px;overflow:hidden">
-                <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:linear-gradient(90deg,#1B4C7A,#3A79B5);border-radius:20px;transition:width .2s"></div>
+            {{-- Debajo, en menor tamaño: la descomposición. Siempre: Saldo = Disponible − Reversado. --}}
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#6B7686;padding:2px 0">
+                <span>Disponible por distribuir</span>
+                <b style="color:#15803D">${{ number_format($b['total'], 0, ',', '.') }}</b>
             </div>
             @if(($b['total_reversado'] ?? 0) > 0.5)
-            {{-- Netos negativos por (U.N., cuenta): no se distribuyen, se reportan para revisar con contabilidad. --}}
-            <div style="margin-top:7px;font-size:10.5px;color:#B91C1C;display:flex;align-items:center;gap:6px" title="Cuentas con neto negativo; no se restan del disponible">
-                ⚠ Reversado de más / por revisar: <b>${{ number_format($b['total_reversado'], 0, ',', '.') }}</b>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#B91C1C;padding:2px 0" title="Llaves (U.N., cuenta) con neto negativo; no se distribuyen">
+                <span>(−) Reversado de más / por revisar</span>
+                <b>${{ number_format($b['total_reversado'], 0, ',', '.') }}</b>
             </div>
             @endif
             {{-- Indicador visual (NO es un botón): acompaña el hover/clic de toda la tarjeta. --}}
-            <div class="detbtn">
+            <div class="detbtn" style="margin-top:7px">
                 <span><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</span>
                 <span class="chev" aria-hidden="true">›</span>
             </div>
@@ -364,6 +377,12 @@
                 elseif ($dl['cero']) { $ocultas++; }
                 else { $conSaldo++; $totSaldo += $dl['saldo']; $totDist += $dl['monto_distribuir']; }
             }
+            // Periodo que se está cerrando (AAAAMM) y su nombre, para resaltar las filas de meses anteriores.
+            $nombresMesC = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+            $cierreYM = $anio * 100 + $mes;
+            $mesCierreNombre = ($nombresMesC[$mes] ?? '').' '.$anio;
+            $netoBolsa = round($totSaldo + $totAlerta, 2); // positivos + (negativos) = neto, cuadra con contabilidad
+            $revBolsa  = round(-1 * $totAlerta, 2);         // reversado de más (en positivo)
         @endphp
         <div id="bolsa-det-{{ $b['codigo'] }}" class="bolsa-det" style="display:none;margin-top:8px;border:1px solid #E5E9F0;border-radius:10px;overflow:hidden;background:#fff">
             {{-- Toolbar: interruptor $0 · líneas con saldo · Exportar Excel --}}
@@ -372,7 +391,10 @@
                     <input type="checkbox" onchange="toggleBolsaZeros('{{ $b['codigo'] }}', this.checked)">
                     <span class="sw-tr"></span> Mostrar lo ya cruzado ($0)
                 </label>
+                <span class="bd-cerrando" title="Las filas de meses anteriores se resaltan: deben cerrarse primero">Cerrando: {{ $mesCierreNombre }}</span>
+                <span class="bd-leyenda"><span class="sw"></span> Ámbar = periodo anterior (cerrar primero)</span>
                 <span style="flex:1"></span>
+                <button type="button" class="bd-limpiar" onclick="limpiarFiltrosBolsa('{{ $b['codigo'] }}')">Limpiar filtros</button>
                 <span style="font-size:11.5px;color:#6B7686">Líneas con saldo: <b style="color:#1B4C7A">{{ $conSaldo }}</b></span>
                 <a href="{{ route('operativo.distribucion.detalle-bolsa.excel', ['mes'=>$mes,'anio'=>$anio,'vista'=>$vista,'departamento'=>$b['codigo']]) }}"
                    style="font-size:12px;padding:6px 11px;border:1px solid #CDE9D6;border-radius:8px;background:#F0FDF4;color:#15803D;text-decoration:none;font-weight:700">↓ Exportar Excel</a>
@@ -394,20 +416,35 @@
                 <input type="hidden" name="departamento" value="{{ $b['codigo'] }}">
                 <div style="overflow-x:auto">
                     <table class="bd-tbl">
-                        <thead><tr>
+                        <thead>
+                        <tr>
                             <th>U.N.</th><th>Fecha</th><th>Desc. U.N.</th><th>Nombre del proyecto</th>
                             <th>Auxiliar</th><th>Desc. auxiliar</th><th>Nit movto.</th><th>Razón social tercero</th><th>Docto.</th>
                             <th class="n">Saldo</th><th class="n bd-act">A distribuir</th><th class="n bd-act">Queda mes sig.</th><th class="bd-act">Observaciones</th>
-                        </tr></thead>
+                        </tr>
+                        {{-- Fila de filtros por columna: filtra las filas en vivo (contiene, sin acentos/mayúsc.). --}}
+                        <tr class="bd-filtros" data-bolsa="{{ $b['codigo'] }}">
+                            @foreach(['U.N.','Fecha','Desc. U.N.','Proyecto','Auxiliar','Desc. auxiliar','Nit','Razón social','Docto.','Saldo'] as $ci => $ph)
+                                <th><input type="text" data-col="{{ $ci }}" placeholder="{{ $ph }}" oninput="filtrarBolsaDet('{{ $b['codigo'] }}')" aria-label="Filtrar {{ $ph }}"></th>
+                            @endforeach
+                            <th class="bd-nofilter"></th><th class="bd-nofilter"></th><th class="bd-nofilter"></th>
+                        </tr>
+                        </thead>
                         <tbody>
                         @forelse($det as $l)
                         @php
                             $k = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'].'|'.$l['documento'];
                             $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
+                            // Periodo de la fila (AAAAMM): de fecha_docto si existe, si no del 'ord' (periodo*100).
+                            $rowYM = intdiv((int) ($l['ord'] ?? 0), 100);
+                            // Fila de un mes anterior al que se está cerrando (debe cerrarse primero).
+                            $anterior = empty($l['alerta']) && $rowYM > 0 && $rowYM !== $cierreYM;
+                            $clases = !empty($l['alerta']) ? 'bz-alerta' : ($l['cero'] ? 'bz-row' : '');
+                            if ($anterior) $clases = trim($clases.' bd-anterior');
                         @endphp
-                        <tr class="{{ !empty($l['alerta']) ? 'bz-alerta' : ($l['cero'] ? 'bz-row' : '') }}" data-saldo="{{ round($l['saldo']) }}" @if(!empty($l['alerta'])) style="background:#FEF2F2" @endif>
+                        <tr class="{{ $clases }}" data-saldo="{{ round($l['saldo']) }}" @if(!empty($l['alerta'])) style="background:#FEF2F2" @endif>
                             <td style="font-family:monospace">{{ $l['un_codigo'] }}</td>
-                            <td>{{ $l['fecha'] ?? '—' }}</td>
+                            <td>{{ $l['fecha'] ?? '—' }}@if($anterior) <span class="bd-ant-tag">ANTERIOR</span>@endif</td>
                             <td style="color:#6B7686">{{ Str::limit($l['un_nombre'], 22) }}</td>
                             <td style="color:#6B7686">{{ Str::limit($l['nombre_proyecto'], 26) }}</td>
                             <td style="font-family:monospace">{{ $l['cuenta_14'] }}</td>
@@ -434,13 +471,31 @@
                         <tr><td colspan="13" style="padding:14px;text-align:center;color:#95A0AF">Esta bolsa no tiene saldo por distribuir.</td></tr>
                         @endforelse
                         </tbody>
-                        <tfoot><tr>
+                        <tfoot>
+                        <tr>
                             <td colspan="9" style="text-align:right">Totales</td>
                             <td class="n" id="ftSaldo-{{ $b['codigo'] }}">${{ number_format($totSaldo, 0, ',', '.') }}</td>
                             <td class="n" id="ftDist-{{ $b['codigo'] }}">${{ number_format($totDist, 0, ',', '.') }}</td>
                             <td class="n" id="ftQueda-{{ $b['codigo'] }}">${{ number_format(max(0, $totSaldo - $totDist), 0, ',', '.') }}</td>
                             <td></td>
-                        </tr></tfoot>
+                        </tr>
+                        {{-- Conciliación con contabilidad: Disponible − Reversado de más = Saldo de la bolsa (neto). --}}
+                        <tr>
+                            <td colspan="9" style="text-align:right;font-weight:600;color:#6B7686">Disponible por distribuir (suma de líneas con saldo)</td>
+                            <td class="n" style="color:#1B4C7A">${{ number_format($totSaldo, 0, ',', '.') }}</td>
+                            <td colspan="3"></td>
+                        </tr>
+                        <tr>
+                            <td colspan="9" style="text-align:right;font-weight:600;color:#B91C1C">(−) Reversado de más / por revisar</td>
+                            <td class="n" style="color:#B91C1C">${{ number_format($revBolsa, 0, ',', '.') }}</td>
+                            <td colspan="3"></td>
+                        </tr>
+                        <tr>
+                            <td colspan="9" style="text-align:right;font-weight:800;color:#15803D;background:#EAF7EE">= Saldo de la bolsa (neto) · cuadra con contabilidad</td>
+                            <td class="n" style="color:#15803D;background:#EAF7EE">${{ number_format($netoBolsa, 0, ',', '.') }}</td>
+                            <td colspan="3" style="background:#EAF7EE"></td>
+                        </tr>
+                        </tfoot>
                     </table>
                 </div>
                 @unless($puedeEditarBolsa)
@@ -805,6 +860,35 @@ function toggleBolsaDetalle(c){
     const mostrar = (e.style.display === 'none' || !e.style.display);
     e.style.display = mostrar ? 'block' : 'none';
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
+
+/* Normaliza texto para filtrar: minúsculas y sin acentos. */
+function _normTxt(s){ return (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+
+/* Filtro por columna del detalle de una bolsa (en vivo, "contiene", sin acentos/mayúsculas).
+   Oculta las filas que no coinciden; las que pasan vuelven a su visibilidad por CSS (los $0 siguen
+   ocultos salvo "mostrar lo ya cruzado"). */
+function filtrarBolsaDet(code){
+    const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
+    const filtros = [];
+    cont.querySelectorAll('tr.bd-filtros input[data-col]').forEach(inp => {
+        const v = _normTxt(inp.value.trim());
+        if (v !== '') filtros.push({ col: Number(inp.dataset.col), v });
+    });
+    cont.querySelectorAll('table.bd-tbl tbody tr').forEach(tr => {
+        const tds = tr.querySelectorAll('td');
+        let ok = true;
+        for (const f of filtros) {
+            const cell = tds[f.col];
+            if (!_normTxt(cell ? cell.textContent : '').includes(f.v)) { ok = false; break; }
+        }
+        tr.style.display = ok ? '' : 'none';   // '' = respeta la visibilidad por CSS (ceros, etc.)
+    });
+}
+function limpiarFiltrosBolsa(code){
+    const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
+    cont.querySelectorAll('tr.bd-filtros input[data-col]').forEach(inp => inp.value = '');
+    cont.querySelectorAll('table.bd-tbl tbody tr').forEach(tr => tr.style.display = '');
 }
 
 /* Interruptor "Mostrar lo ya cruzado ($0)" del detalle de una bolsa (presentación). */
