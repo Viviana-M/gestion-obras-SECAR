@@ -395,34 +395,6 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function la_tarjeta_absorbe_el_reverso_de_secar_con_los_positivos_de_las_obras(): void
-    {
-        // Bolsa MTO00099: 1.000.000 distribuible (tercero 111) y un reverso de SECAR −800k (cuenta
-        // 14200563). La obra C-800 tiene +500k a nombre de SECAR en esa cuenta: el reverso se cruza a
-        // nivel departamento y solo quedan 300k como reversado de más (no los 800k completos).
-        $crear = function (string $cod, string $cc, string $t, float $deb, float $cred) {
-            RegistroFinanciero::create([
-                'codigo_proyecto' => $cod, 'nombre_proyecto' => 'X', 'cuenta_contable' => $cc,
-                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => 'T'.$t,
-                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
-                'fecha_docto' => '2026-09-10', 'mes' => 9, 'anio' => 2026,
-            ]);
-        };
-        $crear('MTO00099', '14200530', '111', 1000000, 0);        // distribuible +1M
-        $crear('MTO00099', '14200563', '890319324', 0, 800000);   // reverso de SECAR −800k
-        $crear('C-800',    '14200563', '890319324', 500000, 0);   // positivo de SECAR en la obra +500k
-
-        $svc = new DistribucionService();
-        $periodo = \App\Models\Homologacion::periodo(2026, 9);
-        $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 9, 'todo'))->first();
-
-        $this->assertEqualsWithDelta(1000000, $mant['total'], 1);           // distribuible intacto
-        $this->assertEqualsWithDelta(300000,  $mant['total_reversado'], 1); // 800k − 500k absorbidos en obras
-        $this->assertEqualsWithDelta(700000,  $mant['neto'], 1);            // 1M − 300k
-        $this->assertEqualsWithDelta($mant['total'] - $mant['total_reversado'], $mant['neto'], 1);
-    }
-
-    #[Test]
     public function la_linea_de_reversado_ofrece_selector_de_destino_del_reverso(): void
     {
         // Reversado de más (14200599 −300k) + una cuenta 1420 CON saldo (14200530 +500k) en MTO00099.
@@ -628,17 +600,12 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function el_detalle_oculta_las_lineas_que_quedan_en_cero_tras_cruzar_secar(): void
     {
-        // Cuenta 14209999: SECAR reversó −500k en la bolsa, respaldado por +500k a nombre de SECAR en una
-        // obra del depto (C-900). El cruce a nivel departamento deja la línea de SECAR en $0 (cruzada).
+        // Cuenta 14209999: ABC +500k y SECAR −500k. El cruce FIFO deja ambas en $0 (ya cruzadas).
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'ABC SAS', 500000, 7, 2026); // estado_er −500k → +500k
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '890319324', 'razon_social' => 'SECAR',
             'estado_er' => 500000, 'valor_debito' => 0, 'valor_credito' => 500000, 'mes' => 7, 'anio' => 2026,
-        ]);
-        RegistroFinanciero::create([
-            'codigo_proyecto' => 'C-900', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14209999',
-            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '890319324', 'razon_social' => 'SECAR',
-            'estado_er' => -500000, 'valor_debito' => 500000, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
         ]);
         // Cuenta con saldo real.
         $this->bolsaTercero('MTO00099', '14200530', '222', 'AIR EZ SAS', 300000, 7, 2026);
@@ -647,7 +614,7 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
             ->assertOk()->getContent();
 
-        // La línea de SECAR en $0 (cruzada con la obra) se marca como oculta (clase bz-row) con "cruzado".
+        // Las líneas en $0 (ABC y SECAR, cruzadas) se marcan como ocultas (clase bz-row) con "cruzado".
         $this->assertStringContainsString('bz-row', $html);
         $this->assertStringContainsString('cruzado', $html);
         // Banner de ocultos + contador de líneas con saldo (solo 1 con saldo real).
@@ -660,65 +627,35 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function el_reverso_de_secar_cruza_sus_positivos_en_las_obras_del_departamento(): void
+    public function el_cruce_fifo_de_secar_atribuye_el_neto_al_tercero_correcto(): void
     {
-        // En la bolsa INS00001 (instalaciones), cuenta 14200563: Jaramillo +260k y ABC +7.007.956 (otros
-        // terceros, DISTRIBUIBLES) y un reverso de SECAR −6.647.620. SECAR NO toca a Jaramillo/ABC: cruza
-        // a nivel departamento contra SUS positivos, que están repartidos en la obra O-900 (+6.647.620).
-        $rf = function (string $un, string $t, string $razon, float $deb, float $cred, string $fecha) {
+        // Cuenta 14200563: Jaramillo +260k (más antiguo), ABC +7.007.956 (más reciente),
+        // SECAR −6.647.620. FIFO: SECAR consume Jaramillo completo y 6.387.620 de ABC →
+        // ABC queda en 620.336; Jaramillo y SECAR en $0. El neto de la cuenta no cambia.
+        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
             RegistroFinanciero::create([
-                'codigo_proyecto' => $un, 'nombre_proyecto' => 'Capacitación', 'cuenta_contable' => '14200563',
+                'codigo_proyecto' => 'INS00001', 'nombre_proyecto' => 'Capacitación', 'cuenta_contable' => '14200563',
                 'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
                 'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
                 'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
             ]);
         };
-        $rf('INS00001', '1130627016', 'Jaramillo Carlos', 260000, 0, '2026-06-10');
-        $rf('INS00001', '901510086',  'ABC Formación',   7007956, 0, '2026-08-18');
-        $rf('INS00001', '890319324',  'SECAR',           0, 6647620, '2026-09-30'); // reverso en la bolsa
-        $rf('O-900',    '890319324',  'SECAR',           6647620, 0, '2026-07-15'); // positivo de SECAR en la obra
+        $rf('1130627016', 'Jaramillo Carlos', 260000, 0, '2026-06-10');
+        $rf('901510086',  'ABC Formación',   7007956, 0, '2026-08-18');
+        $rf('890319324',  'SECAR',           0, 6647620, '2026-09-30');
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 8);
         $det = $svc->detalleBolsaTerceros(['INS00001'], $periodo, 2026, 8, 'todo');
         $por = collect($det['INS00001'])->keyBy('tercero_dcto');
 
-        // Los otros terceros NO se tocan: su positivo sigue distribuible.
-        $this->assertEqualsWithDelta(260000,  $por['1130627016']['saldo'], 1);
-        $this->assertEqualsWithDelta(7007956, $por['901510086']['saldo'], 1);
-        // El reverso de SECAR quedó cruzado contra su positivo en la obra → $0 (no es reversado de más).
-        $this->assertEqualsWithDelta(0, $por['890319324']['saldo'], 1);
+        $this->assertEqualsWithDelta(620336, $por['901510086']['saldo'], 1);  // ABC remanente
+        $this->assertEqualsWithDelta(0, $por['1130627016']['saldo'], 1);      // Jaramillo consumido
+        $this->assertEqualsWithDelta(0, $por['890319324']['saldo'], 1);       // SECAR cruzado
+        $this->assertTrue($por['1130627016']['cero']);
         $this->assertTrue($por['890319324']['cero']);
-        $this->assertFalse($por['890319324']['alerta']);
-        // El distribuible de la bolsa no se achica por el reverso de SECAR: 260k + 7.007.956.
-        $this->assertEqualsWithDelta(7267956, collect($det['INS00001'])->sum('saldo'), 1);
-    }
-
-    #[Test]
-    public function el_reverso_de_secar_sin_respaldo_en_obras_queda_como_reversado_de_mas(): void
-    {
-        // Mismo caso pero SIN positivos de SECAR en las obras: el reverso NO se puede cruzar y queda como
-        // alerta (reversado de más), sin tocar a los otros terceros.
-        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
-            RegistroFinanciero::create([
-                'codigo_proyecto' => 'INS00002', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200563',
-                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
-                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
-                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
-            ]);
-        };
-        $rf('901510086', 'ABC Formación', 2000000, 0, '2026-08-18');
-        $rf('890319324', 'SECAR',         0, 500000, '2026-09-30');
-
-        $svc = new DistribucionService();
-        $periodo = \App\Models\Homologacion::periodo(2026, 8);
-        $det = $svc->detalleBolsaTerceros(['INS00002'], $periodo, 2026, 8, 'todo');
-        $por = collect($det['INS00002'])->keyBy('tercero_dcto');
-
-        $this->assertEqualsWithDelta(2000000, $por['901510086']['saldo'], 1);  // ABC intacto (distribuible)
-        $this->assertEqualsWithDelta(-500000, $por['890319324']['saldo'], 1);  // reverso sin respaldo
-        $this->assertTrue($por['890319324']['alerta']);
-        $this->assertEqualsWithDelta(0, $por['890319324']['monto_distribuir'], 1);
+        // El neto total de la cuenta se conserva (260k + 7.007.956 − 6.647.620 = 620.336).
+        $this->assertEqualsWithDelta(620336, collect($det['INS00001'])->sum('saldo'), 1);
     }
 
     #[Test]
