@@ -47,6 +47,19 @@
     .hc .hm { font-size:13px;font-weight:800;margin-top:1px }
     .hc.verde{background:#1E9E54} .hc.amarillo{background:#E0A32E;color:#4A3610} .hc.rojo{background:#D6453F} .hc.gris{background:#9CA3AF}
     .heatlabel { font-weight:700;color:#1B3F6E;font-size:12.5px;margin:14px 0 2px }
+
+    /* Tarjeta de bolsa 100% clicqueable: toda la tarjeta abre el detalle por cuenta. */
+    .bolsa { cursor:pointer; transition:border-color .15s, box-shadow .15s, transform .15s }
+    .bolsa:hover { border-color:#B9D2EB; box-shadow:0 4px 14px rgba(27,76,122,.14); transform:translateY(-1px) }
+    .bolsa:active { transform:translateY(0) }
+    .bolsa:focus-visible { outline:2px solid #1B4C7A; outline-offset:2px }
+    /* "Ver detalle por cuenta": indicador visual (no es un botón) que acompaña el hover de la tarjeta. */
+    .bolsa .detbtn { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px;
+        background:#EAF1F8; border:1px solid #D6E3F1; border-radius:8px; padding:6px 10px;
+        font-size:12px; font-weight:600; color:#1B4C7A; transition:background .15s, border-color .15s }
+    .bolsa .detbtn .chev { transition:transform .15s }
+    .bolsa:hover .detbtn { background:#DCE9F6; border-color:#B9D2EB }
+    .bolsa:hover .detbtn .chev { transform:translateX(2px) }
 </style>
 @php
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
@@ -235,7 +248,12 @@
             $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
             $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
         @endphp
-        <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
+        <div id="bolsa-box-{{ $b['codigo'] }}" class="bolsa"
+             role="button" tabindex="0"
+             aria-label="Ver detalle por cuenta de {{ $b['nombre'] }}"
+             onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleBolsaDetalle('{{ $b['codigo'] }}');}"
+             style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
                 <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
                 <span style="font-size:12px;color:#6B7686">Total ${{ number_format($b['total'], 0, ',', '.') }}</span>
@@ -248,7 +266,11 @@
             <div style="height:7px;background:#EEF1F6;border-radius:20px;overflow:hidden">
                 <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:linear-gradient(90deg,#1B4C7A,#3A79B5);border-radius:20px;transition:width .2s"></div>
             </div>
-            <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-top:9px;background:none;border:none;color:#1B4C7A;font-size:12px;font-weight:600;cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:5px"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta ›</button>
+            {{-- Indicador visual (NO es un botón): acompaña el hover/clic de toda la tarjeta. --}}
+            <div class="detbtn">
+                <span><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</span>
+                <span class="chev" aria-hidden="true">›</span>
+            </div>
         </div>
         @endforeach
         @if($kpiObras > 0)
