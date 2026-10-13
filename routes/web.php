@@ -164,6 +164,7 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Distribución de costos
         Route::get('/operativo/distribucion/consultas', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultas'])->name('operativo.distribucion.consultas');
         Route::get('/operativo/distribucion/reporte-saldos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'reporteSaldos'])->name('operativo.distribucion.reporte-saldos');
+        Route::get('/operativo/distribucion/detalle-bolsa/excel', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'exportarDetalleBolsa'])->name('operativo.distribucion.detalle-bolsa.excel');
 
         // Distribución de mano de obra por tercero (acciones del grid de bolsas, por departamento).
         Route::post('/operativo/mano-obra/guardar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'guardar'])->name('operativo.mano-obra.guardar');

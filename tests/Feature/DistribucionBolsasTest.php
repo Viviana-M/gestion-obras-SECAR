@@ -177,9 +177,9 @@ class DistribucionBolsasTest extends TestCase
 
         $resp = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
         $resp->assertStatus(200);
-        $resp->assertSee('Queda mes siguiente', false);        // encabezado de la nueva columna
-        $resp->assertSee('id="queda-tot-mantenimiento"', false); // total de la columna
-        $resp->assertSee('$5.000.000', false);                  // 20M − 15M = 5M queda
+        $resp->assertSee('Queda mes sig.', false);               // encabezado de la columna (tabla plana)
+        $resp->assertSee('id="ftQueda-mantenimiento"', false);   // total de la columna (fila de totales)
+        $resp->assertSee('$5.000.000', false);                   // 20M − 15M = 5M queda
     }
 
     #[Test]
@@ -413,10 +413,10 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function el_detalle_oculta_por_defecto_las_cuentas_ya_cruzadas_en_cero(): void
+    public function el_detalle_oculta_las_lineas_que_quedan_en_cero_tras_cruzar_secar(): void
     {
-        // Cuenta ya cruzada ($0): un tercero +500k y SECAR −500k → neto Libro 1 = 0.
-        $this->bolsaTercero('MTO00099', '14209999', '111', 'JUAN PEREZ', 500000, 7, 2026); // estado_er −500k → +500k
+        // Cuenta 14209999: ABC +500k y SECAR −500k. El cruce FIFO deja ambas en $0 (ya cruzadas).
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'ABC SAS', 500000, 7, 2026); // estado_er −500k → +500k
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '890319324', 'razon_social' => 'SECAR',
@@ -429,16 +429,48 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
             ->assertOk()->getContent();
 
-        // La cuenta cruzada se marca como oculta (clase bz-cuenta) con badge "ya cruzada".
-        $this->assertStringContainsString('bz-cuenta', $html);
-        $this->assertStringContainsString('ya cruzada', $html);
-        // Banner de ocultos + contador de cuentas con saldo (solo 1 con saldo real).
+        // Las líneas en $0 (ABC y SECAR, cruzadas) se marcan como ocultas (clase bz-row) con "cruzado".
+        $this->assertStringContainsString('bz-row', $html);
+        $this->assertStringContainsString('cruzado', $html);
+        // Banner de ocultos + contador de líneas con saldo (solo 1 con saldo real).
         $this->assertStringContainsString('Se ocultaron', $html);
-        $this->assertStringContainsString('Cuentas con saldo:', $html);
-        // El interruptor para auditar los $0 existe.
-        $this->assertStringContainsString('Mostrar cuentas ya cruzadas', $html);
+        $this->assertStringContainsString('Líneas con saldo:', $html);
+        // El interruptor para auditar las $0 existe.
+        $this->assertStringContainsString('Mostrar lo ya cruzado', $html);
         // La cuenta con saldo real sí aparece.
         $this->assertStringContainsString('14200530', $html);
+    }
+
+    #[Test]
+    public function el_cruce_fifo_de_secar_atribuye_el_neto_al_tercero_correcto(): void
+    {
+        // Cuenta 14200563: Jaramillo +260k (más antiguo), ABC +7.007.956 (más reciente),
+        // SECAR −6.647.620. FIFO: SECAR consume Jaramillo completo y 6.387.620 de ABC →
+        // ABC queda en 620.336; Jaramillo y SECAR en $0. El neto de la cuenta no cambia.
+        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'INS00001', 'nombre_proyecto' => 'Capacitación', 'cuenta_contable' => '14200563',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+            ]);
+        };
+        $rf('1130627016', 'Jaramillo Carlos', 260000, 0, '2026-06-10');
+        $rf('901510086',  'ABC Formación',   7007956, 0, '2026-08-18');
+        $rf('890319324',  'SECAR',           0, 6647620, '2026-09-30');
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 8);
+        $det = $svc->detalleBolsaTerceros(['INS00001'], $periodo, 2026, 8, 'todo');
+        $por = collect($det['INS00001'])->keyBy('tercero_dcto');
+
+        $this->assertEqualsWithDelta(620336, $por['901510086']['saldo'], 1);  // ABC remanente
+        $this->assertEqualsWithDelta(0, $por['1130627016']['saldo'], 1);      // Jaramillo consumido
+        $this->assertEqualsWithDelta(0, $por['890319324']['saldo'], 1);       // SECAR cruzado
+        $this->assertTrue($por['1130627016']['cero']);
+        $this->assertTrue($por['890319324']['cero']);
+        // El neto total de la cuenta se conserva (260k + 7.007.956 − 6.647.620 = 620.336).
+        $this->assertEqualsWithDelta(620336, collect($det['INS00001'])->sum('saldo'), 1);
     }
 
     #[Test]

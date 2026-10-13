@@ -145,6 +145,8 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
             'documento'        => $documento,
+            // Fecha del documento (col "Fecha_docto", AAAAMMDD) → fecha del movimiento / FIFO SECAR.
+            'fecha_docto'      => $this->fechaDocto($row['fecha_docto'] ?? null),
             'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
@@ -299,5 +301,15 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         $valor = str_replace(['$', '.', ' '], '', (string) $valor);
         $valor = str_replace(',', '.', $valor);
         return is_numeric($valor) ? floatval($valor) : 0;
+    }
+
+    /** "Fecha_docto" del cierre en AAAAMMDD (o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */
+    private function fechaDocto($valor): ?string
+    {
+        $d = preg_replace('/\D/', '', (string) $valor);     // deja solo dígitos: 20260818
+        if (strlen($d) !== 8) return null;
+        $y = (int) substr($d, 0, 4); $m = (int) substr($d, 4, 2); $day = (int) substr($d, 6, 2);
+        if (! checkdate($m, $day, $y)) return null;
+        return sprintf('%04d-%02d-%02d', $y, $m, $day);
     }
 }

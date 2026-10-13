@@ -65,10 +65,22 @@
     .bolsa:hover .detbtn .chev { transform:translateX(2px) }
 
     /* Detalle por cuenta: ocultar lo ya cruzado ($0 exacto) salvo que se active el interruptor. */
-    .bolsa-det .bz-cuenta, .bolsa-det .bz-terc { display:none }
-    .bolsa-det.show-zeros .bz-cuenta, .bolsa-det.show-zeros .bz-terc { display:table-row }
-    .bolsa-det.show-zeros .bz-cuenta td, .bolsa-det.show-zeros .bz-terc td { opacity:.65 }
+    .bolsa-det .bz-cuenta, .bolsa-det .bz-terc, .bolsa-det .bz-row { display:none }
+    .bolsa-det.show-zeros .bz-cuenta, .bolsa-det.show-zeros .bz-terc, .bolsa-det.show-zeros .bz-row { display:table-row }
+    .bolsa-det.show-zeros .bz-cuenta td, .bolsa-det.show-zeros .bz-terc td, .bolsa-det.show-zeros .bz-row td { opacity:.65 }
     .bolsa-det.show-zeros .hidenote { display:none }
+    /* Tabla plana del detalle por tercero. */
+    .bd-tbl { border-collapse:collapse; width:100%; min-width:1240px }
+    .bd-tbl th, .bd-tbl td { padding:8px 10px; font-size:11.5px; text-align:left; border-bottom:1px solid #EEF1F6; white-space:nowrap }
+    .bd-tbl th { font-size:10px; color:#6B7686; text-transform:uppercase; letter-spacing:.02em; background:#F3F6FA }
+    .bd-tbl td.n, .bd-tbl th.n { text-align:right }
+    .bd-tbl th.bd-act { background:#EAF1F8; color:#1B4C7A }
+    .bd-tbl td.bd-act { background:#F7FBFF }
+    .bd-tbl tfoot td { font-weight:800; background:#F6FCF8; color:#15803D; border-top:2px solid #CDE9D6 }
+    .bd-inp { border:1px solid #BBD3EA; border-radius:8px; padding:5px 8px; width:120px; text-align:right; font-weight:700; color:#1B4C7A; background:#fff; font-size:12px }
+    .bd-obs { border:1px solid #E5E9F0; border-radius:8px; padding:5px 8px; width:150px; font-size:12px; background:#fff }
+    .bd-qv { font-weight:800; color:#15803D }
+    .z0 { font-size:10px; color:#95A0AF; font-weight:700 }
     .badge-cruzada { display:inline-flex;align-items:center;gap:4px;background:#E7F6EC;border:1px solid #BEE3C9;
         color:#15803D;border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700;white-space:nowrap }
     /* Interruptor (toggle) del detalle. */
@@ -310,40 +322,33 @@
 
     @if(!empty($bolsas))
     <div style="margin-bottom:4px">
-
-        {{-- Detalle por cuenta de cada bolsa grande. En el cierre se edita el "a distribuir"
-             (cuánto de cada cuenta se carga este mes) + observaciones; el disponible = suma de eso. --}}
+        {{-- Detalle por TERCERO de cada bolsa: tabla plana donde operaciones distribuye directo en
+             cada línea. El Saldo ya trae el cruce FIFO de SECAR atribuido; lo que quedó en $0 se
+             oculta salvo que se active el interruptor. El plano al ERP sigue agregado por cuenta. --}}
         @foreach($bolsas as $b)
         @php
-            // Presentación: ocultar lo ya cruzado ($0 exacto en Libro 1 = débito − crédito, al peso).
-            // NO cambia la lógica ni los saldos; solo decide qué se muestra de entrada.
-            $zCuentas = 0; $zTerceros = 0; $conSaldo = 0;
-            foreach ($b['lineas'] as $ln) {
-                if (round($ln['saldo']) == 0) {
-                    $zCuentas++;
-                } else {
-                    $conSaldo++;
-                    foreach (($ln['terceros'] ?? []) as $tt) { if (round($tt['saldo']) == 0) $zTerceros++; }
-                }
+            $det = $detalleBolsas[$b['codigo']] ?? [];
+            $conSaldo = 0; $ocultas = 0; $totSaldo = 0.0; $totDist = 0.0;
+            foreach ($det as $dl) {
+                if ($dl['cero']) { $ocultas++; }
+                else { $conSaldo++; $totSaldo += $dl['saldo']; $totDist += $dl['monto_distribuir']; }
             }
         @endphp
         <div id="bolsa-det-{{ $b['codigo'] }}" class="bolsa-det" style="display:none;margin-top:8px;border:1px solid #E5E9F0;border-radius:10px;overflow:hidden;background:#fff">
-            {{-- Toolbar del detalle: interruptor de cuentas ya cruzadas + "Cuentas con saldo". --}}
+            {{-- Toolbar: interruptor $0 · líneas con saldo · Exportar Excel --}}
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid #EEF1F6;background:#FAFBFD">
                 <label class="sw-zeros" style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#1E2A38;cursor:pointer;user-select:none">
                     <input type="checkbox" onchange="toggleBolsaZeros('{{ $b['codigo'] }}', this.checked)">
-                    <span class="sw-tr"></span> Mostrar cuentas ya cruzadas ($0)
+                    <span class="sw-tr"></span> Mostrar lo ya cruzado ($0)
                 </label>
                 <span style="flex:1"></span>
-                <span style="font-size:11.5px;color:#6B7686">Cuentas con saldo: <b style="color:#1B4C7A">{{ $conSaldo }}</b></span>
+                <span style="font-size:11.5px;color:#6B7686">Líneas con saldo: <b style="color:#1B4C7A">{{ $conSaldo }}</b></span>
+                <a href="{{ route('operativo.distribucion.detalle-bolsa.excel', ['mes'=>$mes,'anio'=>$anio,'vista'=>$vista,'departamento'=>$b['codigo']]) }}"
+                   style="font-size:12px;padding:6px 11px;border:1px solid #CDE9D6;border-radius:8px;background:#F0FDF4;color:#15803D;text-decoration:none;font-weight:700">↓ Exportar Excel</a>
             </div>
-            @if($zCuentas > 0 || $zTerceros > 0)
-            <div class="hidenote" style="background:#EAF1F8;border-bottom:1px solid #D4E3F2;color:#1B4C7A;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <span>✓ Se ocultaron</span>
-                @if($zCuentas > 0)<b>{{ $zCuentas }} cuenta(s) ya cruzada(s) ($0)</b>@endif
-                @if($zCuentas > 0 && $zTerceros > 0)<span>y</span>@endif
-                @if($zTerceros > 0)<b>{{ $zTerceros }} tercero(s) en $0</b>@endif
-                <span>· actívalos con el interruptor si necesitas auditarlos.</span>
+            @if($ocultas > 0)
+            <div class="hidenote" style="background:#EAF1F8;border-bottom:1px solid #D4E3F2;color:#1B4C7A;padding:8px 12px;font-size:12px">
+                ✓ Se ocultaron <b>{{ $ocultas }}</b> línea(s) que ya quedaron en $0 (cruzadas con SECAR). Actívalas con el interruptor si las necesitas.
             </div>
             @endif
             <form method="POST" action="{{ route('operativo.distribucion.bolsa-montos') }}">
@@ -352,102 +357,61 @@
                 <input type="hidden" name="anio" value="{{ $anio }}">
                 <input type="hidden" name="departamento" value="{{ $b['codigo'] }}">
                 <div style="overflow-x:auto">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;background:#fff">
-                        <tr style="background:#F3F6FA;color:#1B4C7A;text-align:left">
-                            <td style="padding:6px 8px">UN</td>
-                            <td style="padding:6px 8px">Nombre UN</td>
-                            <td style="padding:6px 8px">Cuenta</td>
-                            <td style="padding:6px 8px">Nombre cuenta</td>
-                            <td style="padding:6px 8px">Tercero</td>
-                            <td style="padding:6px 8px;text-align:right">Saldo</td>
-                            <td style="padding:6px 8px;text-align:right">A distribuir</td>
-                            <td style="padding:6px 8px;text-align:right">Queda mes siguiente</td>
-                            <td style="padding:6px 8px">Observaciones</td>
-                        </tr>
-                        @foreach($b['lineas'] as $l)
+                    <table class="bd-tbl">
+                        <thead><tr>
+                            <th>U.N.</th><th>Fecha</th><th>Desc. U.N.</th><th>Nombre del proyecto</th>
+                            <th>Auxiliar</th><th>Desc. auxiliar</th><th>Nit movto.</th><th>Razón social tercero</th><th>Docto.</th>
+                            <th class="n">Saldo</th><th class="n bd-act">A distribuir</th><th class="n bd-act">Queda mes sig.</th><th class="bd-act">Observaciones</th>
+                        </tr></thead>
+                        <tbody>
+                        @forelse($det as $l)
                         @php
-                            $k = $l['un_codigo'].'|'.$l['cuenta_14'];
-                            $kid = preg_replace('/[^A-Za-z0-9]/', '_', $b['codigo'].'_'.$k);
+                            $k = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'];
                             $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
-                            $tercs = $l['terceros'] ?? [];
-                            // Cuenta ya cruzada: saldo neto Libro 1 = $0 (al peso). Se oculta por defecto.
-                            $cuentaCero = round($l['saldo']) == 0;
                         @endphp
-                        <tr class="{{ $cuentaCero ? 'bz-cuenta' : '' }}" style="border-top:1px solid #EEF1F6">
-                            <td style="padding:5px 8px;font-family:monospace">{{ $l['un_codigo'] }}</td>
-                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
-                            <td style="padding:5px 8px;font-family:monospace">{{ $l['cuenta_14'] }}</td>
-                            <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['nombre'], 26) }}</td>
-                            <td style="padding:5px 8px;color:#6B7280">
-                                @if($cuentaCero)
-                                    <span class="badge-cruzada">✓ ya cruzada</span>
-                                @else
-                                    {{ Str::limit($l['tercero'], 24) }}
-                                    @php $tercsVis = collect($tercs)->filter(fn ($t) => round($t['saldo']) != 0)->count(); @endphp
-                                    @if($tercsVis > 1)
-                                        <span style="color:#9CA3AF">· +{{ $tercsVis - 1 }}</span>
-                                    @endif
-                                @endif
-                            </td>
-                            <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
-                            <td style="padding:5px 8px;text-align:right">
-                                @if($cuentaCero)
-                                    <span style="color:#9CA3AF">—</span>
-                                @elseif($puedeEditarBolsa)
-                                    <input type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}"
-                                        data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="onMontoInput(this)"
-                                        style="width:130px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
-                                @else
-                                    <b style="color:#B45309">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b>
-                                @endif
-                            </td>
-                            <td style="padding:5px 8px;text-align:right;color:#15803D">
-                                <b id="queda-{{ $kid }}">${{ number_format($queda, 0, ',', '.') }}</b>
-                            </td>
-                            <td style="padding:5px 8px">
-                                @if($cuentaCero)
-                                    <span style="color:#9CA3AF"></span>
-                                @elseif($puedeEditarBolsa)
-                                    <input type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"
-                                        style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;background:#fff">
-                                @else
-                                    <span style="color:#6B7280">{{ $l['observaciones'] }}</span>
-                                @endif
-                            </td>
+                        <tr class="{{ $l['cero'] ? 'bz-row' : '' }}" data-saldo="{{ round($l['saldo']) }}">
+                            <td style="font-family:monospace">{{ $l['un_codigo'] }}</td>
+                            <td>{{ $l['fecha'] ?? '—' }}</td>
+                            <td style="color:#6B7686">{{ Str::limit($l['un_nombre'], 22) }}</td>
+                            <td style="color:#6B7686">{{ Str::limit($l['nombre_proyecto'], 26) }}</td>
+                            <td style="font-family:monospace">{{ $l['cuenta_14'] }}</td>
+                            <td style="color:#6B7686">{{ Str::limit($l['nombre'], 24) }}</td>
+                            <td style="font-family:monospace;color:#6B7686">{{ $l['tercero_dcto'] }}</td>
+                            <td>{{ Str::limit($l['razon_social'], 28) }}@if($l['cero']) <span class="z0">cruzado</span>@endif</td>
+                            <td style="font-family:monospace;color:#6B7686">{{ $l['documento'] }}</td>
+                            <td class="n" style="font-weight:700;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
+                            @if($l['cero'])
+                            <td class="n bd-act">—</td><td class="n bd-act">—</td><td class="bd-act">—</td>
+                            @elseif($puedeEditarBolsa)
+                            <td class="n bd-act"><input class="bd-inp" type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}" data-tipo="bolsamonto" data-bolsa="{{ $b['codigo'] }}" oninput="onBolsaDetInput(this)"></td>
+                            <td class="n bd-act"><span class="bd-qv">${{ number_format($queda, 0, ',', '.') }}</span></td>
+                            <td class="bd-act"><input class="bd-obs" type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"></td>
+                            @else
+                            <td class="n bd-act"><b style="color:#1B4C7A">${{ number_format($l['monto_distribuir'], 0, ',', '.') }}</b></td>
+                            <td class="n bd-act"><span class="bd-qv">${{ number_format($queda, 0, ',', '.') }}</span></td>
+                            <td class="bd-act" style="color:#6B7686">{{ $l['observaciones'] }}</td>
+                            @endif
                         </tr>
-                        @if(count($tercs) > 1)
-                            @foreach($tercs as $t)
-                            @php $tercCero = round($t['saldo']) == 0; @endphp
-                            {{-- Un tercero de una cuenta ya cruzada se oculta con la cuenta (bz-cuenta);
-                                 un tercero en $0 dentro de una cuenta con saldo se oculta aparte (bz-terc). --}}
-                            <tr class="{{ $cuentaCero ? 'bz-cuenta' : ($tercCero ? 'bz-terc' : '') }}" style="background:#FFFDF5">
-                                <td style="padding:3px 8px"></td>
-                                <td style="padding:3px 8px"></td>
-                                <td style="padding:3px 8px"></td>
-                                <td style="padding:3px 8px;color:#9CA3AF;font-size:10px;text-align:right">↳</td>
-                                <td style="padding:3px 8px;color:#6B7280;font-size:11px">{{ Str::limit($t['tercero'], 28) }}@if(!empty($t['doc']) && $t['doc'] !== $t['tercero'])<span style="color:#9CA3AF"> · {{ $t['doc'] }}</span>@endif{!! ($tercCero && !$cuentaCero) ? '<span style="color:#9CA3AF"> · ya cruzado</span>' : '' !!}</td>
-                                <td style="padding:3px 8px;text-align:right;color:#A16207;font-size:11px">${{ number_format($t['saldo'], 0, ',', '.') }}</td>
-                                <td></td><td></td><td></td>
-                            </tr>
-                            @endforeach
-                        @endif
-                        @endforeach
-                        <tr style="background:#FFFBEB;font-weight:700;border-top:2px solid #FDE68A">
-                            <td colspan="5" style="padding:7px 8px;text-align:right;color:#92400E">Disponible = suma de "a distribuir"</td>
-                            <td style="padding:7px 8px;text-align:right;color:#9CA3AF">${{ number_format($b['total'], 0, ',', '.') }}</td>
-                            <td style="padding:7px 8px;text-align:right;color:#B45309" id="adist-tot-{{ $b['codigo'] }}">${{ number_format($b['a_distribuir'], 0, ',', '.') }}</td>
-                            <td style="padding:7px 8px;text-align:right;color:#15803D" id="queda-tot-{{ $b['codigo'] }}">${{ number_format(max(0, $b['total'] - $b['a_distribuir']), 0, ',', '.') }}</td>
-                            <td style="padding:7px 8px">
-                                @if($puedeEditarBolsa)
-                                    <button type="submit" style="padding:6px 14px;background:#D97706;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar montos</button>
-                                @endif
-                            </td>
-                        </tr>
+                        @empty
+                        <tr><td colspan="13" style="padding:14px;text-align:center;color:#95A0AF">Esta bolsa no tiene saldo por distribuir.</td></tr>
+                        @endforelse
+                        </tbody>
+                        <tfoot><tr>
+                            <td colspan="9" style="text-align:right">Totales</td>
+                            <td class="n" id="ftSaldo-{{ $b['codigo'] }}">${{ number_format($totSaldo, 0, ',', '.') }}</td>
+                            <td class="n" id="ftDist-{{ $b['codigo'] }}">${{ number_format($totDist, 0, ',', '.') }}</td>
+                            <td class="n" id="ftQueda-{{ $b['codigo'] }}">${{ number_format(max(0, $totSaldo - $totDist), 0, ',', '.') }}</td>
+                            <td></td>
+                        </tr></tfoot>
                     </table>
                 </div>
                 @unless($puedeEditarBolsa)
                 <div style="padding:7px 12px;font-size:11px;color:#92400E;background:#FEF9C3;border-top:1px solid #FDE68A">
                     🔒 Para editar el "a distribuir" y las observaciones, Contabilidad debe <b>abrir el cierre</b> de este mes.
+                </div>
+                @else
+                <div style="display:flex;justify-content:flex-end;padding:9px 12px;border-top:1px solid #EEF1F6">
+                    <button type="submit" style="padding:7px 16px;background:#1B4C7A;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">Guardar montos</button>
                 </div>
                 @endunless
             </form>
@@ -805,10 +769,36 @@ function toggleBolsaDetalle(c){
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
 }
 
-/* Interruptor "Mostrar cuentas ya cruzadas ($0)" del detalle de una bolsa (presentación). */
+/* Interruptor "Mostrar lo ya cruzado ($0)" del detalle de una bolsa (presentación). */
 function toggleBolsaZeros(c, on){
     const e = document.getElementById('bolsa-det-'+c); if(!e) return;
     e.classList.toggle('show-zeros', on);
+}
+
+/* Distribución en línea del detalle por tercero: al escribir "A distribuir" recalcula "Queda mes
+   sig." de la fila y la fila de Totales de esa bolsa (en vivo, con separadores de miles). */
+function onBolsaDetInput(inp){
+    const v = soloDigitos(inp.value);
+    inp.value = v ? v.toLocaleString('es-CO') : '';
+    const tr = inp.closest('tr');
+    const saldo = Number(tr?.dataset.saldo || 0);
+    const qv = tr?.querySelector('.bd-qv'); if(qv) qv.textContent = fmt(Math.max(saldo - v, 0));
+    bolsaDetTotales(inp.dataset.bolsa);
+}
+function bolsaDetTotales(code){
+    let s = 0, d = 0;
+    document.querySelectorAll('#bolsa-det-'+code+' tbody tr').forEach(tr => {
+        if (tr.classList.contains('bz-row')) return;      // las $0 (ya cruzadas) no suman
+        s += Number(tr.dataset.saldo || 0);
+        const i = tr.querySelector('input[data-tipo="bolsamonto"]');
+        d += i ? soloDigitos(i.value) : 0;
+    });
+    const set = (id, val) => { const e = document.getElementById(id); if(e) e.textContent = fmt(val); };
+    set('ftSaldo-'+code, s); set('ftDist-'+code, d); set('ftQueda-'+code, Math.max(s - d, 0));
+    // Refresca la barra "Disponible por distribuir" de la tarjeta (aprox: suma de A distribuir).
+    set('bolsa-disp-'+code, d);
+    const bar = document.getElementById('bolsa-bar-'+code);
+    if (bar) bar.style.width = Math.min(100, s > 0 ? Math.round(d / s * 100) : 0) + '%';
 }
 
 // Solo dígitos de un valor con formato (ej. "1.500.000" → 1500000).

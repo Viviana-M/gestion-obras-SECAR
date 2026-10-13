@@ -89,4 +89,32 @@ class ImportCuenta14ReversoTest extends TestCase
             ->where('cuenta_mayor', 'Costos por aplicar')->sum('estado_er');
         $this->assertEqualsWithDelta(0, $porRepartir, 0.5);
     }
+
+    #[Test]
+    public function el_importador_lee_la_fecha_docto_en_aaaammdd(): void
+    {
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->fromArray([
+            'Unidad de Negocio', 'Nombre Unidad de Negocio', 'Cuenta', 'Nombre Auxiliar',
+            'Debitos', 'Creditos', 'Movto Libro2', 'Periodo', 'Tercero', 'Nombre Tercero',
+            'Tercero Docto', 'Razon Social Docto', 'Docto.', 'Fecha_docto',
+        ], null, 'A1');
+        $sheet->fromArray(
+            ['INS00001', 'OBRA', '14200563', 'AUX', 500000, 0, 500000, '202608', '900', 'PROV', '901510086', 'ABC', 'FSP-1', '20260818'],
+            null, 'A2'
+        );
+        $path = tempnam(sys_get_temp_dir(), 'biable').'.xlsx';
+        (new Xlsx($ss))->save($path);
+        $archivo = new UploadedFile($path, 'cierre.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.carga.store'), ['archivo' => $archivo, 'mes' => 8, 'anio' => 2026])
+            ->assertRedirect();
+
+        $reg = RegistroFinanciero::where('cuenta_contable', '14200563')->first();
+        $this->assertNotNull($reg);
+        $this->assertSame('2026-08-18', \Illuminate\Support\Carbon::parse($reg->fecha_docto)->format('Y-m-d'));
+    }
 }

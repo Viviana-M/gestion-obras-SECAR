@@ -82,6 +82,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
             'documento'        => $documento,
+            'fecha_docto'      => $this->fechaDocto($row['fecha_docto'] ?? null),
             'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
@@ -119,5 +120,15 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $valor = str_replace(['$', '.', ' '], '', (string)$valor);
         $valor = str_replace(',', '.', $valor);
         return is_numeric($valor) ? floatval($valor) : 0;
+    }
+
+    /** "Fecha_docto" (AAAAMMDD o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */
+    private function fechaDocto($valor): ?string
+    {
+        $d = preg_replace('/\D/', '', (string) $valor);
+        if (strlen($d) !== 8) return null;
+        $y = (int) substr($d, 0, 4); $m = (int) substr($d, 4, 2); $day = (int) substr($d, 6, 2);
+        if (! checkdate($m, $day, $y)) return null;
+        return sprintf('%04d-%02d-%02d', $y, $m, $day);
     }
 }

@@ -246,9 +246,16 @@ class DistribucionService
 
         $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes, $vista); // [un => líneas con su desglose por tercero]
         $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes);       // [cédula => costo completo + buckets]
-        $montos   = BolsaMonto::where('mes', $mes)->where('anio', $anio)
-            ->whereIn('un_codigo', $codigos)->get()
-            ->keyBy(fn ($m) => $m->un_codigo.'|'.$m->cuenta_14);
+        // Montos "a distribuir" AGREGADOS por (UN, cuenta): aunque ahora se guardan por tercero, el
+        // disponible de la bolsa y el plano siguen siendo por cuenta → se suman las líneas de tercero.
+        $montosSum = []; $montoGuardado = []; $obsPorCuenta = [];
+        foreach (BolsaMonto::where('mes', $mes)->where('anio', $anio)->whereIn('un_codigo', $codigos)->get() as $m) {
+            $k = $m->un_codigo.'|'.$m->cuenta_14;
+            $montosSum[$k] = ($montosSum[$k] ?? 0.0) + (float) $m->monto_distribuir;
+            $montoGuardado[$k] = true;
+            $o = trim((string) $m->observaciones);
+            if ($o !== '' && empty($obsPorCuenta[$k])) $obsPorCuenta[$k] = $o; // primera observación de la cuenta
+        }
 
         // Mano de obra directa por PERSONA, repartida por departamento según la UN de sus buckets.
         $personasPorDepto = [];
@@ -272,9 +279,8 @@ class DistribucionService
             foreach ($lineas as $l) {
                 $saldo = (float) $l['pendiente'];
                 $key   = $un.'|'.$l['cuenta_14'];
-                $edit  = $montos[$key] ?? null;
-                // Sin registro: se distribuye el saldo completo. Editado: lo que quede (tope = saldo).
-                $aDist = $edit ? max(0.0, min($saldo, (float) $edit->monto_distribuir)) : $saldo;
+                // Sin registro: se distribuye el saldo completo. Con registro(s): la suma por tercero (tope = saldo).
+                $aDist = isset($montoGuardado[$key]) ? max(0.0, min($saldo, (float) ($montosSum[$key] ?? 0))) : $saldo;
                 $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
                 $terceros = $l['terceros'] ?? [];
                 $porDepto[$depto][] = [
@@ -292,7 +298,7 @@ class DistribucionService
                     'saldo'            => round($saldo, 2),
                     'monto_distribuir' => round($aDist, 2),
                     'pendiente'        => round($aDist, 2), // tope consumible = lo a distribuir
-                    'observaciones'    => $edit->observaciones ?? null,
+                    'observaciones'    => $obsPorCuenta[$key] ?? null, // obs por tercero, agregada por cuenta
                 ];
             }
         }
@@ -503,6 +509,150 @@ class DistribucionService
         // aplica su plano de apoyo (origen='ajuste_plano'), que acredita la 14 y baja el saldo real.
 
         return $out;
+    }
+
+    /** NIT de SECAR: su saldo (reverso) se cruza FIFO contra los terceros más antiguos. */
+    public const NIT_SECAR = '890319324';
+
+    /**
+     * Detalle por TERCERO de las bolsas, para la tabla plana de "Detalle por cuenta". Una fila por
+     * (UN, cuenta, tercero) con: fecha del movimiento (Fecha_docto), nombre del proyecto, auxiliar
+     * (cuenta) y su descripción, NIT, razón social, documento y el SALDO NETO ya con el CRUCE DE SECAR
+     * atribuido (SECAR trae negativo y consume FIFO los saldos más antiguos; SECAR y los consumidos
+     * quedan en $0). También trae el "a distribuir"/observaciones guardados por tercero (default =
+     * saldo). NO cambia los totales por cuenta: el cruce solo reatribuye el mismo neto entre terceros.
+     *
+     * @return array<string, array<int, array<string,mixed>>>  [un_codigo => líneas]
+     */
+    public function detalleBolsaTerceros(array $codigos, int $periodo, int $anio, int $mes, string $vista = 'todo'): array
+    {
+        if (empty($codigos)) {
+            return [];
+        }
+        $homol = Homologacion::mapaEn($periodo);
+        $ventana = $vista === 'mes'
+            ? function ($q) use ($anio, $mes) { $q->where('anio', $anio)->where('mes', $mes); }
+            : function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($q2) => $q2->where('anio', $anio)->where('mes', '<=', $mes));
+            };
+
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where($ventana)
+            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '
+                . 'MAX(nombre_proyecto) as nombre_proyecto, MAX(descripcion) as descripcion, '
+                . 'MAX(documento) as documento, MIN(fecha_docto) as fecha, '
+                . 'MIN(anio*100+mes) as periodo, SUM(estado_er) as saldo_er')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
+            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->get();
+
+        $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
+
+        // Agrupar por (UN, cuenta) para poder cruzar SECAR dentro de cada cuenta.
+        $porCuenta = [];
+        foreach ($filas as $f) {
+            $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
+            $key = $un.'|'.$cuenta;
+            $fecha = $f->fecha ? substr((string) $f->fecha, 0, 10) : null;
+            $ord = $fecha ? (int) str_replace('-', '', $fecha) : ((int) $f->periodo) * 100; // FIFO: lo más antiguo primero
+            $porCuenta[$key][] = [
+                'un'             => $un,
+                'cuenta'         => $cuenta,
+                'tercero_dcto'   => trim((string) $f->tercero_dcto),
+                'razon_social'   => trim((string) $f->razon_social),
+                'nombre_proyecto'=> (string) $f->nombre_proyecto,
+                'descripcion'    => (string) $f->descripcion,
+                'documento'      => (string) $f->documento,
+                'fecha'          => $fecha,
+                'ord'            => $ord,
+                'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
+            ];
+        }
+
+        $out = [];
+        foreach ($porCuenta as $terceros) {
+            $this->cruzarSecarFifo($terceros); // reatribuye el neto: SECAR consume FIFO los más antiguos
+            $cuenta = $terceros[0]['cuenta'];
+            $un     = $terceros[0]['un'];
+            $h      = $homol[$cuenta] ?? null;
+            $nombreCuenta = $h->nombre ?? $terceros[0]['descripcion'];
+
+            // "A distribuir"/observaciones guardados por (UN, cuenta, tercero). Default: el saldo.
+            $guardados = BolsaMonto::where('mes', $mes)->where('anio', $anio)
+                ->where('un_codigo', $un)->where('cuenta_14', $cuenta)->get()
+                ->keyBy(fn ($m) => (string) $m->tercero);
+
+            foreach ($terceros as $t) {
+                $saldo = round((float) $t['saldo'], 2);
+                $g     = $guardados[$t['tercero_dcto']] ?? null;
+                $aDist = $g ? max(0.0, min($saldo, (float) $g->monto_distribuir)) : $saldo;
+                $out[$un][] = [
+                    'un_codigo'        => $un,
+                    'un_nombre'        => (string) ($nombreUn[$un] ?? ''),
+                    'fecha'            => $t['fecha'],
+                    'nombre_proyecto'  => $t['nombre_proyecto'],
+                    'cuenta_14'        => $cuenta,
+                    'nombre'           => (string) $nombreCuenta,
+                    'tercero_dcto'     => $t['tercero_dcto'],
+                    'razon_social'     => $t['razon_social'] ?: $t['tercero_dcto'],
+                    'documento'        => $t['documento'],
+                    'saldo'            => $saldo,
+                    'monto_distribuir' => round($aDist, 2),
+                    'observaciones'    => (string) ($g->observaciones ?? ''),
+                    'cero'             => round($saldo) == 0,
+                    'ord'              => $t['ord'],
+                ];
+            }
+        }
+
+        // Orden dentro de cada UN: por cuenta y, dentro de la cuenta, del más antiguo al más reciente.
+        foreach ($out as &$lineas) {
+            usort($lineas, fn ($a, $b) => [$a['cuenta_14'], $a['ord']] <=> [$b['cuenta_14'], $b['ord']]);
+        }
+        unset($lineas);
+
+        return $out;
+    }
+
+    /**
+     * Cruce FIFO de SECAR dentro de una cuenta (modifica $terceros por referencia): el saldo negativo
+     * de SECAR consume primero los saldos positivos más antiguos (por 'ord'), dejándolos en $0, y el
+     * remanente queda en el tercero positivo más reciente. SECAR queda en $0 (o conserva el sobrante
+     * negativo si los positivos no alcanzan). El neto de la cuenta no cambia: solo se reatribuye.
+     */
+    private function cruzarSecarFifo(array &$terceros): void
+    {
+        $negSecar = 0.0;
+        foreach ($terceros as $i => $t) {
+            if ($t['tercero_dcto'] === self::NIT_SECAR && $t['saldo'] < 0) {
+                $negSecar += -$t['saldo'];   // acumula el negativo de SECAR
+                $terceros[$i]['saldo'] = 0.0; // SECAR se consume
+            }
+        }
+        if ($negSecar <= 0.5) return;
+
+        // Índices de terceros POSITIVOS (no SECAR) ordenados del más antiguo al más reciente.
+        $orden = [];
+        foreach ($terceros as $i => $t) {
+            if ($t['tercero_dcto'] !== self::NIT_SECAR && $t['saldo'] > 0) $orden[] = $i;
+        }
+        usort($orden, fn ($a, $b) => $terceros[$a]['ord'] <=> $terceros[$b]['ord']);
+
+        foreach ($orden as $i) {
+            if ($negSecar <= 0.5) break;
+            $consumir = min($terceros[$i]['saldo'], $negSecar);
+            $terceros[$i]['saldo'] = round($terceros[$i]['saldo'] - $consumir, 2);
+            $negSecar = round($negSecar - $consumir, 2);
+        }
+
+        // Si quedó negativo de SECAR sin consumir (positivos insuficientes), se deja en una línea SECAR.
+        if ($negSecar > 0.5) {
+            foreach ($terceros as $i => $t) {
+                if ($t['tercero_dcto'] === self::NIT_SECAR) { $terceros[$i]['saldo'] = round(-$negSecar, 2); break; }
+            }
+        }
     }
 
     /** Desglose de un conjunto de líneas de bolsa en los tres componentes. */

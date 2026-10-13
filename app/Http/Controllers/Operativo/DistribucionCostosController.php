@@ -489,6 +489,20 @@ class DistribucionCostosController extends Controller
         unset($bp);
         unset($bp);
 
+        // Detalle por TERCERO de cada bolsa (tabla plana del "Ver detalle por cuenta"), con el cruce
+        // FIFO de SECAR ya atribuido. Se agrupa por departamento (= codigo de la bolsa grande).
+        $unBolsas  = UnBolsa::where('activo', true)
+            ->when($depEfectivo, fn ($q) => $q->where('departamento', $depEfectivo))
+            ->get(['codigo', 'departamento']);
+        $deptoDeUnB = $unBolsas->pluck('departamento', 'codigo');
+        $detalleUn  = $this->svc->detalleBolsaTerceros($unBolsas->pluck('codigo')->all(), $periodo, $anio, $mes, $vista);
+        $detalleBolsas = [];   // [departamento => [líneas por tercero]]
+        foreach ($detalleUn as $un => $lineasUn) {
+            $dep = $deptoDeUnB[$un] ?? null;
+            if (! $dep) continue;
+            foreach ($lineasUn as $lnU) { $detalleBolsas[$dep][] = $lnU; }
+        }
+
         // Candidatos destino para reasignar ítems (búsqueda por código/nombre/cliente).
         $destinos = FichaProyecto::get(['codigo_proyecto', 'nombre_obra', 'cliente'])
             ->map(fn ($f) => ['codigo' => $f->codigo_proyecto, 'nombre' => (string) $f->nombre_obra, 'cliente' => (string) $f->cliente])
@@ -541,6 +555,7 @@ class DistribucionCostosController extends Controller
         return view('operativo.distribucion', [
             'obras'        => $obras,
             'bolsas'       => $bolsas,
+            'detalleBolsas'=> $detalleBolsas,
             'destinos'     => $destinos,
             'categorias'   => $this->categorias,
             'catalogo'     => $catalogo,
@@ -843,14 +858,26 @@ class DistribucionCostosController extends Controller
                 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
         }
 
-        $montos = (array) $request->input('monto', []); // ["UN|cuenta" => valor]
+        $montos = (array) $request->input('monto', []); // ["UN|cuenta|tercero" => valor]
         $obs    = (array) $request->input('obs', []);
+        $departamento = $request->input('departamento');
+
+        // Reemplazo por departamento: se borran los montos guardados del período de las UN de esa
+        // bolsa y se reinsertan los enviados POR TERCERO. Así se limpian también los registros
+        // antiguos por cuenta (tercero = '') y el disponible/plano (agregado por cuenta) no se duplica.
+        $unsDelDepto = in_array($departamento, ['mantenimiento', 'instalaciones'], true)
+            ? UnBolsa::where('activo', true)->where('departamento', $departamento)->pluck('codigo')->all()
+            : [];
+        if (! empty($unsDelDepto)) {
+            BolsaMonto::where('mes', $mes)->where('anio', $anio)->whereIn('un_codigo', $unsDelDepto)->delete();
+        }
+
         $n = 0;
         foreach ($montos as $key => $val) {
-            [$un, $cuenta] = array_pad(explode('|', (string) $key, 2), 2, '');
+            [$un, $cuenta, $tercero] = array_pad(explode('|', (string) $key, 3), 3, '');
             if ($un === '' || $cuenta === '') continue;
             BolsaMonto::updateOrCreate(
-                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta],
+                ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta, 'tercero' => $tercero],
                 [
                     // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
                     'monto_distribuir' => max(0.0, (float) preg_replace('/[^\d]/', '', (string) $val)),
@@ -865,7 +892,6 @@ class DistribucionCostosController extends Controller
         // propia, para que quede en "Mis distribuciones" → Otros costos, separada de la
         // distribución de obras. El detalle (cuenta, tercero, monto, observación) vive en
         // BolsaMonto; esta distribución es el encabezado consultable del mes/departamento.
-        $departamento = $request->input('departamento');
         if (in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
             Distribucion::updateOrCreate(
                 ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento, 'tipo' => 'areas'],
@@ -874,7 +900,47 @@ class DistribucionCostosController extends Controller
             );
         }
 
-        return back()->with('success', "Montos a distribuir actualizados ({$n} cuentas). Se guardó en Mis distribuciones → Otros costos.");
+        return back()->with('success', "Montos a distribuir actualizados ({$n} líneas). Se guardó en Mis distribuciones → Otros costos.");
+    }
+
+    /**
+     * Exporta a Excel el detalle por tercero de una bolsa (las mismas columnas de la tabla plana),
+     * con el cruce FIFO de SECAR ya aplicado. Por defecto solo las líneas con saldo (no las $0).
+     */
+    public function exportarDetalleBolsa(Request $request)
+    {
+        $u = $request->user();
+        abort_unless($u && $u->puedeVerModulo('operacion'), 403, 'No tienes permiso para ver este detalle.');
+
+        [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $defMes);
+        $anio = (int) $request->get('anio', $defAnio);
+        $vista = $request->get('vista', 'todo');
+        $departamento = $request->get('departamento');
+        $incluirCero = (bool) $request->get('cruzadas', false);
+
+        $periodo = Homologacion::periodo($anio, $mes);
+        $uns = UnBolsa::where('activo', true)
+            ->when(in_array($departamento, ['mantenimiento', 'instalaciones'], true), fn ($q) => $q->where('departamento', $departamento))
+            ->pluck('codigo')->all();
+        $detalleUn = $this->svc->detalleBolsaTerceros($uns, $periodo, $anio, $mes, $vista);
+
+        $filas = [['U.N.', 'Fecha', 'Desc. U.N.', 'Nombre del proyecto', 'Auxiliar', 'Desc. auxiliar',
+            'Nit movto.', 'Razón social tercero', 'Docto.', 'Saldo', 'A distribuir', 'Queda mes sig.', 'Observaciones']];
+        foreach ($detalleUn as $lineas) {
+            foreach ($lineas as $l) {
+                if (! $incluirCero && $l['cero']) continue;
+                $filas[] = [
+                    $l['un_codigo'], $l['fecha'] ?? '', $l['un_nombre'], $l['nombre_proyecto'], $l['cuenta_14'], $l['nombre'],
+                    $l['tercero_dcto'], $l['razon_social'], $l['documento'],
+                    round($l['saldo'], 2), round($l['monto_distribuir'], 2), round($l['saldo'] - $l['monto_distribuir'], 2),
+                    $l['observaciones'],
+                ];
+            }
+        }
+
+        $nombre = 'Detalle_bolsa_'.($departamento ?: 'todas')."_{$mes}_{$anio}.xlsx";
+        return Excel::download(new \App\Exports\DetalleBolsaExport($filas), $nombre);
     }
 
     /**

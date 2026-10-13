@@ -14,6 +14,7 @@ protected $fillable = [
     'tercero_dcto',      // ← agregar
     'razon_social',      // ← agregar
     'documento',         // Docto. del BIABLE (para reconciliar contra el ERP)
+    'fecha_docto',       // Fecha_docto del cierre (AAAAMMDD) → fecha del movimiento / FIFO SECAR
     'dedup_hash',        // huella anti-duplicados (ver importador)
     'valor_debito',
     'valor_credito',
