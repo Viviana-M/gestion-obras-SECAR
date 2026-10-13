@@ -550,7 +550,9 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // Agrupar por (UN, cuenta) para poder cruzar SECAR dentro de cada cuenta.
+        // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
+        // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
+        // misma cuenta contable.
         $porCuenta = [];
         foreach ($filas as $f) {
             $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
@@ -625,9 +627,10 @@ class DistribucionService
     }
 
     /**
-     * Cruce FIFO GENERAL dentro de una cuenta (modifica $terceros por referencia).
+     * Cruce FIFO GENERAL dentro de una (U.N., cuenta) (modifica $terceros por referencia). El llamador
+     * ya agrupa por esa llave, así que aquí nunca se mezclan terceros de distintas U.N.
      *
-     * TODOS los saldos negativos de la cuenta (de cualquier tercero, no solo SECAR) forman un "pool"
+     * TODOS los saldos negativos de la (U.N., cuenta) (de cualquier tercero, no solo SECAR) forman un "pool"
      * que consume los saldos positivos del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'),
      * dejándolos en $0 a medida que los absorbe. Lo que queda en los positivos es el saldo real por
      * tercero: esas son las líneas que ve operaciones y sobre las que distribuye. El neto de la cuenta

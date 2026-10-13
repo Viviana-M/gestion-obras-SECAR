@@ -538,6 +538,42 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_cruce_no_pasa_entre_distintas_un_aunque_compartan_la_cuenta(): void
+    {
+        // Misma cuenta 14200563 en DOS U.N. distintas. INS00004 neta negativo (reversado de más) y
+        // INS00005 tiene un positivo sano. La llave del cruce es (U.N., cuenta): el sobrante negativo de
+        // INS00004 NO debe comerse el positivo de INS00005.
+        $rf = function (string $un, string $t, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => $un, 'nombre_proyecto' => 'Obra '.$un, 'cuenta_contable' => '14200563',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => 'Tercero '.$t,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+            ]);
+        };
+        $rf('INS00004', '111', 200000, 0, '2026-06-10');  // UN1: positivo +200k
+        $rf('INS00004', '999', 0, 500000, '2026-09-30');  // UN1: nota crédito −500k → neto −300k
+        $rf('INS00005', '222', 400000, 0, '2026-07-15');  // UN2: positivo +400k (otra U.N.)
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 8);
+        $det = $svc->detalleBolsaTerceros(['INS00004', 'INS00005'], $periodo, 2026, 8, 'todo');
+
+        // UN1: su positivo se consume y el sobrante queda como alerta (−300k), aislado en su U.N.
+        $un1 = collect($det['INS00004'])->keyBy('tercero_dcto');
+        $this->assertEqualsWithDelta(0, $un1['111']['saldo'], 1);
+        $this->assertTrue($un1['111']['cero']);
+        $this->assertEqualsWithDelta(-300000, $un1['999']['saldo'], 1);
+        $this->assertTrue($un1['999']['alerta']);
+
+        // UN2: su positivo queda INTACTO (el negativo de la otra U.N. no lo tocó).
+        $un2 = collect($det['INS00005'])->keyBy('tercero_dcto');
+        $this->assertEqualsWithDelta(400000, $un2['222']['saldo'], 1);
+        $this->assertFalse($un2['222']['cero']);
+        $this->assertFalse($un2['222']['alerta']);
+    }
+
+    #[Test]
     public function el_detalle_muestra_el_reversado_de_mas_como_alerta_en_pantalla(): void
     {
         // MTO00099 (mantenimiento): entrada +200k y nota crédito −500k en una cuenta → neto −300k.
