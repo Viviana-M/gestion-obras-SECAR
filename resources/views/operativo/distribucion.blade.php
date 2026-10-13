@@ -17,6 +17,36 @@
     @media (max-width: 768px) {
         .obra-sticky { position: static; }
     }
+
+    /* Ícono de ayuda ⓘ con tooltip al pasar el cursor (reemplaza textos fijos de jerga contable). */
+    .info-i { display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;
+        background:#AEBDCE;color:#fff;font-size:10px;font-weight:800;cursor:help;position:relative;margin-left:4px;font-style:italic;vertical-align:middle }
+    .info-i:hover::after { content:attr(data-tip);position:absolute;bottom:150%;left:50%;transform:translateX(-50%);
+        background:#1E2A38;color:#fff;font-size:11px;font-weight:500;padding:8px 11px;border-radius:8px;width:230px;z-index:60;
+        box-shadow:0 6px 16px rgba(0,0,0,.25);line-height:1.4;text-transform:none;letter-spacing:0;white-space:normal;text-align:left }
+    .info-i:hover::before { content:"";position:absolute;bottom:150%;left:50%;transform:translate(-50%,100%);
+        border:5px solid transparent;border-top-color:#1E2A38;z-index:60 }
+
+    /* Barra global fija inferior: guardar TODA la distribución del mes (= plano a contabilidad). */
+    .dist-actionbar { position:fixed;left:0;right:0;bottom:0;z-index:150;background:#fff;border-top:1px solid #E5E7EB;
+        box-shadow:0 -4px 16px rgba(16,32,54,.10);padding:10px 16px }
+    .dist-actionbar .inner { max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap }
+    .dist-actionbar .sum { display:flex;align-items:center;gap:16px;flex:1;min-width:200px;font-size:12.5px;color:#6B7280 }
+    .dist-actionbar .sum b { color:#1B3F6E }
+    .dist-actionbar .sp { flex:1 }
+
+    /* Modal "Mapa de calor de márgenes". */
+    .heat-ov { position:fixed;inset:0;background:rgba(20,30,45,.45);display:none;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:210;overflow:auto }
+    .heat-ov.open { display:flex }
+    .heat-modal { background:#fff;border-radius:14px;max-width:780px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);overflow:hidden }
+    .heat-modal .mh2 { background:#1B3F6E;color:#fff;padding:13px 18px;display:flex;align-items:center;justify-content:space-between }
+    .heat-modal .mb { padding:16px 18px }
+    .heatgrid { display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:7px;margin-top:6px }
+    .hc { border-radius:8px;padding:8px 9px;color:#fff;font-size:11px }
+    .hc .hcode { font-weight:700;font-size:11.5px;font-family:ui-monospace,Menlo,Consolas,monospace }
+    .hc .hm { font-size:13px;font-weight:800;margin-top:1px }
+    .hc.verde{background:#1E9E54} .hc.amarillo{background:#E0A32E;color:#4A3610} .hc.rojo{background:#D6453F} .hc.gris{background:#9CA3AF}
+    .heatlabel { font-weight:700;color:#1B3F6E;font-size:12.5px;margin:14px 0 2px }
 </style>
 @php
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
@@ -344,6 +374,10 @@
             style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:230px;flex:1 1 200px;max-width:280px">
         <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
         <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+        <button type="button" onclick="document.getElementById('heat-modal').classList.add('open')" style="font-size:12px;padding:6px 12px;border:1px solid #1B3F6E;border-radius:8px;background:#1B3F6E;color:white;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+            <span style="display:inline-flex;gap:2px"><span style="width:10px;height:10px;border-radius:2px;background:#1E9E54;display:inline-block"></span><span style="width:10px;height:10px;border-radius:2px;background:#E0A32E;display:inline-block"></span><span style="width:10px;height:10px;border-radius:2px;background:#D6453F;display:inline-block"></span></span>
+            Mapa de calor
+        </button>
         <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
            style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500;white-space:nowrap">⬇ Excel saldos 14</a>
     </div>
@@ -494,22 +528,77 @@
 </div>
 
 @if($kpiObras > 0 && !$bloqueado)
-<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:1rem">
-    @if($puedeEditar)
-    <span id="autosave-status" style="font-size:12px;color:#9CA3AF;margin-right:auto"></span>
-    @endif
-    <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 22px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:8px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
-    @if($distId)
-    {{-- Reporte por obra (lo aplicado y cómo quedó cada obra) de lo YA guardado. --}}
-    <a href="{{ route('operativo.distribucion.reporte-obras', $distId) }}" target="_blank" style="padding:9px 22px;background:white;border:1px solid #15803D;color:#15803D;border-radius:8px;font-size:13px;text-decoration:none">⬇ Excel por obra</a>
-    @endif
-    @if($puedeEditar)
-    <button type="submit" name="accion" value="guardar" style="padding:9px 22px;background:#6B7280;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
-    <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 22px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Enviar a contabilidad</button>
-    @endif
+{{-- BARRA GLOBAL FIJA: guarda TODA la distribución del mes (no por proyecto) y arma el plano a
+     contabilidad. Vive dentro del form para que los submit funcionen. --}}
+<div class="dist-actionbar">
+    <div class="inner">
+        <div class="sum">
+            @if($puedeEditar)<span id="autosave-status" style="font-size:12px;color:#9CA3AF"></span>@endif
+            <span>Total a distribuir del mes: <b id="barra-total-mes">$0</b></span>
+        </div>
+        <span class="sp"></span>
+        <button type="submit" formaction="{{ route('operativo.distribucion.resumen') }}" formtarget="_blank" style="padding:9px 18px;background:white;border:1px solid #1B3F6E;color:#1B3F6E;border-radius:9px;font-size:13px;cursor:pointer">📄 Ver resumen</button>
+        @if($distId)
+        <a href="{{ route('operativo.distribucion.reporte-obras', $distId) }}" target="_blank" style="padding:9px 18px;background:white;border:1px solid #15803D;color:#15803D;border-radius:9px;font-size:13px;text-decoration:none">⬇ Excel por obra</a>
+        @endif
+        @if($puedeEditar)
+        <button type="button" onclick="descartarCambios()" style="padding:9px 16px;background:white;border:1px solid #E5E7EB;color:#374151;border-radius:9px;font-size:13px;cursor:pointer">Descartar cambios</button>
+        <button type="submit" name="accion" value="guardar" style="padding:9px 18px;background:#6B7280;color:white;border:none;border-radius:9px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
+        <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 18px;background:#15803D;color:white;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">💾 Guardar · generar plano</button>
+        @endif
+    </div>
 </div>
+{{-- Espaciador para que la barra fija no tape el final del contenido. --}}
+<div style="height:70px"></div>
 @endif
 </form>
+
+{{-- MODAL: Mapa de calor de márgenes — una celda por proyecto, coloreada por su margen acumulado. --}}
+@php
+    $heatGrupos = [];
+    foreach ($obras as $codH => $oH) {
+        $depH = $oH['depto_margen'] ?? \App\Models\User::departamentoDeCodigo($codH);
+        $pctH = $oH['mc_acum_cierre_pct'] ?? null;
+        $nivelH = \App\Services\DistribucionService::nivelMargen($pctH, $depH);
+        $labelH = \App\Services\DistribucionService::DEPARTAMENTOS[$depH] ?? ($depH ? ucfirst($depH) : 'Otros');
+        $heatGrupos[$labelH][] = ['cod' => $codH, 'nombre' => $oH['nombre'] ?? $codH, 'pct' => $pctH, 'nivel' => $nivelH];
+    }
+    // Dentro de cada grupo, de mayor a menor margen (los nulos al final).
+    foreach ($heatGrupos as &$itsH) {
+        usort($itsH, fn ($a, $b) => ($b['pct'] ?? -999) <=> ($a['pct'] ?? -999));
+    }
+    unset($itsH);
+    ksort($heatGrupos);
+@endphp
+<div class="heat-ov" id="heat-modal">
+    <div class="heat-modal">
+        <div class="mh2"><b>🔥 Mapa de calor de márgenes</b>
+            <button type="button" onclick="document.getElementById('heat-modal').classList.remove('open')" style="background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:7px;width:28px;height:28px;cursor:pointer;font-size:15px">✕</button>
+        </div>
+        <div class="mb">
+            <div style="font-size:12.5px;color:#6B7280">Cada celda es un proyecto, coloreada por su <b>margen acumulado</b> (incluye esta distribución). Pasa el cursor para ver el nombre.</div>
+            @forelse($heatGrupos as $labelH => $itemsH)
+            <div class="heatlabel">{{ $labelH }} <span style="font-weight:500;color:#9CA3AF">· {{ count($itemsH) }}</span></div>
+            <div class="heatgrid">
+                @foreach($itemsH as $it)
+                <div class="hc {{ $it['nivel'] }}" title="{{ $it['cod'] }} · {{ $it['nombre'] }}">
+                    <div class="hcode">{{ $it['cod'] }}</div>
+                    <div class="hm">{{ $it['pct'] === null ? '—' : $it['pct'].'%' }}</div>
+                </div>
+                @endforeach
+            </div>
+            @empty
+            <div style="padding:16px 0;color:#9CA3AF;font-size:13px">No hay proyectos para mostrar en este filtro.</div>
+            @endforelse
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;font-size:12px;color:#6B7280">
+                <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:12px;height:12px;border-radius:3px;background:#1E9E54;display:inline-block"></i> Sano</span>
+                <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:12px;height:12px;border-radius:3px;background:#E0A32E;display:inline-block"></i> En el límite</span>
+                <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:12px;height:12px;border-radius:3px;background:#D6453F;display:inline-block"></i> Bajo margen — revisar</span>
+                <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:12px;height:12px;border-radius:3px;background:#9CA3AF;display:inline-block"></i> Sin dato</span>
+            </div>
+        </div>
+    </div>
+</div>
 
 {{-- MODAL: ajustar tolerancia --}}
 <div id="modal-calc" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
@@ -840,7 +929,9 @@ function marcarTocada(inp){
     formatAplicar(inp);
     const base = Math.round(parseFloat(inp.dataset.tope || 0));
     const val  = soloDigitos(inp.value);
-    inp.classList.toggle('celda-tocada', val !== base);
+    const tocada = val !== base;
+    inp.classList.toggle('celda-tocada', tocada);
+    inp.title = tocada ? '✏ Modificado por Operaciones' : '';
 }
 function remarcarAplicar(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(marcarTocada);
@@ -903,6 +994,29 @@ function recalc(cod){
     const pctAcum = d.ingAcum ? (mcAcumPesos/d.ingAcum*100) : null;
     const mapEl=document.getElementById('mcacumpct-'+cod);
     if(mapEl){ mapEl.textContent = pctAcum===null ? '—' : (pctAcum.toFixed(1)+'%'); pintarSemaforo(mapEl, pctAcum===null?null:Number(pctAcum.toFixed(1)), d.dep); }
+
+    actualizarBarraGlobal();
+}
+
+/* Total "a distribuir del mes" de la barra global fija: suma de lo que se lleva al costo en TODOS
+   los proyectos (aplicado 14→6 + bolsa + mano de obra) más las provisiones activas. En vivo. */
+function actualizarBarraGlobal(){
+    const el = document.getElementById('barra-total-mes'); if(!el) return;
+    let t = 0;
+    document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(i => t += soloDigitos(i.value));
+    document.querySelectorAll('#form-dist input[data-tipo="bolsa"]').forEach(i => t += parseFloat(i.value||0));
+    document.querySelectorAll('#form-dist .mo-obra-sec [data-mo-monto]').forEach(i => t += soloDigitos(i.value));
+    for (const cod in DATOS) { t += Number((DATOS[cod]||{}).prov || 0); }
+    el.textContent = fmt(t);
+}
+
+/* "Descartar cambios": recarga la pantalla con lo último guardado (descarta lo que se esté
+   editando sin guardar). El guard de "abandonar sitio" se omite porque es una recarga intencional. */
+function descartarCambios(){
+    if (confirm('¿Descartar los cambios sin guardar y recargar con lo último guardado?')) {
+        window.onbeforeunload = null;
+        location.reload();
+    }
 }
 
 function cambiarEstado(cod, val){

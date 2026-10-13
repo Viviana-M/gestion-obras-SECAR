@@ -53,7 +53,7 @@
                 <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_mes_c6']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#B45309;line-height:1.3">Inventario en tránsito aplicado</div>
+                <div style="font-size:9px;color:#B45309;line-height:1.3">Inventario aplicado este mes <span class="info-i" data-tip="Lo que YA llevaste al costo este mes. Sube a medida que distribuyes; lo que falta aparece arriba como «A aplicar».">i</span></div>
                 <div style="font-size:14px;font-weight:600;color:#1B3F6E" id="aplic6-{{ $cod }}">{{ $fmt($o['aplicado_mes']) }}</div>
             </div>
             <div>
@@ -80,7 +80,7 @@
                 <div style="font-size:14px;font-weight:600;color:#1B3F6E">{{ $fmt($o['ingreso_acum']) }}</div>
             </div>
             <div>
-                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acumulado (con distribución)</div>
+                <div style="font-size:9px;color:#9CA3AF;line-height:1.3">Costo acumulado <span class="info-i" data-tip="Incluye el costo distribuido + las provisiones activas + los otros costos asignados al proyecto.">i</span></div>
                 <div style="font-size:14px;font-weight:600;color:#374151" id="costoacum-{{ $cod }}">{{ $fmt($o['costo_acum_cierre']) }}</div>
             </div>
             <div>
@@ -113,7 +113,7 @@
 
             {{-- Grupo 1 · RENTABILIDAD (ofertado vs proyectado): tarjeta pintada con el semáforo --}}
             <div style="flex:1;min-width:220px;background:{{ $fondoProy }};border:2px solid {{ $semProy[0] }};border-radius:8px;padding:10px 12px">
-                <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:8px">RENTABILIDAD · MC %</div>
+                <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:8px">RENTABILIDAD · MC % <span class="info-i" data-tip="MC % = (Ingreso proyectado − Costo real) ÷ Ingreso proyectado. Ingreso proyectado = valor de la oferta comercial. Costo real = costo acumulado + inventario en tránsito + provisiones + otros costos.">i</span></div>
                 <div style="display:flex;align-items:center;gap:12px">
                     <div>
                         <div style="font-size:9px;color:#9CA3AF">Ofertado</div>
@@ -132,12 +132,6 @@
                 @else
                 <div style="font-size:10px;color:#9CA3AF;margin-top:8px">Sin oferta registrada</div>
                 @endif
-                <div style="font-size:9px;color:#818CF8;margin-top:6px;line-height:1.4">
-                    <b>MC % = (Ingreso proyectado − Costo real) ÷ Ingreso proyectado</b>
-                </div>
-                <div style="font-size:9px;color:#A5B4FC;margin-top:2px;line-height:1.4">
-                    Ingreso proyectado = valor oferta comercial · Costo real = costo acum + inventario en tránsito
-                </div>
             </div>
 
             {{-- Grupo 2 · FACTURACIÓN --}}
@@ -166,10 +160,9 @@
             <div style="flex:1.3;min-width:250px;background:#fff;border:1px solid #E0E7FF;border-radius:8px;padding:10px 12px">
                 <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:6px">COSTO Y EJECUCIÓN</div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0">
-                    <span style="font-size:10px;color:#374151;font-weight:600">Costo total</span>
+                    <span style="font-size:10px;color:#374151;font-weight:600">Costo total <span class="info-i" data-tip="Incluye lo aplicado + lo pendiente por aplicar + provisiones + otros costos distribuidos al proyecto.">i</span></span>
                     <span style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
                 </div>
-                <div style="font-size:9px;color:#9CA3AF;text-align:right;margin-top:-2px;margin-bottom:2px">incluye lo aplicado y lo pendiente por aplicar</div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
                     <span style="font-size:10px;color:#6B7280">Costo presupuestado</span>
                     <span style="font-size:13px;font-weight:600;color:#312E81">{{ $fmt($o['pr_costo_presup']) }}</span>

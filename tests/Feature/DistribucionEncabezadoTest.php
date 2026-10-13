@@ -64,13 +64,13 @@ class DistribucionEncabezadoTest extends TestCase
 
         $resp->assertStatus(200);
         // Términos de ingeniería (sin jerga contable "cuenta 6" ni "14→6").
-        $resp->assertSee('Inventario en tránsito aplicado', false);
+        $resp->assertSee('Inventario aplicado este mes', false);
         $resp->assertSee('Provisión (costo sin aplicar)', false);
-        // La proyección muestra la fórmula completa del margen.
+        // La proyección muestra la fórmula completa del margen (ahora en el tooltip ⓘ).
         $resp->assertSee('MC % = (Ingreso proyectado − Costo real) ÷ Ingreso proyectado', false);
         // El acumulado ahora es de cierre e incluye la distribución del mes.
         $resp->assertSee('INCLUYE ESTA DISTRIBUCIÓN', false);
-        $resp->assertSee('Costo acumulado (con distribución)', false);
+        $resp->assertSee('Costo acumulado', false);
         // Ya no se muestra la jerga contable en las tarjetas.
         $resp->assertDontSee('Costo del mes (cuenta 6)', false);
         $resp->assertDontSee('Aplicado ahora (14→6)', false);
