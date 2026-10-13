@@ -394,15 +394,16 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function la_linea_de_reversado_ofrece_solicitar_reverso_a_contabilidad(): void
+    public function la_linea_de_reversado_ofrece_selector_de_destino_del_reverso(): void
     {
-        // Reversado de más en MTO00099 (cierre 7/2026 abierto por el trait → editable).
+        // Reversado de más (14200599 −300k) + una cuenta 1420 CON saldo (14200530 +500k) en MTO00099.
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200599',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '999', 'razon_social' => 'X SAS',
             'tipo_documento' => 'NC', 'documento' => '9', 'fecha_docto' => '2026-07-30',
             'estado_er' => 300000, 'valor_debito' => 0, 'valor_credito' => 300000, 'mes' => 7, 'anio' => 2026,
         ]);
+        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS', 500000, 7, 2026); // 1420 con saldo
 
         $html = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento&vista=todo')
@@ -410,63 +411,87 @@ class DistribucionBolsasTest extends TestCase
 
         $this->assertStringContainsString('Solicitar reverso a contabilidad', $html);
         $this->assertStringContainsString('name="reverso[MTO00099|14200599|999|NC-00000009]"', $html);
-        $this->assertStringContainsString('U.N. destino del reverso', $html);
+        // Selector de destino: cuentas 1420 con saldo de la misma U.N. + "Otra U.N.".
+        $this->assertStringContainsString('name="reverso_destino[MTO00099|14200599|999|NC-00000009]"', $html);
+        $this->assertStringContainsString('value="cuenta:14200530"', $html);
+        $this->assertStringContainsString('Otra U.N.', $html);
         $this->assertStringContainsString('toggleReverso(', $html);
+        $this->assertStringContainsString('onReversoDestino(', $html);
     }
 
-    #[Test]
-    public function el_reverso_solicitado_entra_al_plano_como_reclasificacion_14_14(): void
+    /** Siembra un reversado de más (14200599 −300k, tercero 999) en MTO00099. */
+    private function seedReversado(): void
     {
-        // Reversado de más en la bolsa MTO00099, cuenta 14200599, tercero 999, −300k.
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200599',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '999', 'razon_social' => 'X SAS',
             'tipo_documento' => 'NC', 'documento' => '9', 'fecha_docto' => '2026-07-30',
             'estado_er' => 300000, 'valor_debito' => 0, 'valor_credito' => 300000, 'mes' => 7, 'anio' => 2026,
         ]);
-        // Operaciones marca el reverso e informa la U.N. destino (contrapartida) en la observación.
+    }
+
+    #[Test]
+    public function el_reverso_a_otra_un_entra_al_plano_como_reclasificacion_14_14(): void
+    {
+        $this->seedReversado();
+        // Destino "Otra U.N.": misma cuenta, otra unidad.
         \App\Models\BolsaMonto::create([
             'mes' => 7, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'cuenta_14' => '14200599', 'tercero' => '999',
-            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'monto_distribuir' => 0, 'observaciones' => 'MTO00001',
+            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'reverso_destino' => 'un:MTO00001', 'monto_distribuir' => 0,
         ]);
 
         $mov = app(\App\Http\Controllers\Contable\PlanoContableController::class)
             ->movimientosReversoBolsa(7, 2026, 'mantenimiento', 99);
 
-        // DÉBITO 14200599 en la U.N. de la bolsa (origen) + CRÉDITO 14200599 en la U.N. destino.
         $deb = collect($mov)->first(fn ($m) => $m['debito'] > 0);
         $cre = collect($mov)->first(fn ($m) => $m['credito'] > 0);
-        $this->assertNotNull($deb);
-        $this->assertNotNull($cre);
         $this->assertSame('14200599', $deb['cuenta']);
         $this->assertSame('MTO00099', $deb['unidad']);
         $this->assertSame('999', $deb['tercero']);
         $this->assertEqualsWithDelta(300000, $deb['debito'], 1);
-        $this->assertSame('14200599', $cre['cuenta']);
-        $this->assertSame('MTO00001', $cre['unidad']);   // U.N. destino tomada de la observación
+        $this->assertSame('14200599', $cre['cuenta']);   // misma cuenta
+        $this->assertSame('MTO00001', $cre['unidad']);    // otra U.N. destino
         $this->assertEqualsWithDelta(300000, $cre['credito'], 1);
-        // El asiento cuadra.
         $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 1);
     }
 
     #[Test]
-    public function el_reverso_sin_un_destino_no_se_posta_al_plano(): void
+    public function el_reverso_a_otra_cuenta_1420_de_la_misma_un_entra_al_plano(): void
     {
-        RegistroFinanciero::create([
-            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200599',
-            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '999', 'razon_social' => 'X SAS',
-            'tipo_documento' => 'NC', 'documento' => '9', 'fecha_docto' => '2026-07-30',
-            'estado_er' => 300000, 'valor_debito' => 0, 'valor_credito' => 300000, 'mes' => 7, 'anio' => 2026,
-        ]);
+        $this->seedReversado();
+        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS', 500000, 7, 2026); // cuenta destino con saldo
+        // Destino "cuenta:14200530": reclasifica a otra cuenta 1420 de la MISMA U.N.
         \App\Models\BolsaMonto::create([
             'mes' => 7, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'cuenta_14' => '14200599', 'tercero' => '999',
-            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'monto_distribuir' => 0, 'observaciones' => null,
+            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'reverso_destino' => 'cuenta:14200530', 'monto_distribuir' => 0,
         ]);
 
         $mov = app(\App\Http\Controllers\Contable\PlanoContableController::class)
             ->movimientosReversoBolsa(7, 2026, 'mantenimiento', 99);
 
-        $this->assertCount(0, $mov); // sin U.N. destino no se genera asiento
+        $deb = collect($mov)->first(fn ($m) => $m['debito'] > 0);
+        $cre = collect($mov)->first(fn ($m) => $m['credito'] > 0);
+        $this->assertSame('14200599', $deb['cuenta']);   // DÉBITO a la cuenta reversada
+        $this->assertSame('MTO00099', $deb['unidad']);
+        $this->assertSame('14200530', $cre['cuenta']);   // CRÉDITO a la cuenta 1420 con saldo
+        $this->assertSame('MTO00099', $cre['unidad']);    // misma U.N.
+        $this->assertEqualsWithDelta(300000, $cre['credito'], 1);
+        $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 1);
+    }
+
+    #[Test]
+    public function el_reverso_sin_destino_no_se_posta_al_plano(): void
+    {
+        $this->seedReversado();
+        \App\Models\BolsaMonto::create([
+            'mes' => 7, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'cuenta_14' => '14200599', 'tercero' => '999',
+            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'reverso_destino' => null, 'monto_distribuir' => 0,
+        ]);
+
+        $mov = app(\App\Http\Controllers\Contable\PlanoContableController::class)
+            ->movimientosReversoBolsa(7, 2026, 'mantenimiento', 99);
+
+        $this->assertCount(0, $mov); // sin destino no se genera asiento
     }
 
     #[Test]

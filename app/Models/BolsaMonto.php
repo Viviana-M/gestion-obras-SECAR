@@ -13,7 +13,7 @@ class BolsaMonto extends Model
     protected $table = 'bolsa_montos';
 
     protected $fillable = [
-        'mes', 'anio', 'un_codigo', 'cuenta_14', 'tercero', 'documento', 'reverso_solicitado', 'monto_distribuir', 'observaciones', 'user_id',
+        'mes', 'anio', 'un_codigo', 'cuenta_14', 'tercero', 'documento', 'reverso_solicitado', 'reverso_destino', 'monto_distribuir', 'observaciones', 'user_id',
     ];
 
     protected function casts(): array

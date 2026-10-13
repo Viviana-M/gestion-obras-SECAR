@@ -645,6 +645,7 @@ class DistribucionService
                     'alerta'           => $alerta,
                     // Solicitud de reverso a contabilidad (solo aplica a líneas de reversado de más).
                     'reverso_solicitado' => $alerta && (bool) ($g->reverso_solicitado ?? false),
+                    'reverso_destino'    => $alerta ? (string) ($g->reverso_destino ?? '') : '',
                     'ord'              => $t['ord'],
                     'min_id'           => $t['min_id'],
                 ];

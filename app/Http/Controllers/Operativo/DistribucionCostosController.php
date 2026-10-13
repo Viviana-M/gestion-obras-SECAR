@@ -858,9 +858,11 @@ class DistribucionCostosController extends Controller
                 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
         }
 
-        $montos  = (array) $request->input('monto', []);   // ["UN|cuenta|tercero|documento" => valor]
-        $obs     = (array) $request->input('obs', []);
-        $reverso = (array) $request->input('reverso', []); // llaves de líneas de reversado marcadas
+        $montos   = (array) $request->input('monto', []);   // ["UN|cuenta|tercero|documento" => valor]
+        $obs      = (array) $request->input('obs', []);
+        $reverso  = (array) $request->input('reverso', []); // llaves de líneas de reversado marcadas
+        $revDest  = (array) $request->input('reverso_destino', []); // "cuenta:XXXX" | "otra" | ""
+        $revUn    = (array) $request->input('reverso_un', []);      // código de U.N. cuando el destino es "otra"
         $departamento = $request->input('departamento');
 
         // Reemplazo por departamento: se borran los montos guardados del período de las UN de esa
@@ -881,12 +883,24 @@ class DistribucionCostosController extends Controller
             [$un, $cuenta, $tercero, $documento] = array_pad(explode('|', (string) $key, 4), 4, '');
             if ($un === '' || $cuenta === '') continue;
             $esReverso = ! empty($reverso[$key]);
+            // Destino de la contrapartida (solo para reverso): "cuenta:XXXX" (misma U.N.) o "un:YYYY".
+            $destino = null;
+            if ($esReverso) {
+                $sel = trim((string) ($revDest[$key] ?? ''));
+                if ($sel === 'otra') {
+                    $u = trim((string) ($revUn[$key] ?? ''));
+                    $destino = $u !== '' ? 'un:'.$u : null;
+                } elseif (str_starts_with($sel, 'cuenta:')) {
+                    $destino = $sel;
+                }
+            }
             BolsaMonto::updateOrCreate(
                 ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta, 'tercero' => $tercero, 'documento' => $documento],
                 [
                     // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
                     'monto_distribuir'   => max(0.0, (float) preg_replace('/[^\d]/', '', (string) ($montos[$key] ?? 0))),
                     'reverso_solicitado' => $esReverso,
+                    'reverso_destino'    => $destino,
                     'observaciones'      => trim((string) ($obs[$key] ?? '')) ?: null,
                     'user_id'            => $request->user()?->id,
                 ]
@@ -940,9 +954,17 @@ class DistribucionCostosController extends Controller
             foreach ($lineas as $l) {
                 if (! $incluirCero && $l['cero']) continue;
                 $alerta = ! empty($l['alerta']);
-                $obs = $alerta
-                    ? trim('Reversado de más — revisar con contabilidad. '.$l['observaciones'])
-                    : $l['observaciones'];
+                if ($alerta && ! empty($l['reverso_solicitado'])) {
+                    // Reverso solicitado: la contrapartida (14→14) viaja en la observación del plano.
+                    $rd = (string) ($l['reverso_destino'] ?? '');
+                    $destTxt = str_starts_with($rd, 'un:') ? ('U.N. '.substr($rd, 3))
+                        : (str_starts_with($rd, 'cuenta:') ? ('cuenta '.substr($rd, 7).' (misma U.N.)') : 'destino sin indicar');
+                    $obs = trim('REVERSO SOLICITADO — reclasificar a '.$destTxt.'. '.$l['observaciones']);
+                } elseif ($alerta) {
+                    $obs = trim('Reversado de más — revisar con contabilidad. '.$l['observaciones']);
+                } else {
+                    $obs = $l['observaciones'];
+                }
                 $queda = round($l['saldo'] - $l['monto_distribuir'], 2);
                 $filas[] = [
                     $l['un_codigo'], $l['fecha'] ?? '', $l['un_nombre'], $l['nombre_proyecto'], $l['cuenta_14'], $l['nombre'],

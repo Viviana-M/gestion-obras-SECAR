@@ -121,6 +121,9 @@
     .bd-rev { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#B91C1C; font-weight:600; cursor:pointer }
     .bd-rev input { width:14px; height:14px; cursor:pointer }
     .bd-rev-obs { margin-left:8px; border:1px solid #E5E9F0; border-radius:7px; padding:4px 7px; font-size:11px; width:190px; background:#fff }
+    .bd-rev-dest { display:inline-flex; align-items:center; gap:6px; margin-left:8px }
+    .bd-rev-sel { border:1px solid #BEE3C9; border-radius:7px; padding:4px 7px; font-size:11px; background:#fff; max-width:260px }
+    .bd-rev-un { border:1px solid #BEE3C9; border-radius:7px; padding:4px 7px; font-size:11px; width:120px; background:#fff }
     .bd-rev-tag { display:none; background:#15803D; color:#fff; border-radius:5px; font-size:9px; font-weight:800; padding:1px 6px; margin-left:6px; letter-spacing:.03em }
     .bd-tbl tr.bd-rev-on .bd-rev-tag { display:inline-block }
     .bd-tbl tr.bd-rev-on .bd-rev { color:#15803D }
@@ -392,6 +395,14 @@
             $mesCierreNombre = ($nombresMesC[$mes] ?? '').' '.$anio;
             $netoBolsa = round($totSaldo + $totAlerta, 2); // positivos + (negativos) = neto, cuadra con contabilidad
             $revBolsa  = round(-1 * $totAlerta, 2);         // reversado de más (en positivo)
+            // Cuentas 1420 CON saldo por U.N. (opciones para reclasificar un reverso dentro de la misma U.N.).
+            $cuentasSaldoUn = [];
+            foreach ($det as $dl) {
+                if (! empty($dl['alerta']) || ! empty($dl['cero']) || (float) $dl['saldo'] <= 0) continue;
+                $u = $dl['un_codigo']; $cc = $dl['cuenta_14'];
+                if (! isset($cuentasSaldoUn[$u][$cc])) $cuentasSaldoUn[$u][$cc] = ['cuenta' => $cc, 'nombre' => $dl['nombre'], 'saldo' => 0.0];
+                $cuentasSaldoUn[$u][$cc]['saldo'] += (float) $dl['saldo'];
+            }
         @endphp
         <div id="bolsa-det-{{ $b['codigo'] }}" class="bolsa-det" style="display:none;margin-top:8px;border:1px solid #E5E9F0;border-radius:10px;overflow:hidden;background:#fff">
             {{-- Toolbar: interruptor $0 · líneas con saldo · Exportar Excel --}}
@@ -467,12 +478,28 @@
                             {{-- Reversado de más: se puede solicitar a contabilidad que lo reverse ESTE mes (no va a
                                  "queda mes sig."). La U.N. destino de la contrapartida (14→14) se escribe en el campo. --}}
                             <td class="bd-act" colspan="3" style="font-size:11px">
+                                @php
+                                    $opcionesRev = array_values($cuentasSaldoUn[$l['un_codigo']] ?? []);
+                                    $rd = (string) ($l['reverso_destino'] ?? '');
+                                    $rdEsUn = str_starts_with($rd, 'un:');
+                                    $rdUnVal = $rdEsUn ? substr($rd, 3) : '';
+                                @endphp
                                 @if($puedeEditarBolsa)
                                 <label class="bd-rev"><input type="checkbox" name="reverso[{{ $k }}]" value="1" {{ !empty($l['reverso_solicitado']) ? 'checked' : '' }} onchange="toggleReverso(this)"> Solicitar reverso a contabilidad</label>
-                                <input type="text" class="bd-rev-obs" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="U.N. destino del reverso" title="U.N. a la que contabilidad lleva la contrapartida (14→14)">
+                                <span class="bd-rev-dest" style="{{ !empty($l['reverso_solicitado']) ? '' : 'display:none' }}">
+                                    <select class="bd-rev-sel" name="reverso_destino[{{ $k }}]" onchange="onReversoDestino(this)" title="A qué cuenta 1420 con saldo (misma U.N.) reclasificar el reverso">
+                                        <option value="">— Reclasificar a… —</option>
+                                        @foreach($opcionesRev as $op)
+                                            <option value="cuenta:{{ $op['cuenta'] }}" {{ $rd === 'cuenta:'.$op['cuenta'] ? 'selected' : '' }}>{{ $op['cuenta'] }} · {{ Str::limit($op['nombre'], 22) }} · ${{ number_format($op['saldo'], 0, ',', '.') }}</option>
+                                        @endforeach
+                                        <option value="otra" {{ $rdEsUn ? 'selected' : '' }}>Otra U.N.…</option>
+                                    </select>
+                                    <input type="text" class="bd-rev-un" name="reverso_un[{{ $k }}]" value="{{ $rdUnVal }}" placeholder="U.N. destino" title="Código de la otra U.N. destino (14→14)" style="{{ $rdEsUn ? '' : 'display:none' }}">
+                                </span>
                                 @else
                                     @if(!empty($l['reverso_solicitado']))
-                                        <span style="color:#15803D;font-weight:700">↩ Reverso solicitado</span> <span style="color:#6B7686">→ U.N. destino: {{ $l['observaciones'] ?: '—' }}</span>
+                                        <span style="color:#15803D;font-weight:700">↩ Reverso solicitado</span>
+                                        <span style="color:#6B7686">→ {{ $rdEsUn ? 'U.N. '.$rdUnVal : (str_starts_with($rd, 'cuenta:') ? 'cuenta '.substr($rd, 7).' (misma U.N.)' : 'destino sin indicar') }}</span>
                                     @else
                                         <span style="color:#B91C1C">⚠ Reversado de más — revisar con contabilidad (no se distribuye).</span>
                                     @endif
@@ -942,10 +969,18 @@ function limpiarFiltrosBolsa(code){
     footerBolsa(code, false);
 }
 
-/* "Solicitar reverso a contabilidad" en una línea de reversado de más: señala la fila (verde). */
+/* "Solicitar reverso a contabilidad" en una línea de reversado de más: señala la fila (verde)
+   y muestra el selector de destino (a qué cuenta 1420 con saldo / otra U.N. reclasificar). */
 function toggleReverso(cb){
     const tr = cb.closest('tr'); if (!tr) return;
     tr.classList.toggle('bd-rev-on', cb.checked);
+    const dest = tr.querySelector('.bd-rev-dest');
+    if (dest) dest.style.display = cb.checked ? '' : 'none';
+}
+/* Al elegir "Otra U.N.…" se pide el código de la U.N. destino; con una cuenta de la misma U.N. se oculta. */
+function onReversoDestino(sel){
+    const un = sel.closest('.bd-rev-dest')?.querySelector('.bd-rev-un');
+    if (un) un.style.display = (sel.value === 'otra') ? '' : 'none';
 }
 
 /* Interruptor "Mostrar lo ya cruzado ($0)" del detalle de una bolsa (presentación). */

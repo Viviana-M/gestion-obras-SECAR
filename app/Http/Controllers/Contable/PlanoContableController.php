@@ -363,11 +363,14 @@ class PlanoContableController extends Controller
 
     /**
      * Reversos de "reversado de más" solicitados por operaciones en el detalle de la bolsa.
-     * Cada línea marcada genera una reclasificación 14→14 ESTE mes: DÉBITO de la cuenta 14 en la U.N.
-     * de la bolsa (origen del saldo negativo) y CRÉDITO de la MISMA cuenta 14 en la U.N. destino que
-     * operaciones informó en la observación. El tercero es el del saldo que se reversa. El monto es la
-     * magnitud del reversado de más (se recalcula del detalle, no se confía en un valor del cliente).
-     * Se omite (y no se posta) la línea sin U.N. destino: contabilidad debe conocerla antes de generar.
+     * Cada línea marcada genera una reclasificación 14→14 ESTE mes:
+     *   - DÉBITO de la cuenta 14 en la U.N. de la bolsa (origen del saldo negativo), y
+     *   - CRÉDITO según el destino que eligió operaciones:
+     *       · "cuenta:XXXX" → otra cuenta 1420 CON saldo de la MISMA U.N. (crédito en esa cuenta), o
+     *       · "un:YYYY"     → la MISMA cuenta en OTRA U.N. (crédito en la cuenta origen, U.N. destino).
+     * El tercero es el del saldo que se reversa; el monto es la magnitud del reversado de más (se
+     * recalcula del detalle, no se confía en un valor del cliente). Se omite la línea sin destino
+     * indicado: contabilidad debe conocer la contrapartida antes de generar el plano.
      */
     public function movimientosReversoBolsa(int $mes, int $anio, string $depto, int $numeroDoc): array
     {
@@ -396,15 +399,29 @@ class PlanoContableController extends Controller
 
         $mov = [];
         foreach ($solicitudes as $s) {
-            $destino = trim((string) $s->observaciones);
-            if ($destino === '') continue; // sin U.N. destino no se puede postar el reverso
+            $destino = trim((string) $s->reverso_destino);
+            if ($destino === '') continue; // sin destino no se puede postar el reverso
+
+            // Cuenta y U.N. del CRÉDITO (contrapartida), según el destino elegido.
+            if (str_starts_with($destino, 'cuenta:')) {
+                $cuentaCr = trim(substr($destino, 7));      // otra cuenta 1420 de la MISMA U.N.
+                $unCr     = (string) $s->un_codigo;
+            } elseif (str_starts_with($destino, 'un:')) {
+                $cuentaCr = (string) $s->cuenta_14;         // misma cuenta, OTRA U.N.
+                $unCr     = trim(substr($destino, 3));
+            } else {
+                continue;
+            }
+            if ($cuentaCr === '' || $unCr === '') continue;
+
             $llave = $s->un_codigo.'|'.$s->cuenta_14.'|'.$s->tercero.'|'.$s->documento;
             $monto = $montoPorLlave[$llave] ?? 0.0;
             if ($monto <= 0.005) continue; // ya no hay reversado de más que reversar
             $tercero = ($s->tercero !== '' && $s->tercero !== null) ? (string) $s->tercero : self::NIT_SECAR;
-            // DÉBITO 14 en la U.N. de la bolsa (restaura el saldo); CRÉDITO 14 en la U.N. destino.
+
+            // DÉBITO cuenta 14 en la U.N. de la bolsa (origen) / CRÉDITO en la cuenta+U.N. destino.
             $mov[] = $this->fila($numeroDoc, (string) $s->cuenta_14, $tercero, (string) $s->un_codigo, null, $monto, 0);
-            $mov[] = $this->fila($numeroDoc, (string) $s->cuenta_14, $tercero, $destino, null, 0, $monto);
+            $mov[] = $this->fila($numeroDoc, $cuentaCr, $tercero, $unCr, null, 0, $monto);
         }
         return $mov;
     }
