@@ -5,11 +5,11 @@
 @section('content')
 <style>
     /* Tarjeta-resumen del proyecto flotante: se queda visible mientras el usuario hace scroll por
-       las cuentas/terceros de ese proyecto. Se pega justo debajo de la barra superior sticky
-       (su alto lo calcula el JS en --topbar-h). z-index por debajo de la barra superior (50). */
+       las cuentas/terceros de ese proyecto (la cabecera ya no es fija, así que se pega cerca del
+       borde superior del viewport). */
     .obra-sticky {
         position: sticky;
-        top: calc(var(--topbar-h, 0px) + 6px);
+        top: 8px;
         z-index: 20;
         background: #fff;
     }
@@ -89,14 +89,6 @@
             </select>
         </div>
         @endif
-        <div class="filtro-field" style="flex:2 1 250px">
-            <label class="filtro-label">Qué mostrar</label>
-            <select name="vista" class="filtro-select">
-                @foreach(['todo'=>'Todo el inventario en tránsito pendiente','mes'=>'Solo el movimiento del mes elegido'] as $k => $v)
-                    <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
-                @endforeach
-            </select>
-        </div>
         <div class="filtro-field" style="flex:1 1 120px">
             <label class="filtro-label">Mes</label>
             <select name="mes" class="filtro-select">
@@ -113,6 +105,13 @@
                 @endfor
             </select>
         </div>
+        {{-- Buscador de proyecto: filtra el listado en vivo (sin recargar). Sin name → no se envía
+             con el form; onkeydown evita que Enter dispare "Filtrar". --}}
+        <div class="filtro-field" style="flex:2 1 240px">
+            <label class="filtro-label">Buscar proyecto</label>
+            <input type="text" id="buscador" autocomplete="off" placeholder="🔎 Código, proyecto o cliente…"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();}" class="filtro-input">
+        </div>
         @php
             if ($depEfectivo === 'instalaciones') {
                 $opcionesTipo = ['todos'=>'Todos','obras'=>'Obras','garantia'=>'Garantías'];
@@ -123,8 +122,8 @@
             }
             // Si el tipo guardado ya no existe para este departamento, mostramos "Todos".
             $tipoSel = array_key_exists($tipo, $opcionesTipo) ? $tipo : 'todos';
-            // Filtros secundarios: solo se abren por defecto si vienen activos (≠ Todos).
-            $masFiltrosActivo = ($tipoSel !== 'todos') || ($estadoFiltro !== 'todos');
+            // Filtros secundarios: solo se abren por defecto si vienen activos (≠ valor por defecto).
+            $masFiltrosActivo = ($tipoSel !== 'todos') || ($estadoFiltro !== 'todos') || (($vista ?? 'todo') !== 'todo');
         @endphp
         {{-- Filtros secundarios (los que casi no usan): Tipo de obra y Estado, dentro de "Más filtros". --}}
         <details class="mas-filtros" style="flex:1 1 100%;margin-top:2px" {{ $masFiltrosActivo ? 'open' : '' }}>
@@ -133,6 +132,14 @@
                 @if($masFiltrosActivo)<span style="font-size:10px;font-weight:600;background:#EFF6FF;color:#1B3F6E;border:1px solid #BFDBFE;border-radius:8px;padding:1px 7px">activos</span>@endif
             </summary>
             <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">
+                <div class="filtro-field" style="flex:2 1 250px">
+                    <label class="filtro-label">Qué mostrar</label>
+                    <select name="vista" class="filtro-select">
+                        @foreach(['todo'=>'Todo el inventario en tránsito pendiente','mes'=>'Solo el movimiento del mes elegido'] as $k => $v)
+                            <option value="{{ $k }}" {{ $vista == $k ? 'selected' : '' }}>{{ $v }}</option>
+                        @endforeach
+                    </select>
+                </div>
                 <div class="filtro-field" style="flex:1 1 150px">
                     <label class="filtro-label">Tipo de obra</label>
                     <select name="tipo" id="sel-tipo" class="filtro-select"
@@ -217,40 +224,54 @@
 @endif
 
 @if($kpiObras > 0 || !empty($bolsas))
-{{-- BARRA SUPERIOR FIJA: bolsas de área (origen) + totales + buscador + acciones.
-     Se muestra aunque no haya obras, para que el panel de bolsas siempre esté visible. --}}
-<div id="barra-superior" style="position:sticky;top:0;z-index:50;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(0,0,0,.06)">
-    @if(!empty($bolsas))
-    {{-- Panel de bolsas de área: origen del costo por repartir --}}
-    <div style="margin-bottom:10px;border-bottom:1px solid #F3F4F6;padding-bottom:10px">
-        <div style="font-size:10px;font-weight:700;color:#854D0E;letter-spacing:.4px;margin-bottom:8px">
-            BOLSAS DE ÁREA · ORIGEN DEL COSTO POR DISTRIBUIR
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-            @foreach($bolsas as $b)
-            @php
-                $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
-                $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
-            @endphp
-            <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1;min-width:300px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:8px 12px">
-                {{-- Línea 1: nombre · Total · botón de detalle --}}
-                <div style="display:flex;align-items:center;gap:10px">
-                    <span style="font-weight:700;color:#854D0E;font-size:13px;white-space:nowrap">🎒 {{ $b['nombre'] }}</span>
-                    <span style="font-size:10px;color:#9CA3AF;white-space:nowrap">Total ${{ number_format($b['total'], 0, ',', '.') }}</span>
-                    <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-left:auto;font-size:11px;padding:3px 9px;border:1px solid #D97706;border-radius:6px;background:white;color:#B45309;cursor:pointer;white-space:nowrap"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</button>
-                </div>
-                {{-- Línea 2: "Disponible por distribuir" como etiqueta + barra + valor --}}
-                <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-                    <span style="font-size:10px;color:#6B7280;white-space:nowrap">Disponible por distribuir</span>
-                    <div style="flex:1;height:8px;border-radius:4px;background:#FDE68A;overflow:hidden">
-                        <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:#D97706;transition:width .2s"></div>
-                    </div>
-                    <b id="bolsa-disp-{{ $b['codigo'] }}" style="font-size:12px;color:#B45309;white-space:nowrap">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
-                    <span id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:600;white-space:nowrap;display:{{ $b['disponible'] <= 0.5 ? 'inline-block' : 'none' }}">✓ distribuida</span>
-                </div>
+{{-- CABECERA: contexto (bolsas de área + KPIs) + toolbar + semáforo. Se muestra aunque no haya
+     obras, para que el panel de bolsas siempre esté visible. --}}
+<div id="barra-superior">
+    {{-- CONTEXTO compacto: bolsas de área (origen del costo) + KPIs, en una sola fila. Paleta azul
+         SECAR sobre fondo blanco; el color fuerte solo aparece en "Bajo margen" cuando hay alerta. --}}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;margin-bottom:12px">
+        @foreach(($bolsas ?? []) as $b)
+        @php
+            $base = $b['a_distribuir'] > 0 ? $b['a_distribuir'] : $b['total'];
+            $pct = $base > 0 ? round($b['disponible'] / $base * 100) : 0;
+        @endphp
+        <div id="bolsa-box-{{ $b['codigo'] }}" style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+                <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
+                <span style="font-size:12px;color:#6B7686">Total ${{ number_format($b['total'], 0, ',', '.') }}</span>
             </div>
-            @endforeach
+            <div style="font-size:10.5px;color:#6B7686">Disponible por distribuir</div>
+            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 6px">
+                <b id="bolsa-disp-{{ $b['codigo'] }}" style="font-size:18px;font-weight:800;color:#1B4C7A">${{ number_format($b['disponible'], 0, ',', '.') }}</b>
+                <span id="bolsa-done-{{ $b['codigo'] }}" style="font-size:10px;color:#15803D;font-weight:700;white-space:nowrap;display:{{ $b['disponible'] <= 0.5 ? 'inline-block' : 'none' }}">✓ distribuida</span>
+            </div>
+            <div style="height:7px;background:#EEF1F6;border-radius:20px;overflow:hidden">
+                <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:linear-gradient(90deg,#1B4C7A,#3A79B5);border-radius:20px;transition:width .2s"></div>
+            </div>
+            <button type="button" onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')" style="margin-top:9px;background:none;border:none;color:#1B4C7A;font-size:12px;font-weight:600;cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:5px"><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta ›</button>
         </div>
+        @endforeach
+        @if($kpiObras > 0)
+        {{-- KPIs: 3 indicadores pequeños, apilados a la derecha. --}}
+        <div style="flex:1 1 220px;min-width:200px;display:flex;flex-direction:column;gap:9px">
+            <div style="background:#fff;border:1px solid #E5E9F0;border-radius:11px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:9px 13px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-size:11.5px;color:#6B7686;font-weight:600">Pendiente por distribuir</span>
+                <b style="font-size:15px;font-weight:800;color:#1B4C7A">${{ number_format($kpiPendiente, 0, ',', '.') }}</b>
+            </div>
+            <div style="background:#fff;border:1px solid #E5E9F0;border-radius:11px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:9px 13px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-size:11.5px;color:#6B7686;font-weight:600">Obras</span>
+                <b style="font-size:15px;font-weight:800;color:#1E2A38">{{ $kpiObras }}</b>
+            </div>
+            <div style="background:#fff;border:1px solid #E5E9F0;border-radius:11px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:9px 13px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-size:11.5px;color:#6B7686;font-weight:600">Bajo margen</span>
+                <b style="font-size:15px;font-weight:800;color:{{ $kpiAlertas > 0 ? '#DC2626' : '#1E2A38' }}">{{ $kpiAlertas }}</b>
+            </div>
+        </div>
+        @endif
+    </div>
+
+    @if(!empty($bolsas))
+    <div style="margin-bottom:4px">
 
         {{-- Detalle por cuenta de cada bolsa grande. En el cierre se edita el "a distribuir"
              (cuánto de cada cuenta se carga este mes) + observaciones; el disponible = suma de eso. --}}
@@ -352,28 +373,11 @@
     </div>
     @endif
     @if($kpiObras > 0)
-    {{-- KPIs: tres indicadores pequeños en una sola fila (separados de los filtros) --}}
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div style="display:flex;align-items:baseline;gap:6px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:5px 10px">
-            <span style="font-size:10px;color:#92400E">Pendiente por distribuir</span>
-            <b style="font-size:14px;color:#854D0E">${{ number_format($kpiPendiente, 0, ',', '.') }}</b>
-        </div>
-        <div style="display:flex;align-items:baseline;gap:6px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:5px 10px">
-            <span style="font-size:10px;color:#1B3F6E">Obras</span>
-            <b style="font-size:14px;color:#1B3F6E">{{ $kpiObras }}</b>
-        </div>
-        <div style="display:flex;align-items:baseline;gap:6px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:5px 10px">
-            <span style="font-size:10px;color:#DC2626">Bajo margen</span>
-            <b style="font-size:14px;color:#DC2626">{{ $kpiAlertas }}</b>
-        </div>
-    </div>
-
-    {{-- Barra de acciones (toolbar): buscador + expandir/colapsar + Excel, agrupados y alineados --}}
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid #F3F4F6;padding-top:10px">
-        <input type="text" id="buscador" placeholder="🔎 Código, proyecto o cliente…" autocomplete="off"
-            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;width:230px;flex:1 1 200px;max-width:280px">
+    {{-- Toolbar discreto: Expandir/Colapsar + Mapa de calor + Excel saldos 14. --}}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
         <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
+        <span style="flex:1"></span>
         <button type="button" onclick="document.getElementById('heat-modal').classList.add('open')" style="font-size:12px;padding:6px 12px;border:1px solid #1B3F6E;border-radius:8px;background:#1B3F6E;color:white;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
             <span style="display:inline-flex;gap:2px"><span style="width:10px;height:10px;border-radius:2px;background:#1E9E54;display:inline-block"></span><span style="width:10px;height:10px;border-radius:2px;background:#E0A32E;display:inline-block"></span><span style="width:10px;height:10px;border-radius:2px;background:#D6453F;display:inline-block"></span></span>
             Mapa de calor
@@ -1624,23 +1628,4 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 @endif
-
-<script>
-// Tarjeta-resumen flotante: el offset superior de los .obra-sticky es el alto de la barra superior
-// sticky (bolsas + totales), para que se peguen justo debajo y no se solapen. Se recalcula al
-// cargar, al redimensionar y cuando cambia el alto de la barra (p. ej. al expandir las bolsas).
-(function () {
-    const barra = document.getElementById('barra-superior');
-    function medir() {
-        const h = barra ? Math.round(barra.getBoundingClientRect().height) : 0;
-        document.documentElement.style.setProperty('--topbar-h', h + 'px');
-    }
-    medir();
-    window.addEventListener('resize', medir);
-    window.addEventListener('load', medir);
-    if (barra && 'ResizeObserver' in window) {
-        new ResizeObserver(medir).observe(barra);
-    }
-})();
-</script>
 @endsection

@@ -65,7 +65,7 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('BOLSAS DE ÁREA', false);
+        $resp->assertSee('Disponible por distribuir', false);
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);   // bolsa grande por departamento
         $resp->assertSee('id="bolsa-disp-mantenimiento"', false);
         $resp->assertSee('Ver detalle por cuenta', false);
@@ -349,7 +349,7 @@ class DistribucionBolsasTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('BOLSAS DE ÁREA', false);
+        $resp->assertSee('Disponible por distribuir', false);
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);
     }
 
