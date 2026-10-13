@@ -45,7 +45,9 @@ class EstadoObraPorIngresoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('<option value="parcial" selected>Parcial</option>', false);
+        // Estado = control segmentado; el valor viaja en el input oculto estado_obra[...].
+        $resp->assertSee('name="estado_obra[MOB07001]" id="estado-inp-MOB07001" value="parcial"', false);
+        $resp->assertSee('data-estado="parcial" class="on"', false);
     }
 
     #[Test]
@@ -58,7 +60,8 @@ class EstadoObraPorIngresoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('<option value="abierta" selected>Abierta</option>', false);
+        $resp->assertSee('name="estado_obra[MOB07002]" id="estado-inp-MOB07002" value="abierta"', false);
+        $resp->assertSee('data-estado="abierta" class="on"', false);
     }
 
     #[Test]
@@ -76,6 +79,7 @@ class EstadoObraPorIngresoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('<option value="cerrada" selected>Cerrada</option>', false);
+        $resp->assertSee('name="estado_obra[MOB07003]" id="estado-inp-MOB07003" value="cerrada"', false);
+        $resp->assertSee('data-estado="cerrada" class="on"', false);
     }
 }

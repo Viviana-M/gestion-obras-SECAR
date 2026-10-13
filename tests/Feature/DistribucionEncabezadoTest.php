@@ -80,6 +80,34 @@ class DistribucionEncabezadoTest extends TestCase
     }
 
     #[Test]
+    public function la_tarjeta_aplica_los_cambios_del_mockup_v3(): void
+    {
+        $this->rf('MOB08670', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB08670', 'Costos por aplicar', -100, 6, 2026, '14350105');
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+
+        // 1) "En esta distribución" como bloque destacado (verde) + "Costos por llevar".
+        $resp->assertSee('endist-box', false);
+        $resp->assertSee('En esta distribución', false);
+        $resp->assertSee('Costos por llevar a este proyecto', false);
+
+        // 2) Estado = control segmentado (Abierta/Parcial/Cerrada) con su ayuda, no un dropdown.
+        $resp->assertSee('estado-seg', false);
+        $resp->assertSee('cuando quede en $0 por distribuir', false);
+        $resp->assertSee('name="estado_obra[MOB08670]"', false);   // sigue enviándose por formulario
+        $resp->assertDontSee('<select name="estado_obra', false);  // ya no es dropdown
+
+        // 3) Sin jerga contable "Método: …" ni "14→61" visible en la tarjeta.
+        $resp->assertDontSee('Método:', false);
+        $resp->assertDontSee('14→61', false);
+        $resp->assertDontSee('14 → 61', false);
+    }
+
+    #[Test]
     public function el_buscador_indexa_codigo_nombre_y_cliente(): void
     {
         FichaProyecto::create([

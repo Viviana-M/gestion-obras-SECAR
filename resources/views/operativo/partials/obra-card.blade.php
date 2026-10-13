@@ -22,27 +22,34 @@
                 @if(!empty($o['cliente']))
                     <span style="font-size:11px;color:#6B7280;word-break:break-word" title="{{ $o['cliente'] }}">· 🏢 {{ $o['cliente'] }}</span>
                 @endif
-                <select name="estado_obra[{{ $cod }}]" onclick="event.stopPropagation()" onchange="cambiarEstado('{{ $cod }}', this.value)"
-                    style="font-size:11px;padding:3px 8px;border-radius:8px;border:1px solid {{ $ce[1] }};background:{{ $ce[0] }};color:{{ $ce[1] }};font-weight:500;cursor:pointer">
-                    <option value="abierta" {{ $o['estado']=='abierta'?'selected':'' }}>Abierta</option>
-                    <option value="parcial" {{ $o['estado']=='parcial'?'selected':'' }}>Parcial</option>
-                    <option value="cerrada" {{ $o['estado']=='cerrada'?'selected':'' }}>Cerrada</option>
-                </select>
                 @if($o['sin_ingreso'] ?? false)
-                    <span onclick="event.stopPropagation()" title="Sin ingreso este mes: recibe costo desde la bolsa de área (se reclasifica 14→14)" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280">Sin ingreso</span>
+                    <span onclick="event.stopPropagation()" title="Sin ingreso este mes: recibe costo desde la bolsa de área de su unidad de negocio." style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280">Sin ingreso</span>
                 @endif
             </div>
-            <div style="font-size:11px;color:#6B7280;margin-top:3px" id="metodo-{{ $cod }}">Método: {{ $o['metodo'] }}</div>
         </div>
-        <div style="display:flex;gap:18px;align-items:flex-start;flex:none">
-            <div style="text-align:right">
-                <div style="font-size:11px;color:#6B7280">Costos por llevar a este proyecto</div>
-                <div style="font-weight:700;color:#1B3F6E" id="porllevar-{{ $cod }}">{{ $fmt(max(0, $o['total_pendiente'] - $o['sum_aplicar'])) }}</div>
+
+        {{-- Estado del cierre: control segmentado (evidente dónde se cambia) + ayuda. --}}
+        <div class="estado-wrap" onclick="event.stopPropagation()">
+            <span class="lab">Estado del cierre</span>
+            <div class="estado-seg" id="estado-seg-{{ $cod }}">
+                <button type="button" data-estado="abierta" class="{{ $o['estado']=='abierta'?'on':'' }}" onclick="estadoClick('{{ $cod }}','abierta')">Abierta</button>
+                <button type="button" data-estado="parcial" class="{{ $o['estado']=='parcial'?'on':'' }}" onclick="estadoClick('{{ $cod }}','parcial')">Parcial</button>
+                <button type="button" data-estado="cerrada" class="{{ $o['estado']=='cerrada'?'on':'' }}" onclick="estadoClick('{{ $cod }}','cerrada')">Cerrada</button>
             </div>
-            <div style="text-align:right">
-                <div style="font-size:11px;color:#854D0E">En esta distribución</div>
-                <div style="font-weight:600;color:#854D0E" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
-            </div>
+            <span class="estado-tip">Marca <b>Cerrada</b> cuando quede en $0 por distribuir</span>
+            <input type="hidden" name="estado_obra[{{ $cod }}]" id="estado-inp-{{ $cod }}" value="{{ $o['estado'] }}">
+        </div>
+    </div>
+
+    {{-- Costos por llevar + "En esta distribución" (bloque destacado verde con número grande). --}}
+    <div style="display:flex;align-items:stretch;gap:12px;padding:0 16px 12px;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
+        <div class="porllevar-box">
+            <div class="k">Costos por llevar a este proyecto</div>
+            <div class="v" id="porllevar-{{ $cod }}">{{ $fmt(max(0, $o['total_pendiente'] - $o['sum_aplicar'])) }}</div>
+        </div>
+        <div class="endist-box" onclick="event.stopPropagation()" title="Lo que estás llevando al costo de este proyecto en esta distribución (inventario + provisiones + bolsa + mano de obra).">
+            <div class="k">✎ En esta distribución</div>
+            <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
         </div>
     </div>
 
@@ -211,7 +218,7 @@
             <p style="font-size:11.5px;color:#6B7280;line-height:1.5;margin:0">
                 Esta orden abierta no tuvo ingreso, pero puedes cargarle costo igual (por ejemplo, mano de obra
                 del supervisor) <b>sin necesidad de autorización</b>. Asígnalo desde la <b>bolsa de área</b> más abajo:
-                se reclasifica <b>14→14</b> desde la unidad de negocio de la bolsa hacia esta OT.
+                el costo se traslada desde la bolsa del área hacia este proyecto.
             </p>
         </div>
         @endif
@@ -254,7 +261,7 @@
                                 data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="aplicarInput(this, '{{ $cod }}')"
-                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso: la aplicación directa 14→61 no aplica. Carga el costo desde la bolsa de área (se reclasifica 14→14)." @endif
+                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso este mes: no se lleva costo directo aquí. Cárgalo desde la bolsa del área, más abajo." @endif
                                 style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right;{{ ($o['sin_ingreso'] ?? false) ? 'background:#F9FAFB;color:#9CA3AF' : '' }}">
                         </td>
                     </tr>
@@ -312,7 +319,7 @@
                                         <td colspan="2" style="padding:6px 8px;text-align:right">{{ $fmt($grupoIt['suma_items']) }}</td>
                                     </tr>
                                     <tr style="background:#EFF6FF">
-                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#1B3F6E">Reconocido (reclasificado 14→61)</td>
+                                        <td colspan="8" style="padding:6px 8px;text-align:right;color:#1B3F6E">Reconocido (llevado al costo)</td>
                                         <td colspan="2" style="padding:6px 8px;text-align:right;color:#1B3F6E">{{ $fmt($grupoIt['reconocido_total']) }}</td>
                                     </tr>
                                     <tr style="font-weight:600;background:#EFF6FF">

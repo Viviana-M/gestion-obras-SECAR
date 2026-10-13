@@ -30,6 +30,27 @@
     .info-i:hover::before { content:"";position:absolute;bottom:150%;left:50%;transform:translate(-50%,100%);
         border:5px solid transparent;border-top-color:#1E2A38;z-index:60 }
 
+    /* Estado del cierre = control segmentado (Abierta / Parcial / Cerrada), evidente dónde se cambia. */
+    .estado-wrap { display:flex;flex-direction:column;align-items:flex-end;gap:3px }
+    .estado-wrap .lab { font-size:10px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.03em }
+    .estado-seg { display:inline-flex;border:1px solid #D7DEE8;border-radius:9px;overflow:hidden;background:#F3F5F9 }
+    .estado-seg button { border:none;background:transparent;padding:6px 13px;font-size:12px;font-weight:600;color:#6B7280;cursor:pointer;line-height:1 }
+    .estado-seg button + button { border-left:1px solid #D7DEE8 }
+    .estado-seg button.on { color:#fff }
+    .estado-seg button.on[data-estado="abierta"] { background:#15803D }
+    .estado-seg button.on[data-estado="parcial"] { background:#B45309 }
+    .estado-seg button.on[data-estado="cerrada"] { background:#1B3F6E }
+    .estado-seg button:disabled { opacity:.45;cursor:not-allowed }
+    .estado-tip { font-size:10.5px;color:#95A0AF }
+
+    /* "En esta distribución": bloque destacado (verde, borde, número grande) junto a "por llevar". */
+    .endist-box { background:#EAF7EE;border:1px solid #BEE3C9;border-radius:10px;padding:7px 14px;text-align:right }
+    .endist-box .k { font-size:10px;color:#15803D;font-weight:700;text-transform:uppercase;letter-spacing:.02em }
+    .endist-box .v { font-size:19px;font-weight:800;color:#15803D;margin-top:1px;line-height:1.1 }
+    .porllevar-box { text-align:right;padding:7px 4px }
+    .porllevar-box .k { font-size:10px;color:#6B7280;font-weight:600 }
+    .porllevar-box .v { font-size:16px;font-weight:700;color:#1B3F6E;margin-top:1px }
+
     /* Barra global fija inferior: guardar TODA la distribución del mes (= plano a contabilidad). */
     .dist-actionbar { position:fixed;left:0;right:0;bottom:0;z-index:150;background:#fff;border-top:1px solid #E5E7EB;
         box-shadow:0 -4px 16px rgba(16,32,54,.10);padding:10px 16px }
@@ -503,7 +524,7 @@
 
 {{-- ══════════ MANO DE OBRA DIRECTA — resumen global "por aplicar" + acciones ══════════ --}}
 {{-- La asignación ya NO está en la bolsa: se hace dentro de cada obra destino (abajo). Aquí solo el
-     saldo restante por persona (en vivo) y las acciones del plano 14→61 por departamento. --}}
+     saldo restante por persona (en vivo) y las acciones del plano por departamento. --}}
 @php $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
 @foreach(($moPersonasDep ?? []) as $moDep => $moPers)
     @if(!empty($moPers))
@@ -525,7 +546,7 @@
                     <button type="submit" style="padding:5px 10px;background:#16A34A;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">⬇ Plano</button>
                 </form>
                 <form method="POST" action="{{ route('operativo.mano-obra.aplicar') }}" style="margin:0"
-                      onsubmit="return confirm('¿Aplicar en el sistema la MO guardada de esta área? Partida doble 14→61 (origen distribucion_plano), idempotente por bolsa+período. Guarda primero la distribución.');">
+                      onsubmit="return confirm('¿Aplicar en el sistema la mano de obra guardada de esta área? Se lleva al costo de cada proyecto destino. Guarda primero la distribución.');">
                     @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
                     <button type="submit" style="padding:5px 10px;background:#15803D;color:white;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">✓ Aplicar</button>
                 </form>
@@ -701,7 +722,7 @@
 <div id="modal-reasignar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
     <div style="background:white;border-radius:12px;padding:20px 22px;max-width:540px;width:92%;max-height:85vh;overflow:auto">
         <h3 style="font-size:15px;font-weight:600;color:#1B3F6E;margin-bottom:6px">Reasignar ítem a otra obra</h3>
-        <p style="font-size:12px;color:#6B7280;margin-bottom:12px">Origen: <b id="reasig-origen"></b>. Elige la obra destino; el costo baja en el origen y sube en el destino, y se refleja en el plano (reclasificación 14→14).</p>
+        <p style="font-size:12px;color:#6B7280;margin-bottom:12px">Origen: <b id="reasig-origen"></b>. Elige la obra destino; el costo baja en el origen y sube en el destino, y se refleja en el plano.</p>
         <input type="hidden" id="reasig-item">
         <input type="hidden" id="reasig-destino">
         <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:4px">Obra destino (código, nombre o cliente)</label>
@@ -1053,11 +1074,12 @@ function esCerrable(cod){
     return (d.rev||0)<=0.5 && sumAplicar(cod) >= (d.pend||0)-0.5;
 }
 function evaluarCerrable(cod){
-    const sel=document.querySelector('select[name="estado_obra['+cod+']"]'); if(!sel) return;
-    const opt=sel.querySelector('option[value="cerrada"]');
+    const seg=document.getElementById('estado-seg-'+cod); if(!seg) return;
+    const btnCerr=seg.querySelector('button[data-estado="cerrada"]');
+    const inp=document.getElementById('estado-inp-'+cod);
     const ok=esCerrable(cod);
-    if(opt) opt.disabled=!ok;
-    if(!ok && sel.value==='cerrada'){ sel.value='parcial'; cambiarEstado(cod,'parcial'); }
+    if(btnCerr){ btnCerr.disabled=!ok; btnCerr.title = ok ? '' : 'Disponible cuando quede en $0 por distribuir'; }
+    if(!ok && inp && inp.value==='cerrada'){ cambiarEstado(cod,'parcial'); }
 }
 
 function recalc(cod){
@@ -1067,7 +1089,7 @@ function recalc(cod){
     card.querySelectorAll('input[data-tipo="bolsa"]').forEach(i=>sumB+=parseFloat(i.value||0));
     const d=DATOS[cod]; if(!d) return;
     const prov = Number(d.prov||0);          // provisiones activas (costo sin aplicar, 14→26)
-    const moC  = sumMoObra(cod);              // mano de obra directa aplicada a esta obra (14→61)
+    const moC  = sumMoObra(cod);              // mano de obra directa aplicada a esta obra
     const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
     const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
@@ -1123,15 +1145,21 @@ function descartarCambios(){
     }
 }
 
+/* Clic del usuario en el control segmentado de estado: cambia y marca la distribución como
+   "sin guardar" (dispara el autoguardado). Las llamadas programáticas usan cambiarEstado directo. */
+function estadoClick(cod, val){
+    cambiarEstado(cod, val);
+    const inp=document.getElementById('estado-inp-'+cod);
+    if(inp) inp.dispatchEvent(new Event('change', {bubbles:true}));
+}
 function cambiarEstado(cod, val){
     if(val==='cerrada' && !esCerrable(cod)){
-        alert('No puedes cerrar esta obra: aún tiene saldo abierto en la cuenta 14. Aplica todo el pendiente (o resuelve el reversado) para poder cerrarla.');
-        const s=document.querySelector('select[name="estado_obra['+cod+']"]'); if(s) s.value='parcial'; val='parcial';
+        alert('No puedes cerrar esta obra: aún tiene saldo por distribuir. Déjala en $0 por distribuir (o resuelve el reversado) para poder cerrarla.');
+        val='parcial';
     }
-    const m=document.getElementById('metodo-'+cod);
-    if(m) m.textContent='Método: '+(val==='abierta'?'Reclasificar OT áreas → OT operación':'Cuenta 14 → 61');
-    const sel=document.querySelector('select[name="estado_obra['+cod+']"]');
-    if(sel && ESTCOL[val]){ sel.style.background=ESTCOL[val][0]; sel.style.color=ESTCOL[val][1]; sel.style.borderColor=ESTCOL[val][1]; }
+    const inp=document.getElementById('estado-inp-'+cod); if(inp) inp.value=val;
+    const seg=document.getElementById('estado-seg-'+cod);
+    if(seg) seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.estado===val));
 }
 
 /* ===== Provisiones persistentes (se conservan cada mes hasta reversarlas) =====
@@ -1618,7 +1646,7 @@ document.addEventListener('DOMContentLoaded', function(){
     function serializar() {
         const data = {};
         // Los montos "a aplicar" se guardan como número limpio (sin separador de miles).
-        form.querySelectorAll('input[data-tipo="aplicar"], select[name^="estado_obra"]').forEach(el => {
+        form.querySelectorAll('input[data-tipo="aplicar"], input[name^="estado_obra"]').forEach(el => {
             if (!el.name) return;
             data[el.name] = el.dataset.tipo === 'aplicar' ? String(soloDigitos(el.value)) : el.value;
         });
@@ -1719,7 +1747,11 @@ document.addEventListener('DOMContentLoaded', function(){
     function aplicarLocal(data) {
         Object.keys(data).forEach(name => {
             const el = form.querySelector('[name="' + name + '"]');
-            if (el) el.value = data[name];
+            if (!el) return;
+            el.value = data[name];
+            // Si es el estado (input oculto), refleja el valor en el control segmentado.
+            const mEstado = name.match(/^estado_obra\[(.+)\]$/);
+            if (mEstado && typeof cambiarEstado === 'function') cambiarEstado(mEstado[1], data[name]);
         });
         if (typeof DATOS === 'object') { for (const cod in DATOS) { try { recalc(cod); } catch (e) {} } }
         if (typeof remarcarAplicar === 'function') remarcarAplicar();
