@@ -10,7 +10,7 @@
     {{-- Resumen del proyecto (costos, margen, saldo por distribuir): flotante (sticky) mientras se
          hace scroll por las cuentas/terceros de esta obra. Sin overflow:hidden en la tarjeta para
          no romper el sticky; las esquinas se redondean con border-radius. --}}
-    <div class="obra-sticky" style="border-top-left-radius:12px;border-top-right-radius:12px;overflow:hidden">
+    <div class="obra-sticky" style="border-top-left-radius:12px;border-top-right-radius:12px;overflow-x:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -106,9 +106,9 @@
             </div>
         </div>
     </div>
-    </div>{{-- /obra-sticky --}}
 
-    {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) --}}
+    {{-- PROYECCIÓN DE RENTABILIDAD (oferta comercial vs realidad) — también dentro del bloque fijo,
+         para ver la rentabilidad proyectada moverse en vivo al distribuir. --}}
     @php
         $mcp = $o['pr_mc_proy']; $ofc = $o['pr_mc_ofertado'];
         $deltaMc = ($mcp !== null && $ofc !== null) ? round($mcp - $ofc, 1) : null;
@@ -135,15 +135,15 @@
                     <div style="font-size:16px;color:#C7D2FE">→</div>
                     <div>
                         <div style="font-size:9px;color:#9CA3AF">Proyectado (real)</div>
-                        <div style="display:inline-block;font-size:18px;font-weight:700;padding:1px 10px;border-radius:9px;background:{{ $semProy[0] }};color:{{ $semProy[1] }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
+                        <div id="prmcp-{{ $cod }}" style="display:inline-block;font-size:18px;font-weight:700;padding:1px 10px;border-radius:9px;background:{{ $semProy[0] }};color:{{ $semProy[1] }}">{{ $mcp === null ? '—' : $mcp.'%' }}</div>
                     </div>
                 </div>
                 @if($deltaMc !== null)
-                <div style="font-size:10px;font-weight:600;margin-top:8px;color:{{ $deltaMc >= 0 ? '#15803D' : '#DC2626' }}">
+                <div id="prdelta-{{ $cod }}" style="font-size:10px;font-weight:600;margin-top:8px;color:{{ $deltaMc >= 0 ? '#15803D' : '#DC2626' }}">
                     {{ $deltaMc >= 0 ? '▲ +'.$deltaMc : '▼ '.$deltaMc }} pts vs oferta
                 </div>
                 @else
-                <div style="font-size:10px;color:#9CA3AF;margin-top:8px">Sin oferta registrada</div>
+                <div id="prdelta-{{ $cod }}" style="font-size:10px;color:#9CA3AF;margin-top:8px">Sin oferta registrada</div>
                 @endif
             </div>
 
@@ -174,7 +174,7 @@
                 <div style="font-size:9px;font-weight:700;color:#6366F1;letter-spacing:.3px;margin-bottom:6px">COSTO Y EJECUCIÓN</div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0">
                     <span style="font-size:10px;color:#374151;font-weight:600">Costo total <span class="info-i" data-tip="Incluye lo aplicado + lo pendiente por aplicar + provisiones + otros costos distribuidos al proyecto.">i</span></span>
-                    <span style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
+                    <span id="prcosto-{{ $cod }}" style="font-size:13px;font-weight:700;color:#312E81">{{ $fmt($o['pr_costo_total']) }}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-top:1px solid #F1F5F9">
                     <span style="font-size:10px;color:#6B7280">Costo presupuestado</span>
@@ -192,6 +192,7 @@
             </div>
         </div>
     </div>
+    </div>{{-- /obra-sticky (incluye cabecera, mes, acumulado y proyección) --}}
 
     {{-- OBSERVACIONES DEL COORDINADOR --}}
     <div style="padding:10px 16px;border-top:1px solid #E5E7EB">

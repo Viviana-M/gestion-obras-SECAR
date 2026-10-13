@@ -108,6 +108,29 @@ class DistribucionEncabezadoTest extends TestCase
     }
 
     #[Test]
+    public function el_bloque_fijo_incluye_la_proyeccion_con_ids_para_actualizar_en_vivo(): void
+    {
+        $this->rf('MOB08680', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB08680', 'Costos por aplicar', -100, 6, 2026, '14200105');
+
+        $html = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        // La proyección tiene ids para moverse en vivo (MC% y costo total) al distribuir.
+        $this->assertStringContainsString('PROYECCIÓN DE RENTABILIDAD', $html);
+        $this->assertStringContainsString('id="prmcp-MOB08680"', $html);
+        $this->assertStringContainsString('id="prcosto-MOB08680"', $html);
+        // La proyección va ANTES de las observaciones (está en el resumen superior, no al final).
+        $this->assertLessThan(
+            strpos($html, 'OBSERVACIONES DEL COORDINADOR'),
+            strpos($html, 'PROYECCIÓN DE RENTABILIDAD')
+        );
+        // El bloque fijo tiene scroll interno si supera el alto de pantalla.
+        $this->assertStringContainsString('max-height: 100vh', $html);
+    }
+
+    #[Test]
     public function el_buscador_indexa_codigo_nombre_y_cliente(): void
     {
         FichaProyecto::create([

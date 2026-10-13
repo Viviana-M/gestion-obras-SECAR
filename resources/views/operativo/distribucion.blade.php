@@ -13,6 +13,10 @@
         z-index: 30;
         background: #fff;
         transition: box-shadow .15s;
+        /* Si el resumen (cabecera + mes + acumulado + proyección) supera el alto de pantalla,
+           tiene su propio scroll interno en vez de empujar la zona de distribución fuera de vista. */
+        max-height: 100vh;
+        overflow-y: auto;
     }
     /* Sombra sutil solo cuando el resumen queda pegado al tope (se nota que flota). */
     .obra-sticky.stuck { box-shadow: 0 10px 18px -12px rgba(16,32,54,.35); }
@@ -872,6 +876,7 @@
             'costoAcum'=> $o['costo_apl_acum'],
             'of'       => $o['ofertado'],
             'mcProy'   => $o['pr_mc_proy'],
+            'valorOferta' => (float) ($o['pr_valor_oferta'] ?? 0), // ingreso proyectado (denominador MC% proy)
             'nombre'   => $o['nombre'],
             'pend'     => $o['total_pendiente'],
             'rev'      => $o['total_reversado'],
@@ -1311,6 +1316,28 @@ function recalc(cod){
     const pctAcum = d.ingAcum ? (mcAcumPesos/d.ingAcum*100) : null;
     const mapEl=document.getElementById('mcacumpct-'+cod);
     if(mapEl){ mapEl.textContent = pctAcum===null ? '—' : (pctAcum.toFixed(1)+'%'); pintarSemaforo(mapEl, pctAcum===null?null:Number(pctAcum.toFixed(1)), d.dep); }
+
+    // PROYECCIÓN en vivo (ahora dentro del bloque fijo): costo real = costo acumulado + inventario
+    // pendiente + provisiones + otros costos (bolsa + mano de obra). Distribuir inventario mueve
+    // pendiente→aplicado (no cambia el costo real); provisiones/bolsa/MO sí lo cambian.
+    const vo = Number(d.valorOferta || 0);
+    const costoRealProy = (d.costoAcum || 0) + (d.pend || 0) + prov + sumB + moC;
+    const prcostoEl = document.getElementById('prcosto-'+cod);
+    if(prcostoEl) prcostoEl.textContent = fmt(costoRealProy);
+    const mcProy = vo > 0 ? ((vo - costoRealProy) / vo * 100) : null;
+    const prmcpEl = document.getElementById('prmcp-'+cod);
+    if(prmcpEl){
+        prmcpEl.textContent = mcProy===null ? '—' : (mcProy.toFixed(1)+'%');
+        // Semáforo: si el ofertado es menor al proyectado, va verde (bajo margen que se está mejorando).
+        const forzarVerde = (d.of !== null && mcProy !== null && Number(d.of) < mcProy);
+        pintarSemaforo(prmcpEl, mcProy===null ? null : (forzarVerde ? 999 : Number(mcProy.toFixed(1))), d.dep);
+    }
+    const prdeltaEl = document.getElementById('prdelta-'+cod);
+    if(prdeltaEl && d.of !== null && mcProy !== null){
+        const delta = Math.round((mcProy - Number(d.of)) * 10) / 10;
+        prdeltaEl.textContent = (delta >= 0 ? ('▲ +'+delta) : ('▼ '+delta)) + ' pts vs oferta';
+        prdeltaEl.style.color = delta >= 0 ? '#15803D' : '#DC2626';
+    }
 
     actualizarBarraGlobal();
 }
