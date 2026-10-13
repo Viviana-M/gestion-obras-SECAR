@@ -57,20 +57,29 @@
                     style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
                 <small style="font-size:11px;color:#9CA3AF">Formatos aceptados: .xlsx, .xls, .csv — máximo 50MB</small>
                 @php
-                    $columnasBiable = [
-                        ['pos' => 'A', 'nombre' => 'Unidad de negocio'],
-                        ['pos' => 'B', 'nombre' => 'Cuenta contable'],
-                        ['pos' => 'C', 'nombre' => 'Descripción cuenta'],
-                        ['pos' => 'D', 'nombre' => 'Valor débito'],
-                        ['pos' => 'E', 'nombre' => 'Valor crédito'],
-                        ['pos' => 'F', 'nombre' => 'Movto libro 2'],
-                        ['pos' => 'G', 'nombre' => 'Tercero Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
-                        ['pos' => 'H', 'nombre' => 'Razon social Docto', 'nota' => 'Necesaria para el plano de cargue al ERP; no la elimines.'],
-                        ['pos' => 'I', 'nombre' => 'Docto.', 'nota' => 'Número de documento; se guarda para reconciliar contra el ERP.'],
+                    // Única fuente de verdad: el mapeo del importador. La pantalla refleja exactamente
+                    // las columnas que el sistema reconoce POR NOMBRE (el orden del archivo no importa).
+                    $notasBiable = [
+                        'documento'      => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'tercero_doc'    => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'razon_doc'      => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'fecha_docto'    => 'Con ella se ordena el cruce de saldos (FIFO, más antiguo primero).',
+                        'tipo_documento' => 'Arma el documento completo TIPO-NÚMERO (ej. FSE-7970, SII-52).',
                     ];
+                    $columnasBiable = collect(\App\Imports\Financiero\MovimientoBiableImport::COLUMNAS_UI)
+                        ->map(fn ($c) => [
+                            'nombre'      => $c['label'],
+                            'obligatoria' => $c['obligatoria'],
+                            'nueva'       => $c['nueva'],
+                            'nota'        => $notasBiable[$c['campo']] ?? null,
+                        ])->all();
                 @endphp
-                <x-columnas-plano titulo="El archivo BIABLE debe traer estas columnas, en este orden:" :columnas="$columnasBiable">
-                    Las columnas <b>Tercero Docto</b> y <b>Razon social Docto</b> son necesarias para el plano de cargue al ERP.
+                <x-columnas-plano :numerar="false"
+                    titulo="El archivo BIABLE debe traer estas columnas (el sistema las reconoce por su nombre, el orden no importa):"
+                    :columnas="$columnasBiable">
+                    Las columnas <b>Docto.</b>, <b>Tercero Docto</b> y <b>Razón social Docto</b> son obligatorias para el plano de cargue al ERP.
+                    Con <b>Fecha del documento</b> y <b>Tipo de documento</b> se arma el documento completo (ej. <b>FSE-7970</b>) y se ordena el cruce de saldos.<br>
+                    El archivo debe incluir <b>todas las cuentas</b> del período: 14, <b>26 (provisiones)</b>, <b>28 (facturación anticipada)</b>, 41, 42, 61…<br>
                     <span style="color:#DC2626">⚠ Guarda el archivo como <b>Valores</b> en Excel antes de subir (sin fórmulas).</span>
                 </x-columnas-plano>
             </div>

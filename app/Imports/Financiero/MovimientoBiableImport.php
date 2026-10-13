@@ -5,6 +5,7 @@ namespace App\Imports\Financiero;
 use App\Models\RegistroFinanciero;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
@@ -35,6 +36,47 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     /** Filas por INSERT. 500 × ~19 columnas queda muy por debajo del límite de MySQL. */
     private const LOTE = 500;
+
+    /**
+     * MAPEO POR NOMBRE — ÚNICA FUENTE DE VERDAD. Cada campo interno conoce los encabezados BIABLE que
+     * acepta (normalizados: minúsculas, sin acentos, separados por "_"). El ORDEN del archivo no
+     * importa; se reconoce por nombre y se toleran variaciones (mayúsculas/acentos/espacios).
+     */
+    public const CAMPOS = [
+        'codigo_proyecto' => ['unidad_de_negocio', 'unidad_negocio', 'unidad', 'un', 'codigo_proyecto', 'proyecto'],
+        'nombre_proyecto' => ['nombre_unidad_de_negocio', 'nombre_unidad_negocio', 'nombre_proyecto', 'nombre_un'],
+        'cuenta'          => ['cuenta_contable', 'cuenta', 'codigo_cuenta', 'auxiliar_contable'],
+        'descripcion'     => ['descripcion_cuenta', 'nombre_auxiliar', 'descripcion', 'nombre_cuenta', 'descripcion_auxiliar'],
+        'debito'          => ['valor_debito', 'debitos', 'debito', 'valor_debitos'],
+        'credito'         => ['valor_credito', 'creditos', 'credito', 'valor_creditos'],
+        'movto_libro2'    => ['movto_libro_2', 'movto_libro2', 'movimiento_libro_2', 'movto_lib_2'],
+        'periodo'         => ['periodo'],
+        'fecha_docto'     => ['fecha_del_documento', 'fecha_documento', 'fecha_docto', 'fecha_dcto', 'fecha_doc', 'fecha'],
+        'tipo_documento'  => ['tipo_de_documento', 'tipo_documento', 'tipo_docto', 'tipo_doc', 'tipo'],
+        'documento'       => ['docto', 'documento', 'numero_documento', 'numero_docto', 'numero'],
+        'tercero_mov'     => ['tercero', 'tercero_movimiento', 'nit_tercero'],
+        'razon_mov'       => ['nombre_tercero', 'razon_social_tercero'],
+        'tercero_doc'     => ['tercero_docto', 'tercero_dcto', 'nit_docto'],
+        'razon_doc'       => ['razon_social_docto', 'razon_social_dcto', 'razon_social'],
+    ];
+
+    /**
+     * Columnas que SE MUESTRAN en la pantalla de carga y que valida el controlador. 'obligatoria':
+     * sin ella se rechaza la carga. 'nueva': se resalta como agregada recientemente.
+     */
+    public const COLUMNAS_UI = [
+        ['campo' => 'codigo_proyecto', 'label' => 'Unidad de negocio',  'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'cuenta',          'label' => 'Cuenta contable',    'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'descripcion',     'label' => 'Descripción cuenta', 'obligatoria' => false, 'nueva' => false],
+        ['campo' => 'debito',          'label' => 'Valor débito',       'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'credito',         'label' => 'Valor crédito',      'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'movto_libro2',    'label' => 'Movto libro 2',      'obligatoria' => false, 'nueva' => false],
+        ['campo' => 'fecha_docto',     'label' => 'Fecha del documento','obligatoria' => false, 'nueva' => true],
+        ['campo' => 'tipo_documento',  'label' => 'Tipo de documento',  'obligatoria' => false, 'nueva' => true],
+        ['campo' => 'documento',       'label' => 'Docto. (número)',    'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'tercero_doc',     'label' => 'Tercero Docto',      'obligatoria' => true,  'nueva' => false],
+        ['campo' => 'razon_doc',       'label' => 'Razón social Docto', 'obligatoria' => true,  'nueva' => false],
+    ];
 
     private array $bufferRegistros = [];
     private array $bufferSaldos    = [];
@@ -91,28 +133,31 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     public function paraRegistro(array $row, $ahora): ?array
     {
+        // Reconocimiento POR NOMBRE: el orden del archivo no importa (ver self::CAMPOS).
+        $c = $this->campos($row);
+
         // El saldo de la cuenta 14 refleja libro 1 (débito − crédito), NO libro 2. Un movimiento
         // con débito=0 y crédito=0 (que solo tenía valor en libro 2) queda en $0 y no se carga.
-        $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
-        $credito = $this->limpiarNumero($row['creditos'] ?? 0);
+        $debito  = $this->limpiarNumero($c['debito']  ?? 0);
+        $credito = $this->limpiarNumero($c['credito'] ?? 0);
         $movto   = $debito - $credito;
         if ($movto == 0) return null;
 
-        $periodo = trim((string) ($row['periodo'] ?? ''));
+        $periodo = trim((string) ($c['periodo'] ?? ''));
         if (str_ends_with($periodo, '13')) return null;
 
         // Se acepta CUALQUIER obra con código (unidad de negocio) no vacío: antes había una lista
         // blanca de prefijos que botaba obras reales con saldo (ADM, LOG, FAD, FIL, VTD, G0…) y
         // descuadraba contra el ERP. Solo se descartan filas sin código o de totales/encabezado.
-        $unidad = trim((string) ($row['unidad_de_negocio'] ?? ''));
+        $unidad = trim((string) ($c['codigo_proyecto'] ?? ''));
         if ($unidad === '' || str_contains(strtoupper($unidad), 'TOTAL')) return null;
 
-        $nombreUnidad = trim((string) ($row['nombre_unidad_de_negocio'] ?? ''));
+        $nombreUnidad = trim((string) ($c['nombre_proyecto'] ?? ''));
         $unidadUnificada = $unidad && $nombreUnidad
             ? $unidad . ' - ' . $nombreUnidad
             : ($unidad ?: $nombreUnidad);
 
-        $cuenta      = trim((string) ($row['cuenta'] ?? ''));
+        $cuenta      = trim((string) ($c['cuenta'] ?? ''));
         $cuentaMayor = $this->clasificarCuenta($cuenta);
 
         if (in_array($cuentaMayor, ['Activo', 'Pasivo', 'Patrimonio', 'No clasificado'], true)) {
@@ -127,29 +172,26 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             ? $movto * -1
             : $movto;
 
-        $tercero  = (trim((string) ($row['tercero'] ?? '')) ?: trim((string) ($row['tercero_docto'] ?? ''))) ?: null;
-        $documento = (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null);
-        $debito   = $this->limpiarNumero($row['debitos']  ?? 0);
-        $credito  = $this->limpiarNumero($row['creditos'] ?? 0);
+        $tercero   = (trim((string) ($c['tercero_mov'] ?? '')) ?: trim((string) ($c['tercero_doc'] ?? ''))) ?: null;
+        $documento = (trim((string) ($c['documento'] ?? '')) ?: null);
 
         return [
             'codigo_proyecto'  => $unidad,
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
-            'descripcion'      => trim((string) ($row['nombre_auxiliar'] ?? '')),
+            'descripcion'      => trim((string) ($c['descripcion'] ?? '')),
             // Tercero del MOVIMIENTO (col "Tercero"/"Nombre Tercero"), que en las líneas de nómina es
             // el EMPLEADO. NO el "Tercero Docto" (tercero del documento), que en nómina es SECAR y
             // hacía que el cruce por cédula de MO Apoyo no encontrara a nadie. Si el movimiento no
             // trae tercero, cae al del documento.
             'tercero_dcto'     => $tercero,
-            'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
-            // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
+            'razon_social'     => (trim((string) ($c['razon_mov'] ?? '')) ?: trim((string) ($c['razon_doc'] ?? ''))) ?: null,
+            // Número de documento ("Docto."); admite variantes; null si viene vacío.
             'documento'        => $documento,
             // Tipo de documento (CCC/FSP/NQ/APP…), para mostrar el documento completo TIPO-NÚMERO.
-            'tipo_documento'   => $this->primerNoVacio($row, ['tipo_docto', 'tipo_documento', 'tipo_de_documento', 'tipo_doc', 'tipo']),
-            // Fecha del documento (AAAAMMDD) → fecha del movto / FIFO SECAR. El encabezado BIABLE puede
-            // venir como "Fecha dcto", "Fecha_docto", "Fecha documento" o simplemente "Fecha".
-            'fecha_docto'      => $this->fechaDocto($this->primerNoVacio($row, ['fecha_docto', 'fecha_dcto', 'fecha_documento', 'fecha_del_documento', 'fecha_doc', 'fecha'])),
+            'tipo_documento'   => ($c['tipo_documento'] !== null ? trim((string) $c['tipo_documento']) : null) ?: null,
+            // Fecha del documento (AAAAMMDD) → fecha del movto / FIFO SECAR.
+            'fecha_docto'      => $this->fechaDocto($c['fecha_docto'] ?? null),
             'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
@@ -218,34 +260,37 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
     public function paraSaldo(array $row): ?array
     {
-        $cuenta = trim((string) ($row['cuenta'] ?? ''));
+        // Reconocimiento POR NOMBRE, igual que paraRegistro (ver self::CAMPOS).
+        $c = $this->campos($row);
+
+        $cuenta = trim((string) ($c['cuenta'] ?? ''));
         if ($cuenta === '') return null;
 
         // Solo cuentas de balance: 1 activo, 2 pasivo, 3 patrimonio.
         $clase = substr($cuenta, 0, 1);
         if (!in_array($clase, ['1', '2', '3'], true)) return null;
 
-        $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
-        $credito = $this->limpiarNumero($row['creditos'] ?? 0);
-        $movto   = $this->limpiarNumero($row['movto_libro2'] ?? 0);
+        $debito  = $this->limpiarNumero($c['debito']  ?? 0);
+        $credito = $this->limpiarNumero($c['credito'] ?? 0);
+        $movto   = $this->limpiarNumero($c['movto_libro2'] ?? 0);
         if ($movto == 0) $movto = $debito - $credito;
         if ($debito == 0 && $credito == 0) return null;
 
         // A propósito NO se filtra por prefijo de obra: las cuentas globales
         // (pasivo / patrimonio) vienen sin proyecto y deben entrar igual.
-        $unidad       = trim((string) ($row['unidad_de_negocio'] ?? ''));
-        $nombreUnidad = trim((string) ($row['nombre_unidad_de_negocio'] ?? ''));
+        $unidad       = trim((string) ($c['codigo_proyecto'] ?? ''));
+        $nombreUnidad = trim((string) ($c['nombre_proyecto'] ?? ''));
 
         return [
             'cuenta_contable' => $cuenta,
-            'descripcion'     => trim((string) ($row['nombre_auxiliar'] ?? '')),
+            'descripcion'     => trim((string) ($c['descripcion'] ?? '')),
             'clase'           => $clase,
             'codigo_proyecto' => $unidad ?: null,
             'nombre_proyecto' => $nombreUnidad ?: null,
             'valor_debito'    => $debito,
             'valor_credito'   => $credito,
             'movto'           => $movto,
-            'periodo'         => trim((string) ($row['periodo'] ?? '')),
+            'periodo'         => trim((string) ($c['periodo'] ?? '')),
             'mes'             => $this->mes,
             'anio'            => $this->anio,
             'origen'          => 'biable',
@@ -311,14 +356,48 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         return is_numeric($valor) ? floatval($valor) : 0;
     }
 
-    /** Primer valor no vacío entre varias claves de encabezado candidatas (slug de Maatwebsite). */
-    private function primerNoVacio(array $row, array $claves): ?string
+    /** Normaliza un encabezado: minúsculas, sin acentos, lo no-alfanumérico pasa a "_". */
+    public static function norm(string $s): string
     {
-        foreach ($claves as $k) {
-            $v = trim((string) ($row[$k] ?? ''));
-            if ($v !== '') return $v;
+        $s = (string) Str::of($s)->ascii()->lower();
+        $s = preg_replace('/[^a-z0-9]+/', '_', (string) $s);
+        return trim((string) $s, '_');
+    }
+
+    /** Resuelve todos los campos canónicos de una fila por NOMBRE (alias de CAMPOS), no por posición. */
+    private function campos(array $row): array
+    {
+        $m = [];
+        foreach ($row as $k => $v) { $m[self::norm((string) $k)] = $v; }
+
+        $out = [];
+        foreach (self::CAMPOS as $canon => $aliases) {
+            $val = null;
+            foreach ($aliases as $a) {
+                if (array_key_exists($a, $m) && trim((string) $m[$a]) !== '') { $val = $m[$a]; break; }
+            }
+            $out[$canon] = $val;
         }
-        return null;
+        return $out;
+    }
+
+    /**
+     * Valida una fila de encabezados (array de strings). Devuelve las etiquetas de las columnas
+     * OBLIGATORIAS que no se reconocieron (vacío = todo bien). Reconoce por nombre, tolerante.
+     */
+    public static function encabezadosFaltantes(array $headers): array
+    {
+        $presentes = [];
+        foreach ($headers as $h) { $presentes[self::norm((string) $h)] = true; }
+
+        $faltan = [];
+        foreach (self::COLUMNAS_UI as $col) {
+            if (! $col['obligatoria']) continue;
+            $ok = false;
+            foreach (self::CAMPOS[$col['campo']] ?? [] as $a) { if (isset($presentes[$a])) { $ok = true; break; } }
+            if (! $ok) $faltan[] = $col['label'];
+        }
+        return $faltan;
     }
 
     /** Fecha del documento en AAAAMMDD (o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */

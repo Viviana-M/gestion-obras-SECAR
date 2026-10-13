@@ -543,7 +543,7 @@ class DistribucionService
             ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '
                 . 'MAX(nombre_proyecto) as nombre_proyecto, MAX(descripcion) as descripcion, '
                 . 'MAX(documento) as documento, MAX(tipo_documento) as tipo_doc, MIN(fecha_docto) as fecha, '
-                . 'MIN(anio*100+mes) as periodo, SUM(estado_er) as saldo_er')
+                . 'MIN(anio*100+mes) as periodo, MIN(id) as min_id, SUM(estado_er) as saldo_er')
             ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
             ->get();
@@ -570,6 +570,7 @@ class DistribucionService
                 'documento'      => $docCompleto,
                 'fecha'          => $fecha,
                 'ord'            => $ord,
+                'min_id'         => (int) $f->min_id, // desempate estable del FIFO
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }
@@ -606,13 +607,14 @@ class DistribucionService
                     'observaciones'    => (string) ($g->observaciones ?? ''),
                     'cero'             => round($saldo) == 0,
                     'ord'              => $t['ord'],
+                    'min_id'           => $t['min_id'],
                 ];
             }
         }
 
         // Orden dentro de cada UN: por cuenta y, dentro de la cuenta, del más antiguo al más reciente.
         foreach ($out as &$lineas) {
-            usort($lineas, fn ($a, $b) => [$a['cuenta_14'], $a['ord']] <=> [$b['cuenta_14'], $b['ord']]);
+            usort($lineas, fn ($a, $b) => [$a['cuenta_14'], $a['ord'], $a['min_id']] <=> [$b['cuenta_14'], $b['ord'], $b['min_id']]);
         }
         unset($lineas);
 
@@ -641,7 +643,7 @@ class DistribucionService
         foreach ($terceros as $i => $t) {
             if ($t['tercero_dcto'] !== self::NIT_SECAR && $t['saldo'] > 0) $orden[] = $i;
         }
-        usort($orden, fn ($a, $b) => $terceros[$a]['ord'] <=> $terceros[$b]['ord']);
+        usort($orden, fn ($a, $b) => [$terceros[$a]['ord'], $terceros[$a]['min_id']] <=> [$terceros[$b]['ord'], $terceros[$b]['min_id']]);
 
         foreach ($orden as $i) {
             if ($negSecar <= 0.5) break;

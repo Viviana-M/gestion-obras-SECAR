@@ -41,7 +41,7 @@ class CargaPorLotesTest extends TestCase
         $sheet->fromArray([
             'Unidad de Negocio', 'Nombre Unidad de Negocio', 'Cuenta', 'Nombre Auxiliar',
             'Debitos', 'Creditos', 'Movto Libro2', 'Periodo', 'Tercero', 'Nombre Tercero',
-            'Tercero Docto', 'Razon Social Docto',
+            'Tercero Docto', 'Razon Social Docto', 'Docto.',
         ], null, 'A1');
         $r = 2;
         foreach ($filas as $f) {
@@ -58,7 +58,7 @@ class CargaPorLotesTest extends TestCase
     /** Fila de costo (cuenta 6 → registro) o de balance (cuenta 1/2/3 → saldo). */
     private function fila(string $un, string $nombreUn, string $cuenta, float $deb, float $cred, float $movto, string $periodo = '202408'): array
     {
-        return [$un, $nombreUn, $cuenta, 'AUX', $deb, $cred, $movto, $periodo, '900123', 'TERCERO SA', '890319324', 'SECAR'];
+        return [$un, $nombreUn, $cuenta, 'AUX', $deb, $cred, $movto, $periodo, '900123', 'TERCERO SA', '890319324', 'SECAR', 'FSE-1'];
     }
 
     #[Test]

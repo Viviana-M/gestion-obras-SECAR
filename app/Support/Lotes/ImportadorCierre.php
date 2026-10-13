@@ -48,6 +48,17 @@ class ImportadorCierre implements ImportadorLotes
             }
         }
 
+        // VALIDACIÓN POR NOMBRE: el mapeo del importador (MovimientoBiableImport::CAMPOS) es la única
+        // fuente de verdad. Si falta alguna columna OBLIGATORIA, se rechaza la carga ANTES de borrar
+        // el período, para no dejar el mes vacío por un archivo mal armado.
+        $faltan = MovimientoBiableImport::encabezadosFaltantes(array_values($cabecera));
+        if (! empty($faltan)) {
+            throw new \RuntimeException(
+                'El archivo no tiene las columnas obligatorias: '.implode(', ', $faltan).
+                '. El sistema reconoce las columnas por su nombre; revisa el encabezado del BIABLE y vuelve a intentarlo.'
+            );
+        }
+
         // Reemplazo del período: borra SOLO lo cargado desde BIABLE (origen='biable'); nunca los
         // movimientos generados por el sistema al aplicar planos (reverso_plano/distribucion_plano).
         RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->where('origen', 'biable')->delete();

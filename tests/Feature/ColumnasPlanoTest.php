@@ -28,9 +28,16 @@ class ColumnasPlanoTest extends TestCase
         $resp = $this->actingAs($this->contable())->get(route('contable.carga'));
         $resp->assertStatus(200);
         $resp->assertSee('El archivo BIABLE debe traer estas columnas', false);
+        $resp->assertSee('reconoce por su nombre', false);
         $resp->assertSee('Unidad de negocio', false);
         $resp->assertSee('Tercero Docto', false);
-        $resp->assertSee('Razon social Docto', false);
+        $resp->assertSee('Razón social Docto', false);
+        // Las columnas nuevas (fecha y tipo de documento) se muestran marcadas como NUEVO.
+        $resp->assertSee('Fecha del documento', false);
+        $resp->assertSee('Tipo de documento', false);
+        $resp->assertSee('NUEVO', false);
+        // Nota de que la carga debe incluir las cuentas de pasivo que ahora entran como datos.
+        $resp->assertSee('28 (facturación anticipada)', false);
     }
 
     #[Test]
