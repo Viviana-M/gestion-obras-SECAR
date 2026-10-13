@@ -921,11 +921,11 @@ class DistribucionService
             ? round((1 - $o['costo_acum_rec'] / $o['fact_acum_rec']) * 100, 1) : null;
 
         // Rentabilidad del mes (el JS recalcula MC al aplicar 14→6 y al asignar bolsas).
-        // La provisión NO es un 14→6: es "costo sin aplicar" (14→26), pero igual cuenta
-        // como costo del mes y afecta el margen.
+        // La provisión NO reclasifica la 14: reconoce el costo directo en la 61 contra la
+        // provisión de la 26 (61→26), pero igual cuenta como costo del mes y afecta el margen.
         $o['costo_mes_c6']      = $o['costo_apl_mes'];
         $o['aplicado_mes']      = $o['sum_aplicar'] + $sumBolsa;   // 14→6 real
-        $o['costo_sin_aplicar'] = $o['sum_prov'];                   // provisiones (14→26)
+        $o['costo_sin_aplicar'] = $o['sum_prov'];                   // provisiones (61→26)
         $costoMesTotal          = $o['costo_apl_mes'] + $o['aplicado_mes'] + $o['costo_sin_aplicar'];
         $o['mc_mes_pesos']      = $ingMes - $costoMesTotal;
         $o['mc_mes_pct']        = $ingMes != 0 ? round($o['mc_mes_pesos'] / $ingMes * 100, 1) : null;

@@ -223,7 +223,7 @@ class PlanoContableController extends Controller
         foreach ($this->movimientosReasignaciones($mes, $anio, $depto, $numeroDoc) as $m) {
             $movimientos[] = $m;
         }
-        // Provisiones del período (costo en tránsito): registro (D 14 / C 26) y reversas (D 26 / C 14).
+        // Provisiones del período (costo en tránsito): registro (D 61 / C 26) y reversas (D 26 / C 61).
         foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
             $movimientos[] = $m;
         }
@@ -311,14 +311,19 @@ class PlanoContableController extends Controller
     }
 
     /**
-     * Movimientos de PROVISIONES del período (costo en tránsito, persistentes):
-     *   - Registrada este mes  → Débito cuenta 14 / Crédito cuenta 26 (se contabiliza una vez).
-     *   - Reversada este mes    → Débito cuenta 26 / Crédito cuenta 14 (asiento inverso).
+     * Movimientos de PROVISIONES del período (costo en tránsito, persistentes).
+     * Una provisión es un COSTO sin factura: se reconoce el costo en la cuenta 61 (igual que
+     * lo distribuido) y la contrapartida queda en la cuenta 26 como provisión por pagar.
+     *   - Registrada este mes  → Débito cuenta 61 (con centro de costos) / Crédito cuenta 26.
+     *   - Reversada este mes    → Débito cuenta 26 / Crédito cuenta 61 (asiento inverso: se revierte el 26).
      * Las provisiones activas de meses anteriores NO generan movimiento (ya se registraron).
+     * La cuenta 61 se obtiene homologando la cuenta 14 provisionada (vigente en el período).
      */
     public function movimientosProvisiones(int $mes, int $anio, string $depto, int $numeroDoc): array
     {
-        $prefijos = User::prefijosDeDepartamento($depto);
+        $prefijos     = User::prefijosDeDepartamento($depto);
+        $centroCostos = self::CENTRO_COSTOS[$depto] ?? null;   // va SOLO en la línea de cuenta 61
+        $mapa61       = Homologacion::mapaEn(Homologacion::periodo($anio, $mes)); // cuenta_14 => homologación
         $mov = [];
         foreach (\App\Models\Provision::all() as $p) {
             if (! $this->empiezaPor((string) $p->codigo_proyecto, $prefijos)) continue;
@@ -328,15 +333,21 @@ class PlanoContableController extends Controller
             $c14  = (string) $p->cuenta_14;
             $c26  = (string) $p->cuenta_26;
 
-            // Registrada este mes: Débito 14 / Crédito 26.
+            // Cuenta 61 destino del costo (homologada de la 14). Sin homologación no se puede
+            // llevar a la cuenta 6: se omite la provisión (igual que una línea SIN HOMOLOGAR).
+            $h   = $mapa61->get($c14);
+            $c61 = $h ? (string) $h->cuenta_61 : '';
+            if ($c61 === '' || $c61 === 'SIN HOMOLOGAR') continue;
+
+            // Registrada este mes: Débito 61 (costo, con centro de costos) / Crédito 26 (provisión).
             if ((int) $p->mes === $mes && (int) $p->anio === $anio) {
-                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, $monto, 0);
+                $mov[] = $this->fila($numeroDoc, $c61, self::NIT_SECAR, $obra, $centroCostos, $monto, 0);
                 $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, 0, $monto);
             }
-            // Reversada este mes: Débito 26 / Crédito 14.
+            // Reversada este mes: Débito 26 / Crédito 61 (se revierte el costo y la provisión).
             if ($p->estado === 'reversada' && (int) $p->reversada_mes === $mes && (int) $p->reversada_anio === $anio) {
                 $mov[] = $this->fila($numeroDoc, $c26, null, $obra, null, $monto, 0);
-                $mov[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, $obra, null, 0, $monto);
+                $mov[] = $this->fila($numeroDoc, $c61, self::NIT_SECAR, $obra, $centroCostos, 0, $monto);
             }
         }
         return $mov;

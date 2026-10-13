@@ -13,8 +13,9 @@ use Tests\TestCase;
 use Tests\Concerns\AbrePeriodoCierre;
 
 /**
- * Provisiones persistentes (costo en tránsito): se crean una vez (Débito cuenta 14 /
- * Crédito 26), se arrastran activas cada mes y con "Reversar" hacen el asiento inverso.
+ * Provisiones persistentes (costo sin factura): se crean una vez (Débito cuenta 61 /
+ * Crédito 26), se arrastran activas cada mes y con "Reversar" hacen el asiento inverso
+ * (Débito 26 / Crédito 61). La cuenta 61 se homologa de la 14 provisionada.
  */
 class ProvisionTest extends TestCase
 {
@@ -166,34 +167,55 @@ class ProvisionTest extends TestCase
     }
 
     #[Test]
-    public function el_plano_registra_14_a_26_al_crear_y_26_a_14_al_reversar(): void
+    public function el_plano_registra_61_a_26_al_crear_y_26_a_61_al_reversar(): void
     {
+        // La provisión es un COSTO sin factura: el costo se reconoce en la cuenta 61
+        // (homologada de la 14) y la contrapartida queda en la cuenta 26.
+        \App\Models\Homologacion::create(['cuenta_14' => '14200530', 'cuenta_61' => '61350105',
+            'nombre' => 'Servicio', 'estructura' => 'MAT', 'vigente_desde' => 200001]);
+
         $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',
             'cuenta_14' => '14200530', 'cuenta_26' => '26050604', 'monto' => 800000,
             'mes' => 6, 'anio' => 2026, 'estado' => 'activa']);
 
         $ctrl = new PlanoContableController();
 
-        // Mes en que se registró (junio): Débito 14 / Crédito 26.
+        // Mes en que se registró (junio): Débito 61 (costo, con centro de costos) / Crédito 26.
         $jun = $ctrl->movimientosProvisiones(6, 2026, 'mantenimiento', 99);
-        $deb14 = collect($jun)->first(fn ($m) => $m['cuenta'] === '14200530' && $m['debito'] > 0);
+        $deb61 = collect($jun)->first(fn ($m) => $m['cuenta'] === '61350105' && $m['debito'] > 0);
         $cre26 = collect($jun)->first(fn ($m) => $m['cuenta'] === '26050604' && $m['credito'] > 0);
-        $this->assertNotNull($deb14);
-        $this->assertNotNull($cre26);
-        $this->assertEqualsWithDelta(800000, $deb14['debito'], 0.5);
+        $this->assertNotNull($deb61, 'Debe debitar el costo en la cuenta 61 homologada.');
+        $this->assertNotNull($cre26, 'Debe acreditar la provisión en la cuenta 26.');
+        $this->assertEqualsWithDelta(800000, $deb61['debito'], 0.5);
         $this->assertEqualsWithDelta(800000, $cre26['credito'], 0.5);
+        $this->assertSame('30020105', $deb61['centro_costos'], 'El costo (61) lleva el centro de costos del área.');
+        // No debe quedar ninguna línea en la cuenta 14: la provisión ya no pasa por inventario.
+        $this->assertNull(collect($jun)->first(fn ($m) => $m['cuenta'] === '14200530'));
 
         // Mes siguiente (julio) sin reversar: NO genera movimiento (ya se contabilizó).
         $this->assertCount(0, $ctrl->movimientosProvisiones(7, 2026, 'mantenimiento', 99));
 
-        // Reversada en agosto: Débito 26 / Crédito 14 (asiento inverso).
+        // Reversada en agosto: Débito 26 / Crédito 61 (asiento inverso: se revierte el 26).
         $prov->update(['estado' => 'reversada', 'reversada_mes' => 8, 'reversada_anio' => 2026]);
         $ago = $ctrl->movimientosProvisiones(8, 2026, 'mantenimiento', 99);
         $deb26 = collect($ago)->first(fn ($m) => $m['cuenta'] === '26050604' && $m['debito'] > 0);
-        $cre14 = collect($ago)->first(fn ($m) => $m['cuenta'] === '14200530' && $m['credito'] > 0);
-        $this->assertNotNull($deb26);
-        $this->assertNotNull($cre14);
+        $cre61 = collect($ago)->first(fn ($m) => $m['cuenta'] === '61350105' && $m['credito'] > 0);
+        $this->assertNotNull($deb26, 'Al reversar debe debitar la cuenta 26.');
+        $this->assertNotNull($cre61, 'Al reversar debe acreditar la cuenta 61 (revierte el costo).');
         $this->assertEqualsWithDelta(800000, $deb26['debito'], 0.5);
-        $this->assertEqualsWithDelta(800000, $cre14['credito'], 0.5);
+        $this->assertEqualsWithDelta(800000, $cre61['credito'], 0.5);
+    }
+
+    #[Test]
+    public function la_provision_sin_homologacion_no_se_lleva_a_la_cuenta_6(): void
+    {
+        // Sin homologación 14→61 no se puede llevar a la cuenta 6: la provisión se omite del plano
+        // (igual que una línea SIN HOMOLOGAR), sin dejar un 26 descuadrado.
+        Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',
+            'cuenta_14' => '14209999', 'cuenta_26' => '26050604', 'monto' => 500000,
+            'mes' => 6, 'anio' => 2026, 'estado' => 'activa']);
+
+        $ctrl = new PlanoContableController();
+        $this->assertCount(0, $ctrl->movimientosProvisiones(6, 2026, 'mantenimiento', 99));
     }
 }

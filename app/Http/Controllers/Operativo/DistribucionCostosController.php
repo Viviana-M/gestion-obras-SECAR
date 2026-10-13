@@ -1097,7 +1097,7 @@ class DistribucionCostosController extends Controller
     }
 
     /**
-     * Reversar una provisión: hace el asiento inverso (Débito 26 / Crédito 14) en el
+     * Reversar una provisión: hace el asiento inverso (Débito 26 / Crédito 61) en el
      * período abierto y deja de arrastrarse a partir de ese mes.
      */
     public function reversarProvision(Request $request, \App\Models\Provision $provision)
@@ -1129,7 +1129,7 @@ class DistribucionCostosController extends Controller
         if ($request->wantsJson()) {
             return response()->json(['ok' => true]);
         }
-        return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 14) en '.$mes.'/'.$anio.'.');
+        return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 61) en '.$mes.'/'.$anio.'.');
     }
 
     public function guardar(Request $request)

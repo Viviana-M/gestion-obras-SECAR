@@ -5,8 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Provisión persistente (costo en tránsito). Se registra una vez (Débito cuenta 14 /
- * Crédito cuenta 26) y se arrastra ACTIVA cada mes hasta que la reversen.
+ * Provisión persistente (costo sin factura). Se registra una vez (Débito cuenta 61 —el costo—
+ * / Crédito cuenta 26 —la provisión por pagar—) y se arrastra ACTIVA cada mes hasta que la
+ * reversen (asiento inverso Débito 26 / Crédito 61). La cuenta 61 se homologa de la 14.
  */
 class Provision extends Model
 {
