@@ -526,6 +526,39 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_reverso_de_secar_consume_primero_la_mano_de_obra(): void
+    {
+        // En la misma (U.N., cuenta): mano de obra de apoyo +300k, un proveedor normal +200k y el reverso
+        // de SECAR −300k. SECAR debe consumir PRIMERO la mano de obra → la MO queda en $0 y no se lista;
+        // el proveedor (otros costos) sobrevive completo; NO queda "reversado de más".
+        \App\Models\ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'Nubia Apoyo', 'activo' => true]);
+        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'tipo_documento' => 'FSE', 'documento' => $t, 'fecha_docto' => $fecha,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred, 'mes' => 7, 'anio' => 2026,
+            ]);
+        };
+        $rf('222', 'Nubia Apoyo',   300000, 0, '2026-07-05'); // MO apoyo (débito)
+        $rf('900', 'Proveedor SAS', 200000, 0, '2026-07-01'); // otros costos (débito, más antiguo)
+        $rf('890319324', 'SECAR',   0, 300000, '2026-07-20'); // reverso de SECAR (crédito)
+
+        $det = app(DistribucionService::class)
+            ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
+        $por = collect($det['MTO00099'] ?? [])->keyBy('tercero_dcto');
+
+        // La MO (apoyo) se consumió contra SECAR y NO se lista.
+        $this->assertArrayNotHasKey('222', $por->all());
+        // El proveedor (otros costos) sobrevive completo pese a ser el más antiguo: la MO se cruza primero.
+        $this->assertEqualsWithDelta(200000, $por['900']['saldo'], 1);
+        $this->assertFalse($por['900']['alerta']);
+        // SECAR quedó en $0 (cruzado), sin reversado de más.
+        $this->assertEqualsWithDelta(0, $por['890319324']['saldo'] ?? 0, 1);
+        $this->assertFalse((bool) ($por['890319324']['alerta'] ?? false));
+    }
+
+    #[Test]
     public function el_panel_de_bolsas_se_muestra_aunque_no_haya_obras(): void
     {
         $this->bolsa('MTO00001', 500, 6, 2026, '14200530');

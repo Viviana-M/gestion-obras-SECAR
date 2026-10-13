@@ -130,6 +130,24 @@ class DistribucionManoObraTest extends TestCase
     }
 
     #[Test]
+    public function la_mano_de_obra_se_abre_dentro_de_la_tarjeta_de_bolsa(): void
+    {
+        $this->base();
+
+        $html = $this->actingAs($this->op('ver'))
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        // La caja "Mano de obra" de la tarjeta abre el panel del personal (ya no es un banner suelto).
+        $this->assertStringContainsString("toggleMoPanel('mantenimiento')", $html);
+        $this->assertStringContainsString('id="mo-panel-mantenimiento"', $html);
+        // El panel arranca colapsado y trae el personal con su "por aplicar".
+        $this->assertMatchesRegularExpression('/id="mo-panel-mantenimiento"[^>]*display:none/', $html);
+        $this->assertStringContainsString('Juan Perez', $html);
+        $this->assertStringContainsString('Por aplicar', $html);
+    }
+
+    #[Test]
     public function una_persona_fuera_del_maestro_no_entra(): void
     {
         $this->base();

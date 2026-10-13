@@ -351,12 +351,17 @@
                         @endif
                     </div>
                 </div>
-                {{-- Mano de obra del personal (pool distinto): se reparte por persona a los proyectos. --}}
-                <div style="flex:1;min-width:0;background:#F1EDFB;border:1px solid #D8CBF0;border-radius:9px;padding:7px 9px">
+                {{-- Mano de obra del personal (pool distinto): se reparte por persona a los proyectos.
+                     Al pulsarla se abre, dentro de la tarjeta, el personal con su valor "por aplicar". --}}
+                <div role="button" tabindex="0"
+                     onclick="event.stopPropagation(); toggleMoPanel('{{ $b['codigo'] }}')"
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();toggleMoPanel('{{ $b['codigo'] }}');}"
+                     style="flex:1;min-width:0;background:#F1EDFB;border:1px solid #D8CBF0;border-radius:9px;padding:7px 9px;cursor:pointer"
+                     title="Ver el personal de mano de obra y su valor por aplicar a cada proyecto.">
                     <div style="font-size:10px;font-weight:800;color:#5B3FA8;letter-spacing:.03em;text-transform:uppercase">Mano de obra</div>
                     <div style="font-size:10px;color:#6B7686;margin-top:1px">A distribuir por persona</div>
-                    <b style="font-size:20px;font-weight:800;color:#5B3FA8;display:block;margin-top:1px" title="Costo del personal del maestro Mano de obra directa. Se reparte a cada proyecto, no es saldo de la bolsa.">${{ number_format($b['mano_obra'] ?? 0, 0, ',', '.') }}</b>
-                    <div style="font-size:9.5px;color:#95A0AF;margin-top:3px">Se reparte a cada proyecto.</div>
+                    <b style="font-size:20px;font-weight:800;color:#5B3FA8;display:block;margin-top:1px">${{ number_format($b['mano_obra'] ?? 0, 0, ',', '.') }}</b>
+                    <div style="font-size:9.5px;color:#5B3FA8;margin-top:3px;font-weight:600"><span class="caret-mo-{{ $b['codigo'] }}">▸</span> Ver personal</div>
                 </div>
             </div>
 
@@ -391,6 +396,52 @@
         </div>
         @endif
     </div>
+
+    {{-- ══════════ MANO DE OBRA DIRECTA — panel colapsable DENTRO de la zona de la bolsa ══════════ --}}
+    {{-- Se abre al pulsar "Mano de obra" en la tarjeta. Muestra el personal con su "por aplicar" y las
+         acciones del plano por departamento. La asignación se hace dentro de cada obra destino (abajo). --}}
+    @php $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
+    @foreach(($moPersonasDep ?? []) as $moDep => $moPers)
+        @if(!empty($moPers))
+        <div class="mo-global card mo-panel" id="mo-panel-{{ $moDep }}" data-dep="{{ $moDep }}" style="display:none;padding:12px 14px;margin:-2px 0 1rem;border:1px solid #D8CBF0;background:#F7F4FD">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <div style="font-size:12px;font-weight:700;color:#5B3FA8">🧑‍🔧 Mano de obra — {{ ucfirst($moDep) }} · por aplicar a cada proyecto</div>
+                @if($puedeEditar)
+                <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                    @if($moHayMesAnterior)
+                    <form method="POST" action="{{ route('operativo.mano-obra.precargar') }}" style="margin:0"
+                          onsubmit="return confirm('¿Precargar la distribución de {{ $mesAnteriorNombre }}? Reparte el costo actual de cada persona en las mismas obras/proporciones del mes anterior. Reemplaza lo cargado este período.');">
+                        @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                        <button type="submit" style="padding:5px 10px;background:#EFF6FF;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">⤵ Precargar mes anterior</button>
+                    </form>
+                    @endif
+                    <form method="GET" action="{{ route('operativo.mano-obra.plano') }}" style="display:flex;gap:4px;align-items:center;margin:0">
+                        <input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                        <input type="number" name="documento" min="1" value="1" title="N° documento" style="width:64px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
+                        <button type="submit" style="padding:5px 10px;background:#16A34A;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">⬇ Plano</button>
+                    </form>
+                    <form method="POST" action="{{ route('operativo.mano-obra.aplicar') }}" style="margin:0"
+                          onsubmit="return confirm('¿Aplicar en el sistema la mano de obra guardada de esta área? Se lleva al costo de cada proyecto destino. Guarda primero la distribución.');">
+                        @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
+                        <button type="submit" style="padding:5px 10px;background:#15803D;color:white;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">✓ Aplicar</button>
+                    </form>
+                    <a href="{{ route('operativo.mano-obra.resumen', ['departamento'=>$moDep,'mes'=>$mes,'anio'=>$anio]) }}" style="padding:5px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;text-decoration:none">📊 Resumen</a>
+                </div>
+                @endif
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                @foreach($moPers as $ced => $p)
+                <div class="mo-persona" data-dep="{{ $moDep }}" data-ced="{{ $ced }}" data-nom="{{ $p['nom'] }}" data-doc="{{ $p['doc'] }}" data-total="{{ $p['total'] }}"
+                     style="border:1px solid #D8CBF0;border-radius:6px;padding:5px 8px;background:#fff;font-size:11px;display:flex;gap:8px;align-items:center">
+                    <span style="color:#1B3F6E;font-weight:600">{{ $p['nom'] ?: $ced }}</span>
+                    <span style="color:#9CA3AF;font-family:monospace">{{ $p['doc'] ?: $ced }}</span>
+                    <span style="color:#374151">Por aplicar <b data-mo-rest style="color:#15803D">{{ $moFmtG($p['total']) }}</b></span>
+                </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
+    @endforeach
 
     @if(!empty($bolsas))
     <div style="margin-bottom:4px">
@@ -647,52 +698,6 @@
 <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">No hay obras con inventario en tránsito pendiente para este período / filtro.</div>
 @endif
 
-{{-- ══════════ MANO DE OBRA DIRECTA — resumen global "por aplicar" + acciones ══════════ --}}
-{{-- La asignación ya NO está en la bolsa: se hace dentro de cada obra destino (abajo). Aquí solo el
-     saldo restante por persona (en vivo) y las acciones del plano por departamento. --}}
-@php $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
-@foreach(($moPersonasDep ?? []) as $moDep => $moPers)
-    @if(!empty($moPers))
-    <div class="mo-global card" data-dep="{{ $moDep }}" style="padding:12px 14px;margin-bottom:1rem;border:1px solid #FDE68A;background:#FFFDF5">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-            <div style="font-size:12px;font-weight:700;color:#92400E">🧑‍🔧 Mano de obra directa — {{ ucfirst($moDep) }} · MO por aplicar</div>
-            @if($puedeEditar)
-            <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-                @if($moHayMesAnterior)
-                <form method="POST" action="{{ route('operativo.mano-obra.precargar') }}" style="margin:0"
-                      onsubmit="return confirm('¿Precargar la distribución de {{ $mesAnteriorNombre }}? Reparte el costo actual de cada persona en las mismas obras/proporciones del mes anterior. Reemplaza lo cargado este período.');">
-                    @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                    <button type="submit" style="padding:5px 10px;background:#EFF6FF;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">⤵ Precargar mes anterior</button>
-                </form>
-                @endif
-                <form method="GET" action="{{ route('operativo.mano-obra.plano') }}" style="display:flex;gap:4px;align-items:center;margin:0">
-                    <input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                    <input type="number" name="documento" min="1" value="1" title="N° documento" style="width:64px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                    <button type="submit" style="padding:5px 10px;background:#16A34A;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">⬇ Plano</button>
-                </form>
-                <form method="POST" action="{{ route('operativo.mano-obra.aplicar') }}" style="margin:0"
-                      onsubmit="return confirm('¿Aplicar en el sistema la mano de obra guardada de esta área? Se lleva al costo de cada proyecto destino. Guarda primero la distribución.');">
-                    @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                    <button type="submit" style="padding:5px 10px;background:#15803D;color:white;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">✓ Aplicar</button>
-                </form>
-                <a href="{{ route('operativo.mano-obra.resumen', ['departamento'=>$moDep,'mes'=>$mes,'anio'=>$anio]) }}" style="padding:5px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;text-decoration:none">📊 Resumen</a>
-            </div>
-            @endif
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-            @foreach($moPers as $ced => $p)
-            <div class="mo-persona" data-dep="{{ $moDep }}" data-ced="{{ $ced }}" data-nom="{{ $p['nom'] }}" data-doc="{{ $p['doc'] }}" data-total="{{ $p['total'] }}"
-                 style="border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;background:#fff;font-size:11px;display:flex;gap:8px;align-items:center">
-                <span style="color:#1B3F6E;font-weight:600">{{ $p['nom'] ?: $ced }}</span>
-                <span style="color:#9CA3AF;font-family:monospace">{{ $p['doc'] ?: $ced }}</span>
-                <span style="color:#374151">Por aplicar <b data-mo-rest style="color:#15803D">{{ $moFmtG($p['total']) }}</b></span>
-            </div>
-            @endforeach
-        </div>
-    </div>
-    @endif
-@endforeach
-
 <form method="POST" action="{{ route('operativo.distribucion.guardar') }}" id="form-dist">
 @csrf
 <input type="hidden" name="mano_obra_activa" value="1">
@@ -931,6 +936,15 @@ function toggleBolsaDetalle(c){
     const mostrar = (e.style.display === 'none' || !e.style.display);
     e.style.display = mostrar ? 'block' : 'none';
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
+
+/* Abre/cierra el panel de "Mano de obra" (personal por aplicar) dentro de la zona de la bolsa. */
+function toggleMoPanel(dep){
+    const e = document.getElementById('mo-panel-'+dep); if(!e) return;
+    const mostrar = (e.style.display === 'none' || !e.style.display);
+    e.style.display = mostrar ? '' : 'none';
+    document.querySelectorAll('.caret-mo-'+dep).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+    if (mostrar) e.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 /* Normaliza texto para filtrar: minúsculas y sin acentos. */

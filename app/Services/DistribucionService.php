@@ -589,11 +589,13 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // El personal de MANO DE OBRA no es "otros costos" y NO se distribuye desde este detalle:
+        // El personal de MANO DE OBRA no es "otros costos" y NO se lista en este detalle:
         //  · DIRECTA (maestro TerceroManoObra): se reparte por persona en cada proyecto (sección MO).
-        //  · APOYO (maestro ManoObraDirecta): contabilidad lo reclasifica 14→61 desde la PILA.
-        // Se excluyen del detalle los terceros de ambos maestros.
-        $terceroExcluido = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
+        //  · APOYO (maestro ManoObraDirecta): contabilidad lo reclasifica desde la PILA.
+        // PERO sus débitos SÍ entran al cruce: el crédito de SECAR (y los demás reversos) debe consumir
+        // PRIMERO la mano de obra dentro de la (U.N., cuenta), para que el reverso quede respaldado y no
+        // se reporte como "reversado de más". Tras el cruce estas líneas se ocultan del listado.
+        $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
             ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
             ->map(fn ($c) => trim((string) $c))->filter()->flip();
 
@@ -602,7 +604,6 @@ class DistribucionService
         // misma cuenta contable.
         $porCuenta = [];
         foreach ($filas as $f) {
-            if (isset($terceroExcluido[trim((string) $f->tercero_dcto)])) continue; // MO directa/apoyo: fuera del detalle
             $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
             $key = $un.'|'.$cuenta;
             $fecha = $f->fecha_docto ? substr((string) $f->fecha_docto, 0, 10) : null;
@@ -621,6 +622,7 @@ class DistribucionService
                 'fecha'          => $fecha,
                 'ord'            => $ord,
                 'min_id'         => (int) $f->min_id, // desempate estable del FIFO
+                'mo'             => isset($terceroMo[trim((string) $f->tercero_dcto)]), // MO: entra al cruce, no se lista
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }
@@ -639,6 +641,7 @@ class DistribucionService
                 ->keyBy(fn ($m) => (string) $m->tercero.'∷'.(string) $m->documento);
 
             foreach ($terceros as $t) {
+                if (! empty($t['mo'])) continue; // MO: ya cruzada contra el reverso; no se lista en otros costos
                 $saldo  = round((float) $t['saldo'], 2);
                 $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
                 $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
@@ -682,10 +685,11 @@ class DistribucionService
      * ya agrupa por esa llave, así que aquí nunca se mezclan terceros de distintas U.N.
      *
      * TODOS los saldos negativos de la (U.N., cuenta) (de cualquier tercero, no solo SECAR) forman un "pool"
-     * que consume los saldos positivos del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'),
-     * dejándolos en $0 a medida que los absorbe. Lo que queda en los positivos es el saldo real por
-     * tercero: esas son las líneas que ve operaciones y sobre las que distribuye. El neto de la cuenta
-     * NO cambia: solo se reatribuye y se presenta.
+     * que consume los saldos positivos dejándolos en $0 a medida que los absorbe. El orden de consumo es:
+     * PRIMERO la mano de obra (líneas con 'mo', que no se listan) y luego el resto; dentro de cada grupo,
+     * del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'). Así el reverso de SECAR se respalda
+     * primero contra la mano de obra. Lo que queda en los positivos NO-MO es el saldo real por tercero:
+     * esas son las líneas que ve operaciones. El neto de la cuenta NO cambia: solo se reatribuye.
      *
      * Si los positivos no alcanzan a cubrir el pool (la cuenta neta negativo), el sobrante se marca en
      * UNA línea como ALERTA de solo lectura ("reversado de más — revisar con contabilidad"), nunca como
@@ -706,14 +710,19 @@ class DistribucionService
         }
         if ($pool <= 0.5) return;
 
-        // 2) Positivos del más antiguo al más reciente.
+        // 2) Positivos: PRIMERO la mano de obra (para que el reverso de SECAR la consuma antes que a los
+        //    otros costos y la MO quede en $0), y luego el resto; dentro de cada grupo, del más antiguo al
+        //    más reciente. Como el neto de la (U.N., cuenta) no cambia con el orden, Instalaciones no se
+        //    mueve: solo cambia qué positivo sobrevive (otros costos) y cuál se consume (MO).
         $orden = [];
         foreach ($terceros as $i => $t) {
             if ($t['saldo'] > 0.005) $orden[] = $i;
         }
-        usort($orden, fn ($a, $b) => [$terceros[$a]['ord'], $terceros[$a]['min_id']] <=> [$terceros[$b]['ord'], $terceros[$b]['min_id']]);
+        usort($orden, fn ($a, $b) =>
+            [empty($terceros[$a]['mo']) ? 1 : 0, $terceros[$a]['ord'], $terceros[$a]['min_id']]
+            <=> [empty($terceros[$b]['mo']) ? 1 : 0, $terceros[$b]['ord'], $terceros[$b]['min_id']]);
 
-        // 3) El pool absorbe los positivos; el más antiguo primero, hasta agotarse.
+        // 3) El pool absorbe los positivos; la mano de obra primero, luego el resto por antigüedad.
         foreach ($orden as $i) {
             if ($pool <= 0.5) break;
             $consumir = min($terceros[$i]['saldo'], $pool);
@@ -723,9 +732,12 @@ class DistribucionService
 
         // 5) Sobrante del pool (positivos insuficientes) = cuenta neta negativo → ALERTA de solo lectura.
         if ($pool > 0.5) {
-            // Lo lleva la línea negativa MÁS RECIENTE (así la alerta queda al final del FIFO).
+            // Lo lleva una línea negativa VISIBLE (no de MO, que no se lista) y la MÁS RECIENTE, para que
+            // el reversado real quede sobre un tercero que operaciones sí ve (p. ej. SECAR).
+            $candidatos = array_values(array_filter($idxNeg, fn ($i) => empty($terceros[$i]['mo'])));
+            if (empty($candidatos)) $candidatos = $idxNeg;
             $destino = null;
-            foreach ($idxNeg as $i) {
+            foreach ($candidatos as $i) {
                 if ($destino === null
                     || [$terceros[$i]['ord'], $terceros[$i]['min_id']] > [$terceros[$destino]['ord'], $terceros[$destino]['min_id']]) {
                     $destino = $i;
