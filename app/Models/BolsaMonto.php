@@ -13,15 +13,16 @@ class BolsaMonto extends Model
     protected $table = 'bolsa_montos';
 
     protected $fillable = [
-        'mes', 'anio', 'un_codigo', 'cuenta_14', 'tercero', 'documento', 'monto_distribuir', 'observaciones', 'user_id',
+        'mes', 'anio', 'un_codigo', 'cuenta_14', 'tercero', 'documento', 'reverso_solicitado', 'monto_distribuir', 'observaciones', 'user_id',
     ];
 
     protected function casts(): array
     {
         return [
-            'mes'              => 'integer',
-            'anio'             => 'integer',
-            'monto_distribuir' => 'float',
+            'mes'               => 'integer',
+            'anio'              => 'integer',
+            'reverso_solicitado' => 'boolean',
+            'monto_distribuir'  => 'float',
         ];
     }
 }

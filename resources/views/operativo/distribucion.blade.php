@@ -115,6 +115,15 @@
     .bd-leyenda .sw { width:11px; height:11px; border-radius:3px; background:#FFF7E6; border:1px solid #D97706; display:inline-block }
     .bd-limpiar { font-size:11px; padding:5px 10px; border:1px solid #D7DEE8; border-radius:8px; background:#fff; color:#6B7686; cursor:pointer }
     .bd-limpiar:hover { background:#F3F5F9 }
+    /* Línea de reversado con "Solicitar reverso a contabilidad" marcado: señalada en verde. */
+    .bd-tbl tr.bd-rev-on td { background:#EAF7EE !important }
+    .bd-tbl tr.bd-rev-on td:first-child { box-shadow: inset 4px 0 0 #15803D }
+    .bd-rev { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#B91C1C; font-weight:600; cursor:pointer }
+    .bd-rev input { width:14px; height:14px; cursor:pointer }
+    .bd-rev-obs { margin-left:8px; border:1px solid #E5E9F0; border-radius:7px; padding:4px 7px; font-size:11px; width:190px; background:#fff }
+    .bd-rev-tag { display:none; background:#15803D; color:#fff; border-radius:5px; font-size:9px; font-weight:800; padding:1px 6px; margin-left:6px; letter-spacing:.03em }
+    .bd-tbl tr.bd-rev-on .bd-rev-tag { display:inline-block }
+    .bd-tbl tr.bd-rev-on .bd-rev { color:#15803D }
     .bd-inp { border:1px solid #BBD3EA; border-radius:8px; padding:5px 8px; width:120px; text-align:right; font-weight:700; color:#1B4C7A; background:#fff; font-size:12px }
     .bd-obs { border:1px solid #E5E9F0; border-radius:8px; padding:5px 8px; width:150px; font-size:12px; background:#fff }
     .bd-qv { font-weight:800; color:#15803D }
@@ -442,6 +451,7 @@
                             $clases = !empty($l['alerta']) ? 'bz-alerta' : ($l['cero'] ? 'bz-row' : '');
                             if ($anterior) $clases = trim($clases.' bd-anterior');
                         @endphp
+                        @php if (!empty($l['alerta']) && !empty($l['reverso_solicitado'])) $clases = trim($clases.' bd-rev-on'); @endphp
                         <tr class="{{ $clases }}" data-saldo="{{ round($l['saldo']) }}" @if(!empty($l['alerta'])) style="background:#FEF2F2" @endif>
                             <td style="font-family:monospace">{{ $l['un_codigo'] }}</td>
                             <td>{{ $l['fecha'] ?? '—' }}@if($anterior) <span class="bd-ant-tag">ANTERIOR</span>@endif</td>
@@ -450,11 +460,24 @@
                             <td style="font-family:monospace">{{ $l['cuenta_14'] }}</td>
                             <td style="color:#6B7686">{{ Str::limit($l['nombre'], 24) }}</td>
                             <td style="font-family:monospace;color:#6B7686">{{ $l['tercero_dcto'] }}</td>
-                            <td>{{ Str::limit($l['razon_social'], 28) }}@if(!empty($l['alerta'])) <span class="z0" style="background:#FEE2E2;color:#B91C1C">reversado de más</span>@elseif($l['cero']) <span class="z0">cruzado</span>@endif</td>
+                            <td>{{ Str::limit($l['razon_social'], 28) }}@if(!empty($l['alerta'])) <span class="z0" style="background:#FEE2E2;color:#B91C1C">reversado de más</span><span class="bd-rev-tag">REVERSO SOLICITADO</span>@elseif($l['cero']) <span class="z0">cruzado</span>@endif</td>
                             <td style="font-family:monospace;color:#6B7686">{{ $l['documento'] }}</td>
                             <td class="n" style="font-weight:700;color:{{ !empty($l['alerta']) ? '#B91C1C' : '#854D0E' }}">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
                             @if(!empty($l['alerta']))
-                            <td class="bd-act" colspan="3" style="color:#B91C1C;font-size:11.5px">⚠ Reversado de más — revisar con contabilidad (no se distribuye).</td>
+                            {{-- Reversado de más: se puede solicitar a contabilidad que lo reverse ESTE mes (no va a
+                                 "queda mes sig."). La U.N. destino de la contrapartida (14→14) se escribe en el campo. --}}
+                            <td class="bd-act" colspan="3" style="font-size:11px">
+                                @if($puedeEditarBolsa)
+                                <label class="bd-rev"><input type="checkbox" name="reverso[{{ $k }}]" value="1" {{ !empty($l['reverso_solicitado']) ? 'checked' : '' }} onchange="toggleReverso(this)"> Solicitar reverso a contabilidad</label>
+                                <input type="text" class="bd-rev-obs" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="U.N. destino del reverso" title="U.N. a la que contabilidad lleva la contrapartida (14→14)">
+                                @else
+                                    @if(!empty($l['reverso_solicitado']))
+                                        <span style="color:#15803D;font-weight:700">↩ Reverso solicitado</span> <span style="color:#6B7686">→ U.N. destino: {{ $l['observaciones'] ?: '—' }}</span>
+                                    @else
+                                        <span style="color:#B91C1C">⚠ Reversado de más — revisar con contabilidad (no se distribuye).</span>
+                                    @endif
+                                @endif
+                            </td>
                             @elseif($l['cero'])
                             <td class="n bd-act">—</td><td class="n bd-act">—</td><td class="bd-act">—</td>
                             @elseif($puedeEditarBolsa)
@@ -479,20 +502,21 @@
                             <td class="n" id="ftQueda-{{ $b['codigo'] }}">${{ number_format(max(0, $totSaldo - $totDist), 0, ',', '.') }}</td>
                             <td></td>
                         </tr>
-                        {{-- Conciliación con contabilidad: Disponible − Reversado de más = Saldo de la bolsa (neto). --}}
-                        <tr>
+                        {{-- Conciliación con contabilidad: Disponible − Reversado de más = Saldo de la bolsa (neto).
+                             Con filtros activos se reemplaza por "Total filtrado" (suma de las filas visibles). --}}
+                        <tr id="ftRowDisp-{{ $b['codigo'] }}">
                             <td colspan="9" style="text-align:right;font-weight:600;color:#6B7686">Disponible por distribuir (suma de líneas con saldo)</td>
                             <td class="n" style="color:#1B4C7A">${{ number_format($totSaldo, 0, ',', '.') }}</td>
                             <td colspan="3"></td>
                         </tr>
-                        <tr>
+                        <tr id="ftRowRev-{{ $b['codigo'] }}">
                             <td colspan="9" style="text-align:right;font-weight:600;color:#B91C1C">(−) Reversado de más / por revisar</td>
                             <td class="n" style="color:#B91C1C">${{ number_format($revBolsa, 0, ',', '.') }}</td>
                             <td colspan="3"></td>
                         </tr>
                         <tr>
-                            <td colspan="9" style="text-align:right;font-weight:800;color:#15803D;background:#EAF7EE">= Saldo de la bolsa (neto) · cuadra con contabilidad</td>
-                            <td class="n" style="color:#15803D;background:#EAF7EE">${{ number_format($netoBolsa, 0, ',', '.') }}</td>
+                            <td colspan="9" id="ftNetoLbl-{{ $b['codigo'] }}" style="text-align:right;font-weight:800;color:#15803D;background:#EAF7EE">= Saldo de la bolsa (neto) · cuadra con contabilidad</td>
+                            <td class="n" id="ftNeto-{{ $b['codigo'] }}" data-neto="{{ round($netoBolsa) }}" style="color:#15803D;background:#EAF7EE">${{ number_format($netoBolsa, 0, ',', '.') }}</td>
                             <td colspan="3" style="background:#EAF7EE"></td>
                         </tr>
                         </tfoot>
@@ -884,11 +908,44 @@ function filtrarBolsaDet(code){
         }
         tr.style.display = ok ? '' : 'none';   // '' = respeta la visibilidad por CSS (ceros, etc.)
     });
+    footerBolsa(code, filtros.length > 0);
+}
+/* Footer del detalle: con filtros activos muestra "Total filtrado" (suma de las filas visibles,
+   positivos + negativos); sin filtros vuelve al "Saldo de la bolsa (neto)" completo. */
+function footerBolsa(code, hayFiltro){
+    const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
+    const lbl  = document.getElementById('ftNetoLbl-'+code);
+    const val  = document.getElementById('ftNeto-'+code);
+    const rowD = document.getElementById('ftRowDisp-'+code);
+    const rowR = document.getElementById('ftRowRev-'+code);
+    if (hayFiltro) {
+        let vis = 0, n = 0;
+        cont.querySelectorAll('table.bd-tbl tbody tr').forEach(tr => {
+            if (tr.style.display === 'none' || !tr.hasAttribute('data-saldo')) return;
+            vis += Number(tr.dataset.saldo || 0); n++;       // positivos + negativos de lo visible
+        });
+        if (lbl) lbl.textContent = 'Total filtrado (' + n + (n === 1 ? ' línea' : ' líneas') + ' visibles)';
+        if (val) val.textContent = fmt(vis);
+        if (rowD) rowD.style.display = 'none';
+        if (rowR) rowR.style.display = 'none';
+    } else {
+        if (lbl) lbl.textContent = '= Saldo de la bolsa (neto) · cuadra con contabilidad';
+        if (val) val.textContent = fmt(Number(val.dataset.neto || 0));
+        if (rowD) rowD.style.display = '';
+        if (rowR) rowR.style.display = '';
+    }
 }
 function limpiarFiltrosBolsa(code){
     const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
     cont.querySelectorAll('tr.bd-filtros input[data-col]').forEach(inp => inp.value = '');
     cont.querySelectorAll('table.bd-tbl tbody tr').forEach(tr => tr.style.display = '');
+    footerBolsa(code, false);
+}
+
+/* "Solicitar reverso a contabilidad" en una línea de reversado de más: señala la fila (verde). */
+function toggleReverso(cb){
+    const tr = cb.closest('tr'); if (!tr) return;
+    tr.classList.toggle('bd-rev-on', cb.checked);
 }
 
 /* Interruptor "Mostrar lo ya cruzado ($0)" del detalle de una bolsa (presentación). */

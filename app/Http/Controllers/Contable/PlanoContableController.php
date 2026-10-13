@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
 use App\Models\AplicacionCosto;
+use App\Models\BolsaMonto;
+use App\Models\Homologacion;
 use App\Models\ObraEstado;
 use App\Models\Distribucion;
 use App\Models\ReasignacionItem;
+use App\Models\UnBolsa;
 use App\Models\User;
+use App\Services\DistribucionService;
 use App\Services\RepartoFifoTerceros;
 use App\Support\GeneraPlanoSiesa;
 use App\Support\AplicaPlanoCuenta14;
@@ -223,6 +227,10 @@ class PlanoContableController extends Controller
         foreach ($this->movimientosProvisiones($mes, $anio, $depto, $numeroDoc) as $m) {
             $movimientos[] = $m;
         }
+        // Reversos de "reversado de más" solicitados a contabilidad en el detalle de la bolsa (14→14).
+        foreach ($this->movimientosReversoBolsa($mes, $anio, $depto, $numeroDoc) as $m) {
+            $movimientos[] = $m;
+        }
 
         // Control de cuadre: si no cuadra, no se genera/aplica.
         $debito  = round(array_sum(array_column($movimientos, 'debito')), 2);
@@ -349,6 +357,54 @@ class PlanoContableController extends Controller
             if ($monto <= 0.005 || $r->cuenta === '' || $r->cuenta === null) continue;
             $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_origen, null, 0, $monto);
             $mov[] = $this->fila($numeroDoc, (string) $r->cuenta, self::NIT_SECAR, (string) $r->codigo_obra_destino, null, $monto, 0);
+        }
+        return $mov;
+    }
+
+    /**
+     * Reversos de "reversado de más" solicitados por operaciones en el detalle de la bolsa.
+     * Cada línea marcada genera una reclasificación 14→14 ESTE mes: DÉBITO de la cuenta 14 en la U.N.
+     * de la bolsa (origen del saldo negativo) y CRÉDITO de la MISMA cuenta 14 en la U.N. destino que
+     * operaciones informó en la observación. El tercero es el del saldo que se reversa. El monto es la
+     * magnitud del reversado de más (se recalcula del detalle, no se confía en un valor del cliente).
+     * Se omite (y no se posta) la línea sin U.N. destino: contabilidad debe conocerla antes de generar.
+     */
+    public function movimientosReversoBolsa(int $mes, int $anio, string $depto, int $numeroDoc): array
+    {
+        $bolsaUns = UnBolsa::where('activo', true)->where('departamento', $depto)->pluck('codigo')->all();
+        if (empty($bolsaUns)) {
+            return [];
+        }
+
+        $solicitudes = BolsaMonto::where('mes', $mes)->where('anio', $anio)
+            ->where('reverso_solicitado', true)->whereIn('un_codigo', $bolsaUns)->get();
+        if ($solicitudes->isEmpty()) {
+            return [];
+        }
+
+        // Monto autoritativo del reversado de más por línea (|saldo| de la línea de alerta del detalle).
+        $periodo = Homologacion::periodo($anio, $mes);
+        $detalle = app(DistribucionService::class)->detalleBolsaTerceros($bolsaUns, $periodo, $anio, $mes, 'todo');
+        $montoPorLlave = [];
+        foreach ($detalle as $lineas) {
+            foreach ($lineas as $l) {
+                if (empty($l['alerta'])) continue;
+                $llave = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'].'|'.$l['documento'];
+                $montoPorLlave[$llave] = abs(round((float) $l['saldo'], 2));
+            }
+        }
+
+        $mov = [];
+        foreach ($solicitudes as $s) {
+            $destino = trim((string) $s->observaciones);
+            if ($destino === '') continue; // sin U.N. destino no se puede postar el reverso
+            $llave = $s->un_codigo.'|'.$s->cuenta_14.'|'.$s->tercero.'|'.$s->documento;
+            $monto = $montoPorLlave[$llave] ?? 0.0;
+            if ($monto <= 0.005) continue; // ya no hay reversado de más que reversar
+            $tercero = ($s->tercero !== '' && $s->tercero !== null) ? (string) $s->tercero : self::NIT_SECAR;
+            // DÉBITO 14 en la U.N. de la bolsa (restaura el saldo); CRÉDITO 14 en la U.N. destino.
+            $mov[] = $this->fila($numeroDoc, (string) $s->cuenta_14, $tercero, (string) $s->un_codigo, null, $monto, 0);
+            $mov[] = $this->fila($numeroDoc, (string) $s->cuenta_14, $tercero, $destino, null, 0, $monto);
         }
         return $mov;
     }

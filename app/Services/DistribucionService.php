@@ -250,6 +250,7 @@ class DistribucionService
         // disponible de la bolsa y el plano siguen siendo por cuenta → se suman las líneas de tercero.
         $montosSum = []; $montoGuardado = []; $obsPorCuenta = [];
         foreach (BolsaMonto::where('mes', $mes)->where('anio', $anio)->whereIn('un_codigo', $codigos)->get() as $m) {
+            if ($m->reverso_solicitado) continue; // las líneas de reverso no son "a distribuir"
             $k = $m->un_codigo.'|'.$m->cuenta_14;
             $montosSum[$k] = ($montosSum[$k] ?? 0.0) + (float) $m->monto_distribuir;
             $montoGuardado[$k] = true;
@@ -642,6 +643,8 @@ class DistribucionService
                     'observaciones'    => (string) ($g->observaciones ?? ''),
                     'cero'             => ! $alerta && round($saldo) == 0,
                     'alerta'           => $alerta,
+                    // Solicitud de reverso a contabilidad (solo aplica a líneas de reversado de más).
+                    'reverso_solicitado' => $alerta && (bool) ($g->reverso_solicitado ?? false),
                     'ord'              => $t['ord'],
                     'min_id'           => $t['min_id'],
                 ];

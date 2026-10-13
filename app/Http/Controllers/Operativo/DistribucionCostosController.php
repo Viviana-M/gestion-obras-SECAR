@@ -858,8 +858,9 @@ class DistribucionCostosController extends Controller
                 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes editar los montos a distribuir.');
         }
 
-        $montos = (array) $request->input('monto', []); // ["UN|cuenta|tercero|documento" => valor]
-        $obs    = (array) $request->input('obs', []);
+        $montos  = (array) $request->input('monto', []);   // ["UN|cuenta|tercero|documento" => valor]
+        $obs     = (array) $request->input('obs', []);
+        $reverso = (array) $request->input('reverso', []); // llaves de líneas de reversado marcadas
         $departamento = $request->input('departamento');
 
         // Reemplazo por departamento: se borran los montos guardados del período de las UN de esa
@@ -872,17 +873,22 @@ class DistribucionCostosController extends Controller
             BolsaMonto::where('mes', $mes)->where('anio', $anio)->whereIn('un_codigo', $unsDelDepto)->delete();
         }
 
+        // Se guardan las líneas con "a distribuir" (monto[]) y también las de reversado marcadas
+        // (reverso[]) aunque no tengan monto. La observación de una línea de reverso lleva la U.N.
+        // destino de la contrapartida (reclasificación 14→14) que el plano del mes usará.
         $n = 0;
-        foreach ($montos as $key => $val) {
+        foreach (array_unique(array_merge(array_keys($montos), array_keys($reverso))) as $key) {
             [$un, $cuenta, $tercero, $documento] = array_pad(explode('|', (string) $key, 4), 4, '');
             if ($un === '' || $cuenta === '') continue;
+            $esReverso = ! empty($reverso[$key]);
             BolsaMonto::updateOrCreate(
                 ['mes' => $mes, 'anio' => $anio, 'un_codigo' => $un, 'cuenta_14' => $cuenta, 'tercero' => $tercero, 'documento' => $documento],
                 [
                     // El input llega con formato de dinero ("1.500.000"): dejamos solo dígitos.
-                    'monto_distribuir' => max(0.0, (float) preg_replace('/[^\d]/', '', (string) $val)),
-                    'observaciones'    => trim((string) ($obs[$key] ?? '')) ?: null,
-                    'user_id'          => $request->user()?->id,
+                    'monto_distribuir'   => max(0.0, (float) preg_replace('/[^\d]/', '', (string) ($montos[$key] ?? 0))),
+                    'reverso_solicitado' => $esReverso,
+                    'observaciones'      => trim((string) ($obs[$key] ?? '')) ?: null,
+                    'user_id'            => $request->user()?->id,
                 ]
             );
             $n++;
