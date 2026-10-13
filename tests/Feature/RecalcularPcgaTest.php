@@ -15,7 +15,7 @@ class RecalcularPcgaTest extends TestCase
     {
         return RegistroFinanciero::create(array_merge([
             'codigo_proyecto' => 'C-1', 'nombre_proyecto' => 'Obra', 'cuenta_mayor' => 'Costos por aplicar',
-            'valor_debito' => 0, 'valor_credito' => 0, 'movto_libro2' => 777, 'estado_er' => 999,
+            'valor_debito' => 0, 'valor_credito' => 0, 'movto_libro1' => 777, 'estado_er' => 999,
             'mes' => 6, 'anio' => 2026, 'origen' => 'biable',
         ], $attrs));
     }
@@ -33,7 +33,7 @@ class RecalcularPcgaTest extends TestCase
         $feq = $this->rf(['cuenta_contable' => '14200599', 'valor_debito' => 500, 'valor_credito' => 500]);
         // Plano del sistema: NO se toca.
         $plano = $this->rf(['cuenta_contable' => '14200530', 'valor_debito' => 0, 'valor_credito' => 500000,
-            'origen' => 'distribucion_plano', 'estado_er' => 123456, 'movto_libro2' => 123456]);
+            'origen' => 'distribucion_plano', 'estado_er' => 123456, 'movto_libro1' => 123456]);
 
         $this->artisan('financiero:recalcular-pcga', ['--force' => true])->assertSuccessful();
 
@@ -42,18 +42,18 @@ class RecalcularPcgaTest extends TestCase
         $this->assertNull(RegistroFinanciero::find($feq->id));
         $this->assertSame(4, RegistroFinanciero::where('origen', 'biable')->count());
 
-        // Recálculo Libro 1: movto_libro2 = déb − cré; estado_er según cuenta.
-        $this->assertEqualsWithDelta(500000, $c14->fresh()->movto_libro2, 0.5);
+        // Recálculo Libro 1: movto_libro1 = déb − cré; estado_er según cuenta.
+        $this->assertEqualsWithDelta(500000, $c14->fresh()->movto_libro1, 0.5);
         $this->assertEqualsWithDelta(-500000, $c14->fresh()->estado_er, 0.5);   // 14x → negativo
         $this->assertEqualsWithDelta(-200000, $c61->fresh()->estado_er, 0.5);   // 61x → negativo
         $this->assertEqualsWithDelta(1000000, $c4->fresh()->estado_er, 0.5);    // 4x → −(−1M) = +1M
-        $this->assertEqualsWithDelta(60000, $c25->fresh()->movto_libro2, 0.5);
+        $this->assertEqualsWithDelta(60000, $c25->fresh()->movto_libro1, 0.5);
         $this->assertEqualsWithDelta(60000, $c25->fresh()->estado_er, 0.5);     // no 14/61/4 → +(déb−cré)
 
         // El plano del sistema queda intacto.
         $this->assertNotNull($plano->fresh());
         $this->assertEqualsWithDelta(123456, $plano->fresh()->estado_er, 0.5);
-        $this->assertEqualsWithDelta(123456, $plano->fresh()->movto_libro2, 0.5);
+        $this->assertEqualsWithDelta(123456, $plano->fresh()->movto_libro1, 0.5);
     }
 
     #[Test]

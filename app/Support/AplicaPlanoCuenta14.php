@@ -179,7 +179,7 @@ trait AplicaPlanoCuenta14
                     'dedup_hash'        => null,
                     'valor_debito'      => $debito,
                     'valor_credito'     => $credito,
-                    'movto_libro2'      => $movto,
+                    'movto_libro1'      => $movto,
                     'cuenta_mayor'      => $this->clasificarCuentaPlano($cuenta),
                     'signo_contable'    => $signo,
                     'estado_er'         => $estadoER,

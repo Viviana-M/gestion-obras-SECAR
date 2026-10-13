@@ -31,7 +31,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
 
     public function model(array $row)
     {
-       $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
+       $movto = $this->limpiarNumero($row['movimiento_libro_1'] ?? $row['movto_libro_1'] ?? $row['movto_libro1'] ?? 0);
         if ($movto == 0) {
             $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
             $credito = $this->limpiarNumero($row['creditos'] ?? 0);
@@ -87,7 +87,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
-            'movto_libro2'     => $movto,
+            'movto_libro1'     => $movto,
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
             'estado_er'        => $estadoER,

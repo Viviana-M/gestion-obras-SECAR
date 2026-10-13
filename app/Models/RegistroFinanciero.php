@@ -19,7 +19,7 @@ protected $fillable = [
     'dedup_hash',        // huella anti-duplicados (ver importador)
     'valor_debito',
     'valor_credito',
-    'movto_libro2',
+    'movto_libro1',      // Movimiento libro 1 (PCGA) = débito − crédito
     'cuenta_mayor',
     'signo_contable',
     'estado_er',

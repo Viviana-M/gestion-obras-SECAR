@@ -36,7 +36,7 @@ class ImportCuenta14ReversoTest extends TestCase
         $sheet = $ss->getActiveSheet();
         $sheet->fromArray([
             'Unidad de Negocio', 'Nombre Unidad de Negocio', 'Cuenta', 'Nombre Auxiliar',
-            'Debitos', 'Creditos', 'Movto Libro2', 'Periodo', 'Tercero', 'Nombre Tercero',
+            'Debitos', 'Creditos', 'Movto Libro1', 'Periodo', 'Tercero', 'Nombre Tercero',
             'Tercero Docto', 'Razon Social Docto', 'Docto.',
         ], null, 'A1');
         $r = 2;
@@ -97,7 +97,7 @@ class ImportCuenta14ReversoTest extends TestCase
         $sheet = $ss->getActiveSheet();
         $sheet->fromArray([
             'Unidad de Negocio', 'Nombre Unidad de Negocio', 'Cuenta', 'Nombre Auxiliar',
-            'Debitos', 'Creditos', 'Movto Libro2', 'Periodo', 'Tercero', 'Nombre Tercero',
+            'Debitos', 'Creditos', 'Movto Libro1', 'Periodo', 'Tercero', 'Nombre Tercero',
             'Tercero Docto', 'Razon Social Docto', 'Tipo Docto', 'Docto.', 'Fecha_dcto',
         ], null, 'A1');
         $sheet->fromArray(

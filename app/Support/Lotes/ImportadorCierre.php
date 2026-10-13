@@ -38,7 +38,7 @@ class ImportadorCierre implements ImportadorLotes
 
         // Encabezado (fila 1): se mapea cada título a su "slug" (igual que Maatwebsite\Excel con el
         // formateador 'slug' = Str::slug($h,'_')) → offset de columna. Así paraRegistro/paraSaldo
-        // (que leen $row['movto_libro2'], etc.) funcionan sin cambios.
+        // (que resuelven las columnas por nombre vía MovimientoBiableImport::CAMPOS) funcionan sin cambios.
         $cabecera = $lector->leerVentana($rutaAbsoluta, $hoja, 1, 1, null, $info['ultima_columna'])[0] ?? [];
         $mapaSlug = [];
         foreach ($cabecera as $offset => $titulo) {

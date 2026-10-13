@@ -80,7 +80,7 @@ class ImportMapeoPorNombreTest extends TestCase
         // Ya hay información BIABLE del período 8/2026 (p. ej. una carga anterior correcta).
         RegistroFinanciero::create([
             'codigo_proyecto' => 'INS00009', 'cuenta_contable' => '14200563', 'cuenta_mayor' => 'Costos por aplicar',
-            'valor_debito' => 100000, 'valor_credito' => 0, 'movto_libro2' => 100000, 'estado_er' => -100000,
+            'valor_debito' => 100000, 'valor_credito' => 0, 'movto_libro1' => 100000, 'estado_er' => -100000,
             'signo_contable' => -1, 'periodo' => '202608', 'mes' => 8, 'anio' => 2026, 'origen' => 'biable',
         ]);
 

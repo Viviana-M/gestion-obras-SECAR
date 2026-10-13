@@ -58,7 +58,7 @@ class ConciliacionCierreTest extends TestCase
         $ss = new Spreadsheet();
         $ss->getActiveSheet()->fromArray([
             ['Unidad de Negocio', 'Nombre Unidad de Negocio', 'Cuenta', 'Nombre Auxiliar',
-                'Debitos', 'Creditos', 'Movto Libro2', 'Periodo', 'Tercero', 'Nombre Tercero', 'Tercero Docto', 'Razon Social Docto', 'Docto.'],
+                'Debitos', 'Creditos', 'Movto Libro1', 'Periodo', 'Tercero', 'Nombre Tercero', 'Tercero Docto', 'Razon Social Docto', 'Docto.'],
             ['8378', 'Obra', '14200105', 'AUX', 100000, 0, 100000, '202605', '900', 'P', '890', 'SECAR', 'F-1'],
         ], null, 'A1');
         $path = tempnam(sys_get_temp_dir(), 'biable').'.xlsx';

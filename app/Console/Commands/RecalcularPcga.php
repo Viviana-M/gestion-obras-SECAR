@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 /**
  * Recálculo ÚNICO del saldo de cuenta 14 a Libro 1 (PCGA = débito − crédito), para no tener que
  * recargar todos los meses de BIABLE. Sobre los registros con origen='biable':
- *   - movto_libro2 = valor_debito − valor_credito (Libro 1; ya no el libro 2 NIIF).
+ *   - movto_libro1 = valor_debito − valor_credito (Libro 1 PCGA).
  *   - estado_er    = −(valor_debito − valor_credito) si la cuenta empieza en 14, 61 o 4; si no, +.
  *   - Elimina las filas con valor_debito − valor_credito = 0 (las que solo tenían valor en libro 2).
  * NO toca las filas generadas por el sistema (planos u otros orígenes), solo origen='biable'.
@@ -18,7 +18,7 @@ class RecalcularPcga extends Command
 {
     protected $signature = 'financiero:recalcular-pcga {--force : Ejecuta sin pedir confirmación}';
 
-    protected $description = 'Recalcula estado_er/movto_libro2 de los registros BIABLE a Libro 1 (débito − crédito) y elimina las filas fantasma (neto 0)';
+    protected $description = 'Recalcula estado_er/movto_libro1 de los registros BIABLE a Libro 1 (débito − crédito) y elimina las filas fantasma (neto 0)';
 
     public function handle(): int
     {
@@ -54,7 +54,7 @@ class RecalcularPcga extends Command
             // 2) Recalcula las restantes a Libro 1. estado_er con la misma regla del importador:
             //    14x | 61x | 4x → −(déb − cré); el resto → (déb − cré). (signo_contable se deja igual.)
             $recalculadas = RegistroFinanciero::where('origen', 'biable')->update([
-                'movto_libro2' => DB::raw('(valor_debito - valor_credito)'),
+                'movto_libro1' => DB::raw('(valor_debito - valor_credito)'),
                 'estado_er'    => DB::raw(
                     "CASE WHEN cuenta_contable LIKE '14%' OR cuenta_contable LIKE '61%' OR cuenta_contable LIKE '4%' "
                     .'THEN -(valor_debito - valor_credito) ELSE (valor_debito - valor_credito) END'

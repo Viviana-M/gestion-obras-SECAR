@@ -49,7 +49,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         'descripcion'     => ['descripcion_cuenta', 'nombre_auxiliar', 'descripcion', 'nombre_cuenta', 'descripcion_auxiliar'],
         'debito'          => ['valor_debito', 'debitos', 'debito', 'valor_debitos'],
         'credito'         => ['valor_credito', 'creditos', 'credito', 'valor_creditos'],
-        'movto_libro2'    => ['movto_libro_2', 'movto_libro2', 'movimiento_libro_2', 'movto_lib_2'],
+        'movto_libro1'    => ['movimiento_libro_1', 'movto_libro_1', 'movto_libro1', 'movto_lib_1', 'movimiento_libro1'],
         'periodo'         => ['periodo'],
         'fecha_docto'     => ['fecha_del_documento', 'fecha_documento', 'fecha_docto', 'fecha_dcto', 'fecha_doc', 'fecha'],
         'tipo_documento'  => ['tipo_de_documento', 'tipo_documento', 'tipo_docto', 'tipo_doc', 'tipo'],
@@ -70,7 +70,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         ['campo' => 'descripcion',     'label' => 'Descripción cuenta', 'obligatoria' => false, 'nueva' => false],
         ['campo' => 'debito',          'label' => 'Valor débito',       'obligatoria' => true,  'nueva' => false],
         ['campo' => 'credito',         'label' => 'Valor crédito',      'obligatoria' => true,  'nueva' => false],
-        ['campo' => 'movto_libro2',    'label' => 'Movto libro 2',      'obligatoria' => false, 'nueva' => false],
+        ['campo' => 'movto_libro1',    'label' => 'Movto libro 1',      'obligatoria' => false, 'nueva' => false],
         ['campo' => 'fecha_docto',     'label' => 'Fecha del documento','obligatoria' => false, 'nueva' => true],
         ['campo' => 'tipo_documento',  'label' => 'Tipo de documento',  'obligatoria' => false, 'nueva' => true],
         ['campo' => 'documento',       'label' => 'Docto. (número)',    'obligatoria' => true,  'nueva' => false],
@@ -195,7 +195,7 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
-            'movto_libro2'     => $movto,
+            'movto_libro1'     => $movto, // Movimiento libro 1 (PCGA) = débito − crédito
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
             'estado_er'        => $estadoER,
@@ -272,8 +272,8 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
 
         $debito  = $this->limpiarNumero($c['debito']  ?? 0);
         $credito = $this->limpiarNumero($c['credito'] ?? 0);
-        $movto   = $this->limpiarNumero($c['movto_libro2'] ?? 0);
-        if ($movto == 0) $movto = $debito - $credito;
+        $movto   = $this->limpiarNumero($c['movto_libro1'] ?? 0); // Movimiento libro 1 (PCGA)
+        if ($movto == 0) $movto = $debito - $credito;             // fallback: débito − crédito = Libro 1
         if ($debito == 0 && $credito == 0) return null;
 
         // A propósito NO se filtra por prefijo de obra: las cuentas globales
