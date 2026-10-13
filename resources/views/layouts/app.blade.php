@@ -42,7 +42,9 @@
 
         .submenu { max-height: 0; overflow: hidden; transition: max-height .2s ease; }
         .module.open .submenu { max-height: 640px; }
-        .submenu a { display: flex; align-items: center; gap: 6px; padding: 8px 1.25rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; white-space: nowrap; }
+        /* Los ítems largos (p. ej. "Proyectos inactivos con saldo") envuelven a 2+ líneas con buen
+           interlineado en vez de cortarse; el texto arranca arriba para que las líneas queden alineadas. */
+        .submenu a { display: flex; align-items: flex-start; gap: 6px; padding: 8px 1.1rem 8px 3.4rem; font-size: 12.5px; color: #6B7280; text-decoration: none; border-left: 3px solid transparent; line-height: 1.35; overflow-wrap: anywhere; }
         .submenu a:hover { background: #F3F4F6; color: #1B3F6E; }
         .submenu a.active { background: #D6E4F7; color: #1B3F6E; border-left-color: #1B3F6E; font-weight: 500; }
         .submenu-group-label { padding: 9px 1.25rem 3px 1.9rem; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #9CA3AF; white-space: nowrap; }
@@ -173,8 +175,8 @@
             <div class="submenu">
                 <div class="submenu-group-label">Distribución</div>
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
-                <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución del mes</a>
                 <div class="submenu-group-label">Consultas</div>
+                <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Informe de costos</a>
                 <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Proyectos en revisión</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
