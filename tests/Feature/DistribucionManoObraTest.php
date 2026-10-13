@@ -105,6 +105,22 @@ class DistribucionManoObraTest extends TestCase
     }
 
     #[Test]
+    public function el_desglose_por_persona_trae_los_conceptos_que_suman_el_total(): void
+    {
+        $this->base();
+
+        $porCed = app(\App\Services\DistribucionService::class)->manoObraDirectaPorPersona(['MTO00099'], 2026, 5);
+        $this->assertArrayHasKey('111', $porCed);
+        $conceptos = $porCed['111']['conceptos'] ?? [];
+
+        // Hay desglose (salario + seguridad social) y la suma de conceptos = total de la persona (600k).
+        $this->assertGreaterThanOrEqual(2, count($conceptos));
+        $this->assertEqualsWithDelta(600000, collect($conceptos)->sum('monto'), 1);
+        $this->assertTrue(collect($conceptos)->contains(fn ($c) => abs($c['monto'] - 500000) < 1)); // salario
+        $this->assertTrue(collect($conceptos)->contains(fn ($c) => abs($c['monto'] - 100000) < 1)); // SS/parafiscal
+    }
+
+    #[Test]
     public function la_tarjeta_muestra_otros_costos_y_mano_de_obra_como_dos_subtemas(): void
     {
         $this->base();
@@ -141,10 +157,14 @@ class DistribucionManoObraTest extends TestCase
         // La caja "Mano de obra" de la tarjeta abre el panel del personal (ya no es un banner suelto).
         $this->assertStringContainsString("toggleMoPanel('mantenimiento')", $html);
         $this->assertStringContainsString('id="mo-panel-mantenimiento"', $html);
-        // El panel arranca colapsado y trae el personal con su "por aplicar".
+        // El panel arranca colapsado y trae el personal con su Total MO + total de la sección.
         $this->assertMatchesRegularExpression('/id="mo-panel-mantenimiento"[^>]*display:none/', $html);
         $this->assertStringContainsString('Juan Perez', $html);
-        $this->assertStringContainsString('Por aplicar', $html);
+        $this->assertStringContainsString('Total MO', $html);
+        $this->assertStringContainsString('Total mano de obra del personal', $html);
+        // Cada persona es una fila expandible a su desglose por concepto.
+        $this->assertStringContainsString('toggleMoPersona(', $html);
+        $this->assertStringContainsString('mo-pers-det', $html);
     }
 
     #[Test]

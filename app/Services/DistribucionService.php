@@ -67,30 +67,62 @@ class DistribucionService
 
         // Mismo cruce por cédula/nombre + seguridad social que el plano de MO de apoyo, pero con el
         // maestro de mano de obra DIRECTA. No se toca la lógica del servicio, solo se le pasa el maestro.
-        $costo = app(RedistribucionMoEspecialService::class)->costoPorPersona($mes, $anio, $maestro);
+        $svcMo = app(RedistribucionMoEspecialService::class);
+        $costo = $svcMo->costoPorPersona($mes, $anio, $maestro);
+
+        // Para el desglose por concepto de cada persona (vista expandible "Mano de obra del personal"):
+        //  · salario/prestaciones → nombre contable de la cuenta MO (Sueldo, Aux. transporte, Cesantías…).
+        //  · parafiscales/SS      → concepto PILA de la autoliquidación (Pensión, Caja, ARL, Salud…).
+        $homol = \App\Models\Homologacion::mapaEn(\App\Models\Homologacion::periodo($anio, $mes));
+        $paraf = $svcMo->parafiscalesPorPersonaConcepto($mes, $anio, $maestro);
 
         $out = [];
         foreach ($costo as $ced => $p) {
             $buckets = [];
             $total   = 0.0;
+            $salario = [];   // [etiqueta cuenta => monto]  (en las UN pedidas)
+            $ssCod   = 0.0;  // seguridad social en las UN pedidas
             foreach ($p['buckets'] as $b) {
                 if (! in_array((string) $b['un'], $codigos, true)) continue; // solo las UN pedidas
                 $monto = (float) $b['monto'];
                 if ($monto <= 0.005) continue;
+                $tipo = (string) ($b['tipo'] ?? '');
                 $buckets[] = [
                     'un'     => (string) $b['un'],   'cuenta'  => (string) $b['cuenta'],
-                    'monto'  => round($monto, 2),    'tipo'    => (string) ($b['tipo'] ?? ''),
+                    'monto'  => round($monto, 2),    'tipo'    => $tipo,
                     'tercero'=> (string) ($b['tercero'] ?? $ced),
                 ];
                 $total += $monto;
+                if ($tipo === 'ss') {
+                    $ssCod += $monto;
+                } else {
+                    $lbl = (string) ($homol[(string) $b['cuenta']]->nombre ?? $b['cuenta']);
+                    $salario[$lbl] = ($salario[$lbl] ?? 0) + $monto;
+                }
             }
             if ($total <= 0.005 || empty($buckets)) continue;
+
+            // Desglose: salario/prestaciones por cuenta + parafiscales por concepto PILA, escalados a la
+            // SS que cae en estas UN (así la suma de conceptos = total de la persona, sin descuadres).
+            $conceptos = [];
+            foreach ($salario as $lbl => $m) {
+                $conceptos[] = ['concepto' => $lbl, 'monto' => round($m, 2)];
+            }
+            $pf = $paraf[(string) $ced] ?? [];
+            $pfTotal = array_sum($pf);
+            $escala  = $pfTotal > 0.005 ? $ssCod / $pfTotal : 0.0;
+            foreach ($pf as $concepto => $m) {
+                $v = round($m * $escala, 2);
+                if ($v > 0.005) $conceptos[] = ['concepto' => $concepto, 'monto' => $v];
+            }
+
             $out[(string) $ced] = [
-                'cedula' => (string) $p['cedula'],
-                'doc'    => (string) ($p['doc'] ?: $p['cedula']),
-                'nombre' => (string) $p['nombre'],
-                'total'  => round($total, 2),
-                'buckets'=> $buckets,
+                'cedula'   => (string) $p['cedula'],
+                'doc'      => (string) ($p['doc'] ?: $p['cedula']),
+                'nombre'   => (string) $p['nombre'],
+                'total'    => round($total, 2),
+                'buckets'  => $buckets,
+                'conceptos'=> $conceptos,
             ];
         }
         return $out;
@@ -589,15 +621,16 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // El personal de MANO DE OBRA no es "otros costos" y NO se lista en este detalle:
-        //  · DIRECTA (maestro TerceroManoObra): se reparte por persona en cada proyecto (sección MO).
-        //  · APOYO (maestro ManoObraDirecta): contabilidad lo reclasifica desde la PILA.
-        // PERO sus débitos SÍ entran al cruce: el crédito de SECAR (y los demás reversos) debe consumir
-        // PRIMERO la mano de obra dentro de la (U.N., cuenta), para que el reverso quede respaldado y no
-        // se reporte como "reversado de más". Tras el cruce estas líneas se ocultan del listado.
+        // La MANO DE OBRA del personal (nómina) NO es "otros costos" y NO se lista en este detalle:
+        // sale del flujo y se muestra aparte, en la sección "Mano de obra del personal", y se reparte por
+        // proyecto. Es nómina toda línea que esté en una CUENTA de mano de obra (sueldos, auxilios,
+        // parafiscales, prestaciones — lista taxativa CUENTAS_MO) O cuyo tercero sea del maestro de MO
+        // (directa o apoyo). Sus débitos SÍ entran al cruce (el reverso de SECAR los consume primero),
+        // pero tras el cruce se ocultan del listado de otros costos.
         $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
             ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
             ->map(fn ($c) => trim((string) $c))->filter()->flip();
+        $cuentasMo = array_flip(\App\Services\RedistribucionMoEspecialService::CUENTAS_MO);
 
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
         // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
@@ -622,7 +655,7 @@ class DistribucionService
                 'fecha'          => $fecha,
                 'ord'            => $ord,
                 'min_id'         => (int) $f->min_id, // desempate estable del FIFO
-                'mo'             => isset($terceroMo[trim((string) $f->tercero_dcto)]), // MO: entra al cruce, no se lista
+                'mo'             => isset($cuentasMo[$cuenta]) || isset($terceroMo[trim((string) $f->tercero_dcto)]), // nómina: entra al cruce, no se lista
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }

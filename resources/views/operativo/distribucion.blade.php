@@ -148,6 +148,15 @@
     .sw-zeros .sw-tr::after { content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2) }
     .sw-zeros input:checked + .sw-tr { background:#1B4C7A }
     .sw-zeros input:checked + .sw-tr::after { transform:translateX(14px) }
+    /* Mano de obra del personal: una fila por persona, expandible a su desglose por concepto (PILA). */
+    .mo-pers-list { display:flex; flex-direction:column; gap:5px }
+    .mo-persona { border:1px solid #D8CBF0; border-radius:7px; background:#fff; overflow:hidden }
+    .mo-pers-head { display:flex; align-items:center; gap:8px; padding:6px 9px; font-size:11.5px; cursor:pointer }
+    .mo-pers-head:hover { background:#F7F4FD }
+    .mo-pers-caret { color:#5B3FA8; font-weight:800; width:10px; display:inline-block; flex:none }
+    .mo-pers-det { border-top:1px dashed #E3D9F3; padding:4px 9px 7px 27px; background:#FCFBFE }
+    .mo-concepto { display:flex; justify-content:space-between; gap:12px; font-size:11px; color:#4B5563; padding:2px 0 }
+    .mo-concepto .n { font-variant-numeric:tabular-nums; color:#374151; font-weight:600 }
 </style>
 @php
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
@@ -435,13 +444,29 @@
                 </div>
                 @endif
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px">
+            @php $moTotalDep = array_sum(array_map(fn ($x) => (float) ($x['total'] ?? 0), $moPers)); @endphp
+            <div style="font-size:11px;color:#5B3FA8;font-weight:700;margin-bottom:7px">
+                Total mano de obra del personal: <b style="font-size:13px">{{ $moFmtG($moTotalDep) }}</b>
+                <span style="color:#9CA3AF;font-weight:500">· {{ count($moPers) }} persona(s) · clic en cada una para ver el desglose por concepto</span>
+            </div>
+            <div class="mo-pers-list">
                 @foreach($moPers as $ced => $p)
-                <div class="mo-persona" data-dep="{{ $moDep }}" data-ced="{{ $ced }}" data-nom="{{ $p['nom'] }}" data-doc="{{ $p['doc'] }}" data-total="{{ $p['total'] }}"
-                     style="border:1px solid #D8CBF0;border-radius:6px;padding:5px 8px;background:#fff;font-size:11px;display:flex;gap:8px;align-items:center">
-                    <span style="color:#1B3F6E;font-weight:600">{{ $p['nom'] ?: $ced }}</span>
-                    <span style="color:#9CA3AF;font-family:monospace">{{ $p['doc'] ?: $ced }}</span>
-                    <span style="color:#374151">Por aplicar <b data-mo-rest style="color:#15803D">{{ $moFmtG($p['total']) }}</b></span>
+                <div class="mo-persona" data-dep="{{ $moDep }}" data-ced="{{ $ced }}" data-nom="{{ $p['nom'] }}" data-doc="{{ $p['doc'] }}" data-total="{{ $p['total'] }}">
+                    <div class="mo-pers-head" role="button" tabindex="0" onclick="toggleMoPersona(this)"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleMoPersona(this);}">
+                        <span class="mo-pers-caret">▸</span>
+                        <span style="color:#1B3F6E;font-weight:600">{{ $p['nom'] ?: $ced }}</span>
+                        <span style="color:#9CA3AF;font-family:monospace;font-size:10.5px">{{ $p['doc'] ?: $ced }}</span>
+                        <span style="margin-left:auto;color:#374151">Total MO <b style="color:#5B3FA8">{{ $moFmtG($p['total']) }}</b></span>
+                        <span style="color:#6B7686;font-size:10.5px">· queda <b data-mo-rest style="color:#15803D">{{ $moFmtG($p['total']) }}</b></span>
+                    </div>
+                    <div class="mo-pers-det" style="display:none">
+                        @forelse(($p['conceptos'] ?? []) as $c)
+                        <div class="mo-concepto"><span>{{ $c['concepto'] }}</span><span class="n">{{ $moFmtG($c['monto']) }}</span></div>
+                        @empty
+                        <div class="mo-concepto" style="color:#9CA3AF">Sin desglose por concepto disponible.</div>
+                        @endforelse
+                    </div>
                 </div>
                 @endforeach
             </div>
@@ -967,6 +992,15 @@ function fixBolsaStickyTops(code){
     const totTop = hH + fH;
     if (tot) { tot.querySelectorAll('td').forEach(td => td.style.top = totTop + 'px'); }
     if (flt) { const tH = tot ? tot.offsetHeight : 0; flt.querySelectorAll('td').forEach(td => td.style.top = (totTop + tH) + 'px'); }
+}
+
+/* Expande/colapsa el desglose por concepto (Sueldo, Pensión, ARL…) de una persona de mano de obra. */
+function toggleMoPersona(head){
+    const row = head.closest('.mo-persona'); if(!row) return;
+    const det = row.querySelector('.mo-pers-det'); if(!det) return;
+    const show = (det.style.display === 'none' || !det.style.display);
+    det.style.display = show ? 'block' : 'none';
+    const car = head.querySelector('.mo-pers-caret'); if(car) car.textContent = show ? '▾' : '▸';
 }
 
 /* Abre/cierra el panel de "Mano de obra" (personal por aplicar) dentro de la zona de la bolsa. */

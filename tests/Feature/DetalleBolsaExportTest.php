@@ -32,7 +32,7 @@ class DetalleBolsaExportTest extends TestCase
     {
         // Bolsa MTO00099 (mantenimiento): una línea positiva (distribuible) y una negativa (reversado).
         RegistroFinanciero::create([
-            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '111', 'razon_social' => 'MO SAS',
             'tipo_documento' => 'FSE', 'documento' => '1', 'fecha_docto' => '2026-06-10',
             'estado_er' => -1000000, 'valor_debito' => 1000000, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
@@ -60,7 +60,7 @@ class DetalleBolsaExportTest extends TestCase
             $plano = json_encode($export->array(), JSON_UNESCAPED_UNICODE);
 
             foreach (['Detalle de Otros Costos por Cuenta', 'Saldos en Libro 1 (PCGA)', 'Mantenimiento',
-                      'Líneas con saldo', 'Razón social tercero', '14200530', 'TOTALES'] as $txt) {
+                      'Líneas con saldo', 'Razón social tercero', '14209999', 'TOTALES'] as $txt) {
                 if (! str_contains($plano, $txt)) {
                     return false;
                 }

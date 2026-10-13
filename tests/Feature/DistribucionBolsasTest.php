@@ -43,7 +43,7 @@ class DistribucionBolsasTest extends TestCase
     }
 
     /** Movimiento de cuenta 14 de una UN de bolsa: el costo por repartir va NEGATIVO. */
-    private function bolsa(string $unCodigo, float $monto, int $mes, int $anio, string $cc = '14200530'): void
+    private function bolsa(string $unCodigo, float $monto, int $mes, int $anio, string $cc = '14209999'): void
     {
         $this->rf($unCodigo, 'Costos por aplicar', -abs($monto), $mes, $anio, $cc);
     }
@@ -94,7 +94,7 @@ class DistribucionBolsasTest extends TestCase
         // Pero el plano acredita la cuenta 14 de la UN REAL de origen (MTO00099).
         $linea = AplicacionCosto::where('codigo_proyecto', 'C-700')->where('origen_bolsa', 'MTO00099')->first();
         $this->assertNotNull($linea);
-        $this->assertSame('14200530', $linea->cuenta_14);
+        $this->assertSame('14209999', $linea->cuenta_14);
         $this->assertEqualsWithDelta(400, (float) $linea->monto_aplicar, 0.5);
     }
 
@@ -137,18 +137,18 @@ class DistribucionBolsasTest extends TestCase
     {
         // UN con 20M de saldo; en el cierre se decide distribuir solo 10M.
         $this->rf('C-700', 'Ingreso', 50000000, 7, 2026, '41350100');
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
         $op = $this->operador();
 
         // Editar el "a distribuir" a 10M.
         $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026,
-            'monto' => ['MTO00099|14200530' => 10000000],
-            'obs'   => ['MTO00099|14200530' => 'Solo la mitad este mes'],
+            'monto' => ['MTO00099|14209999' => 10000000],
+            'obs'   => ['MTO00099|14209999' => 'Solo la mitad este mes'],
         ])->assertRedirect();
 
         $this->assertDatabaseHas('bolsa_montos', [
-            'un_codigo' => 'MTO00099', 'cuenta_14' => '14200530',
+            'un_codigo' => 'MTO00099', 'cuenta_14' => '14209999',
             'monto_distribuir' => 10000000.00, 'observaciones' => 'Solo la mitad este mes',
         ]);
 
@@ -169,12 +169,12 @@ class DistribucionBolsasTest extends TestCase
     {
         // UN con 20M de saldo; se decide distribuir 15M → quedan 5M para el mes siguiente.
         $this->rf('C-700', 'Ingreso', 50000000, 7, 2026, '41350100');
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
         $op = $this->operador();
 
         $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026,
-            'monto' => ['MTO00099|14200530' => 15000000],
+            'monto' => ['MTO00099|14209999' => 15000000],
         ])->assertRedirect();
 
         $resp = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -188,27 +188,27 @@ class DistribucionBolsasTest extends TestCase
     public function acepta_el_monto_a_distribuir_con_formato_de_dinero(): void
     {
         // El input llega con puntos de miles ("1.500.000"); el servidor lo guarda como 1500000.
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026,
-            'monto' => ['MTO00099|14200530' => '1.500.000'],
+            'monto' => ['MTO00099|14209999' => '1.500.000'],
         ])->assertRedirect();
 
         $this->assertDatabaseHas('bolsa_montos', [
-            'un_codigo' => 'MTO00099', 'cuenta_14' => '14200530', 'monto_distribuir' => 1500000.00,
+            'un_codigo' => 'MTO00099', 'cuenta_14' => '14209999', 'monto_distribuir' => 1500000.00,
         ]);
     }
 
     #[Test]
     public function guardar_montos_de_bolsa_crea_la_distribucion_de_otros_costos(): void
     {
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'monto' => ['MTO00099|14200530' => 12000000],
-            'obs'   => ['MTO00099|14200530' => 'Solo parte este mes'],
+            'monto' => ['MTO00099|14209999' => 12000000],
+            'obs'   => ['MTO00099|14209999' => 'Solo parte este mes'],
         ])->assertRedirect();
 
         // Se guardó como distribución de "otros costos" (áreas) para Mis distribuciones.
@@ -220,7 +220,7 @@ class DistribucionBolsasTest extends TestCase
         $dist = \App\Models\Distribucion::where('tipo', 'areas')->first();
         $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.areas-consultar', $dist->id));
         $resp->assertOk();
-        $resp->assertSee('14200530', false);
+        $resp->assertSee('14209999', false);
         $resp->assertSee('Solo parte este mes', false);
         $resp->assertSee('$12.000.000', false);
 
@@ -232,25 +232,25 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function el_supervisor_puede_reeditar_los_montos_de_otros_costos(): void
     {
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
         $op = $this->operador();
 
         // La asistente guarda 12M...
         $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'monto' => ['MTO00099|14200530' => 12000000], 'obs' => ['MTO00099|14200530' => 'inicial'],
+            'monto' => ['MTO00099|14209999' => 12000000], 'obs' => ['MTO00099|14209999' => 'inicial'],
         ])->assertRedirect();
 
         // ...el supervisor revisa y reedita a 8M (mientras el cierre está abierto).
         $this->actingAs($op)->post(route('operativo.distribucion.bolsa-montos'), [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'monto' => ['MTO00099|14200530' => 8000000], 'obs' => ['MTO00099|14200530' => 'ajustado'],
+            'monto' => ['MTO00099|14209999' => 8000000], 'obs' => ['MTO00099|14209999' => 'ajustado'],
         ])->assertRedirect();
 
         // Se actualiza (no se duplica): un solo BolsaMonto y una sola distribución de áreas.
-        $this->assertSame(1, BolsaMonto::where('un_codigo', 'MTO00099')->where('cuenta_14', '14200530')->count());
+        $this->assertSame(1, BolsaMonto::where('un_codigo', 'MTO00099')->where('cuenta_14', '14209999')->count());
         $this->assertDatabaseHas('bolsa_montos', [
-            'un_codigo' => 'MTO00099', 'cuenta_14' => '14200530',
+            'un_codigo' => 'MTO00099', 'cuenta_14' => '14209999',
             'monto_distribuir' => 8000000.00, 'observaciones' => 'ajustado',
         ]);
         $this->assertSame(1, \App\Models\Distribucion::where('tipo', 'areas')->count());
@@ -261,10 +261,10 @@ class DistribucionBolsasTest extends TestCase
     {
         // Cerramos el período que el trait abrió.
         \App\Models\CierrePeriodo::where('mes', 7)->where('anio', 2026)->update(['abierto' => false]);
-        $this->bolsa('MTO00099', 20000000, 6, 2026, '14200530');
+        $this->bolsa('MTO00099', 20000000, 6, 2026, '14209999');
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.bolsa-montos'), [
-            'mes' => 7, 'anio' => 2026, 'monto' => ['MTO00099|14200530' => 10000000],
+            'mes' => 7, 'anio' => 2026, 'monto' => ['MTO00099|14209999' => 10000000],
         ])->assertRedirect()->assertSessionHas('error');
 
         $this->assertSame(0, BolsaMonto::count());
@@ -276,7 +276,7 @@ class DistribucionBolsasTest extends TestCase
         // MTO00099 con dos cuentas de distintos períodos: 300 en 2026-04 y 500 en 2026-06.
         $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14200105');
-        $this->bolsa('MTO00099', 300, 4, 2026, '14200530'); // antigua
+        $this->bolsa('MTO00099', 300, 4, 2026, '14209999'); // antigua
         $this->bolsa('MTO00099', 500, 6, 2026, '14200536'); // nueva
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
@@ -284,13 +284,13 @@ class DistribucionBolsasTest extends TestCase
             'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'mantenimiento', 'monto' => 400]]],
         ])->assertRedirect();
 
-        $this->assertEqualsWithDelta(300, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->where('cuenta_14', '14200530')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(300, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->where('cuenta_14', '14209999')->sum('monto_aplicar'), 0.5);
         $this->assertEqualsWithDelta(100, (float) AplicacionCosto::where('origen_bolsa', 'MTO00099')->where('cuenta_14', '14200536')->sum('monto_aplicar'), 0.5);
 
         // Trazabilidad con UN + cuenta + período de origen.
         $asig = BolsaAsignacion::where('bolsa_codigo', 'mantenimiento')->where('codigo_proyecto', 'C-700')->first();
         $det  = collect($asig->detalle);
-        $linea = $det->firstWhere('cuenta_14', '14200530');
+        $linea = $det->firstWhere('cuenta_14', '14209999');
         $this->assertSame('MTO00099', $linea['un_codigo']);
         $this->assertSame(202604, (int) $linea['periodo']);
     }
@@ -300,8 +300,8 @@ class DistribucionBolsasTest extends TestCase
     {
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
         $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14200105');
-        $this->bolsa('MTO00099', 300, 6, 2026, '14200530'); // dentro del corte (jul)
-        $this->bolsa('MTO00099', 900, 8, 2026, '14200530'); // posterior a jul
+        $this->bolsa('MTO00099', 300, 6, 2026, '14209999'); // dentro del corte (jul)
+        $this->bolsa('MTO00099', 900, 8, 2026, '14209999'); // posterior a jul
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -314,11 +314,11 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function la_bolsa_grande_consolida_todas_las_un_del_departamento(): void
     {
-        $this->bolsa('MTO00001', 300, 5, 2026, '14200530');
+        $this->bolsa('MTO00001', 300, 5, 2026, '14209999');
         $this->bolsa('MTO00001', 200, 6, 2026, '14200536');
-        $this->bolsa('MTO00002', 400, 6, 2026, '14200530');
-        $this->bolsa('MTO00003', 900, 8, 2026, '14200530'); // posterior → no cuenta a jul
-        $this->bolsa('INS00001', 700, 6, 2026, '14200530'); // instalaciones
+        $this->bolsa('MTO00002', 400, 6, 2026, '14209999');
+        $this->bolsa('MTO00003', 900, 8, 2026, '14209999'); // posterior → no cuenta a jul
+        $this->bolsa('INS00001', 700, 6, 2026, '14209999'); // instalaciones
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 7);
@@ -356,7 +356,7 @@ class DistribucionBolsasTest extends TestCase
                 'mes' => (int) substr($fecha, 5, 2), 'anio' => 2026,
             ]);
         };
-        $rf('14200530', '111', 1000000, 0, '2026-09-10'); // mes de cierre → normal
+        $rf('14209999', '111', 1000000, 0, '2026-09-10'); // mes de cierre → normal
         $rf('14200531', '222', 400000, 0, '2026-08-05');  // mes anterior → ANTERIOR
         $rf('14200599', '999', 0, 300000, '2026-09-30');  // cuenta neta negativa → reversado de más
 
@@ -404,14 +404,14 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function la_linea_de_reversado_ofrece_selector_de_destino_del_reverso(): void
     {
-        // Reversado de más (14200599 −300k) + una cuenta 1420 CON saldo (14200530 +500k) en MTO00099.
+        // Reversado de más (14200599 −300k) + una cuenta 1420 CON saldo (14209999 +500k) en MTO00099.
         RegistroFinanciero::create([
             'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200599',
             'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '999', 'razon_social' => 'X SAS',
             'tipo_documento' => 'NC', 'documento' => '9', 'fecha_docto' => '2026-07-30',
             'estado_er' => 300000, 'valor_debito' => 0, 'valor_credito' => 300000, 'mes' => 7, 'anio' => 2026,
         ]);
-        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS', 500000, 7, 2026); // 1420 con saldo
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'MO SAS', 500000, 7, 2026); // 1420 con saldo
 
         $html = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento&vista=todo')
@@ -421,7 +421,7 @@ class DistribucionBolsasTest extends TestCase
         $this->assertStringContainsString('name="reverso[MTO00099|14200599|999|NC-00000009]"', $html);
         // Selector de destino: cuentas 1420 con saldo de la misma U.N. + "Otra U.N.".
         $this->assertStringContainsString('name="reverso_destino[MTO00099|14200599|999|NC-00000009]"', $html);
-        $this->assertStringContainsString('value="cuenta:14200530"', $html);
+        $this->assertStringContainsString('value="cuenta:14209999"', $html);
         $this->assertStringContainsString('Otra U.N.', $html);
         $this->assertStringContainsString('toggleReverso(', $html);
         $this->assertStringContainsString('onReversoDestino(', $html);
@@ -467,11 +467,11 @@ class DistribucionBolsasTest extends TestCase
     public function el_reverso_a_otra_cuenta_1420_de_la_misma_un_entra_al_plano(): void
     {
         $this->seedReversado();
-        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS', 500000, 7, 2026); // cuenta destino con saldo
-        // Destino "cuenta:14200530": reclasifica a otra cuenta 1420 de la MISMA U.N.
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'MO SAS', 500000, 7, 2026); // cuenta destino con saldo
+        // Destino "cuenta:14209999": reclasifica a otra cuenta 1420 de la MISMA U.N.
         \App\Models\BolsaMonto::create([
             'mes' => 7, 'anio' => 2026, 'un_codigo' => 'MTO00099', 'cuenta_14' => '14200599', 'tercero' => '999',
-            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'reverso_destino' => 'cuenta:14200530', 'monto_distribuir' => 0,
+            'documento' => 'NC-00000009', 'reverso_solicitado' => true, 'reverso_destino' => 'cuenta:14209999', 'monto_distribuir' => 0,
         ]);
 
         $mov = app(\App\Http\Controllers\Contable\PlanoContableController::class)
@@ -481,7 +481,7 @@ class DistribucionBolsasTest extends TestCase
         $cre = collect($mov)->first(fn ($m) => $m['credito'] > 0);
         $this->assertSame('14200599', $deb['cuenta']);   // DÉBITO a la cuenta reversada
         $this->assertSame('MTO00099', $deb['unidad']);
-        $this->assertSame('14200530', $cre['cuenta']);   // CRÉDITO a la cuenta 1420 con saldo
+        $this->assertSame('14209999', $cre['cuenta']);   // CRÉDITO a la cuenta 1420 con saldo
         $this->assertSame('MTO00099', $cre['unidad']);    // misma U.N.
         $this->assertEqualsWithDelta(300000, $cre['credito'], 1);
         $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 1);
@@ -513,7 +513,7 @@ class DistribucionBolsasTest extends TestCase
 
         $rf = function (string $t, string $razon, float $monto) {
             RegistroFinanciero::create([
-                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
                 'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
                 'tipo_documento' => 'FSE', 'documento' => $t, 'fecha_docto' => '2026-07-10',
                 'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
@@ -533,6 +533,33 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function la_nomina_en_cuentas_de_mano_de_obra_no_aparece_en_otros_costos(): void
+    {
+        // Las líneas de nómina viven en cuentas de MO (sueldos, parafiscales, prestaciones) y a veces su
+        // tercero es una ENTIDAD (fondo/EPS), no el empleado. Igual deben salir del detalle de otros
+        // costos: se excluyen por CUENTA de mano de obra. Un material en una cuenta 1420 normal sí aparece.
+        $rf = function (string $cc, string $t, string $razon, float $monto) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $cc,
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'tipo_documento' => 'FSE', 'documento' => $t.$cc, 'fecha_docto' => '2026-07-10',
+                'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+            ]);
+        };
+        $rf('14200545', '800088233', 'COLPENSIONES',        600000); // parafiscal (entidad) en cuenta de MO
+        $rf('14200530', '901111111', 'SUELDOS DEL PERIODO',  500000); // sueldo en cuenta de MO
+        $rf('14209999', '900',       'Proveedor SAS',        200000); // material: cuenta 1420 normal
+
+        $det = app(DistribucionService::class)
+            ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
+        $terceros = collect($det['MTO00099'] ?? [])->pluck('tercero_dcto')->all();
+
+        $this->assertContains('900', $terceros);           // material normal → sí aparece
+        $this->assertNotContains('800088233', $terceros);  // parafiscal (cuenta MO) → fuera
+        $this->assertNotContains('901111111', $terceros);  // sueldo (cuenta MO) → fuera
+    }
+
+    #[Test]
     public function el_reverso_de_secar_consume_primero_la_mano_de_obra(): void
     {
         // En la misma (U.N., cuenta): mano de obra de apoyo +300k, un proveedor normal +200k y el reverso
@@ -541,7 +568,7 @@ class DistribucionBolsasTest extends TestCase
         \App\Models\ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'Nubia Apoyo', 'activo' => true]);
         $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
             RegistroFinanciero::create([
-                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
                 'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
                 'tipo_documento' => 'FSE', 'documento' => $t, 'fecha_docto' => $fecha,
                 'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred, 'mes' => 7, 'anio' => 2026,
@@ -568,7 +595,7 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function el_panel_de_bolsas_se_muestra_aunque_no_haya_obras(): void
     {
-        $this->bolsa('MTO00001', 500, 6, 2026, '14200530');
+        $this->bolsa('MTO00001', 500, 6, 2026, '14209999');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -582,8 +609,8 @@ class DistribucionBolsasTest extends TestCase
     public function la_vista_mes_muestra_el_neto_del_mes_y_todo_el_acumulado(): void
     {
         // Movimiento en agosto (−10M) y en septiembre (−15M) en la misma bolsa/cuenta.
-        $this->bolsa('INS00099', 10000000, 8, 2026, '14200530');
-        $this->bolsa('INS00099', 15000000, 9, 2026, '14200530');
+        $this->bolsa('INS00099', 10000000, 8, 2026, '14209999');
+        $this->bolsa('INS00099', 15000000, 9, 2026, '14209999');
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 9);
@@ -612,16 +639,16 @@ class DistribucionBolsasTest extends TestCase
     {
         // Instalaciones en septiembre: varios terceros en la misma cuenta 14 de una UN.
         // El total NO debe colapsar a un solo tercero (MAX): debe sumar TODOS = SUM(débito − crédito).
-        $this->bolsaTercero('INS00099', '14200530', '111', 'JUAN PEREZ',    9000000, 9, 2026);
-        $this->bolsaTercero('INS00099', '14200530', '222', 'MARIA GOMEZ',   4760000, 9, 2026);
-        $this->bolsaTercero('INS00099', '14200530', '333', 'PEDRO LOPEZ',   2000000, 9, 2026);
+        $this->bolsaTercero('INS00099', '14209999', '111', 'JUAN PEREZ',    9000000, 9, 2026);
+        $this->bolsaTercero('INS00099', '14209999', '222', 'MARIA GOMEZ',   4760000, 9, 2026);
+        $this->bolsaTercero('INS00099', '14209999', '333', 'PEDRO LOPEZ',   2000000, 9, 2026);
 
         $svc     = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 9);
 
         // El saldo de la cuenta = suma de los tres terceros = 15,76M.
         $saldos = $svc->saldosBolsasPorCuenta(['INS00099'], $periodo, 2026, 9, 'mes');
-        $linea  = collect($saldos['INS00099'])->firstWhere('cuenta_14', '14200530');
+        $linea  = collect($saldos['INS00099'])->firstWhere('cuenta_14', '14209999');
         $this->assertEqualsWithDelta(15760000, $linea['pendiente'], 1);
 
         // Una fila por cada tercero con su saldo, ordenadas de mayor a menor.
@@ -633,7 +660,7 @@ class DistribucionBolsasTest extends TestCase
         $bolsa = collect($svc->bolsasGrandes('instalaciones', $periodo, 2026, 9, 'mes'))->first();
         $this->assertEqualsWithDelta(15760000, $bolsa['total'], 1);
         // La línea de la bolsa trae su desglose por tercero para pintar una fila por cada uno.
-        $l = collect($bolsa['lineas'])->firstWhere('cuenta_14', '14200530');
+        $l = collect($bolsa['lineas'])->firstWhere('cuenta_14', '14209999');
         $this->assertCount(3, $l['terceros']);
     }
 
@@ -648,7 +675,7 @@ class DistribucionBolsasTest extends TestCase
             'estado_er' => 500000, 'valor_debito' => 0, 'valor_credito' => 500000, 'mes' => 7, 'anio' => 2026,
         ]);
         // Cuenta con saldo real.
-        $this->bolsaTercero('MTO00099', '14200530', '222', 'AIR EZ SAS', 300000, 7, 2026);
+        $this->bolsaTercero('MTO00099', '14209999', '222', 'AIR EZ SAS', 300000, 7, 2026);
 
         $html = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
@@ -663,7 +690,7 @@ class DistribucionBolsasTest extends TestCase
         // El interruptor para auditar las $0 existe.
         $this->assertStringContainsString('Mostrar lo ya cruzado', $html);
         // La cuenta con saldo real sí aparece.
-        $this->assertStringContainsString('14200530', $html);
+        $this->assertStringContainsString('14209999', $html);
     }
 
     #[Test]
@@ -869,7 +896,7 @@ class DistribucionBolsasTest extends TestCase
         // En la bolsa MTO00099 conviven una 1420 (otros costos) y una 1455 (inventario en tránsito).
         // La bolsa / disponible / detalle / cruce deben considerar SOLO la 1420; la 1455 se excluye
         // (sigue cargada para inventario, pero fuera de la bolsa de otros costos).
-        $this->bolsaTercero('MTO00099', '14200530', '111', 'MO SAS',        1000000, 6, 2026); // 1420 → bolsa
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'MO SAS',        1000000, 6, 2026); // 1420 → bolsa
         $this->bolsaTercero('MTO00099', '14552599', '222', 'MATERIALES AA', 4000000, 6, 2026); // 1455 → inventario
 
         $svc = new DistribucionService();
@@ -879,13 +906,13 @@ class DistribucionBolsasTest extends TestCase
         $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 7))->first();
         $this->assertEqualsWithDelta(1000000, $mant['total'], 0.5);
         $cuentas = collect($mant['lineas'])->pluck('cuenta_14')->all();
-        $this->assertContains('14200530', $cuentas);
+        $this->assertContains('14209999', $cuentas);
         $this->assertNotContains('14552599', $cuentas);
 
         // Detalle por cuenta: tampoco incluye la 1455.
         $det = $svc->detalleBolsaTerceros(['MTO00099'], $periodo, 2026, 7, 'todo');
         $cuentasDet = collect($det['MTO00099'] ?? [])->pluck('cuenta_14')->unique()->values()->all();
-        $this->assertSame(['14200530'], $cuentasDet);
+        $this->assertSame(['14209999'], $cuentasDet);
 
         // Pero la 1455 SÍ sigue cargada en la base (solo se excluye del cálculo de la bolsa).
         $this->assertSame(1, RegistroFinanciero::where('cuenta_contable', '14552599')->count());
@@ -894,7 +921,7 @@ class DistribucionBolsasTest extends TestCase
     #[Test]
     public function la_bolsa_distribuye_solo_los_netos_positivos_y_reporta_aparte_los_negativos(): void
     {
-        $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // +41M por repartir (distribuible)
+        $this->bolsa('MTO00099', 41000000, 6, 2026, '14209999');                    // +41M por repartir (distribuible)
         $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');     // −500K neto (reversado de más)
 
         $svc = new DistribucionService();
@@ -907,11 +934,11 @@ class DistribucionBolsasTest extends TestCase
         $this->assertEqualsWithDelta(500000, $mant['total_reversado'], 0.5);
 
         $lineas = collect($mant['lineas'])->keyBy('cuenta_14');
-        $this->assertTrue($lineas->has('14200530'));
+        $this->assertTrue($lineas->has('14209999'));
         $this->assertTrue($lineas->has('14200536'));                    // el contrario SÍ aparece (marcado reversado)
         // La cuenta positiva se distribuye completa; la negativa no (pendiente 0, marcada reversado).
-        $this->assertEqualsWithDelta(41000000, $lineas['14200530']['pendiente'], 0.5);
-        $this->assertFalse($lineas['14200530']['reversado']);
+        $this->assertEqualsWithDelta(41000000, $lineas['14209999']['pendiente'], 0.5);
+        $this->assertFalse($lineas['14209999']['reversado']);
         $this->assertEqualsWithDelta(0, $lineas['14200536']['pendiente'], 0.5);
         $this->assertTrue($lineas['14200536']['reversado']);
         $this->assertEqualsWithDelta(-500000, $lineas['14200536']['saldo'], 0.5); // conserva su signo real
@@ -939,7 +966,7 @@ class DistribucionBolsasTest extends TestCase
         foreach ([['C-CERR', 500], ['C-ABIE', 400]] as [$cod, $monto]) {
             AplicacionCosto::create([
                 'distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026, 'codigo_proyecto' => $cod,
-                'cuenta_14' => '14200530', 'origen_bolsa' => 'MTO00099', 'cuenta_61' => '61200530',
+                'cuenta_14' => '14209999', 'origen_bolsa' => 'MTO00099', 'cuenta_61' => '61200530',
                 'categoria' => 'MOI', 'nombre' => 'MO', 'monto_aplicar' => $monto, 'es_provision' => false, 'estado' => 'borrador',
             ]);
         }
@@ -952,13 +979,13 @@ class DistribucionBolsasTest extends TestCase
         $debCerr = collect($mov)->first(fn ($m) => $m['unidad'] === 'C-CERR' && $m['debito'] > 0);
         $this->assertSame('61200530', $debCerr['cuenta']);
         $creCerr = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0 && abs($m['credito'] - 500) < 0.5);
-        $this->assertSame('14200530', $creCerr['cuenta']);
+        $this->assertSame('14209999', $creCerr['cuenta']);
 
         $debAbie = collect($mov)->first(fn ($m) => $m['unidad'] === 'C-ABIE' && $m['debito'] > 0);
-        $this->assertSame('14200530', $debAbie['cuenta']);
+        $this->assertSame('14209999', $debAbie['cuenta']);
         $this->assertNull($debAbie['centro_costos']);
         $creAbie = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0 && abs($m['credito'] - 400) < 0.5);
-        $this->assertSame('14200530', $creAbie['cuenta']);
+        $this->assertSame('14209999', $creAbie['cuenta']);
 
         $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 0.5);
     }

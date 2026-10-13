@@ -526,7 +526,8 @@ class DistribucionCostosController extends Controller
             $moUns = array_merge($moUns, $codigosD);
             $porCed = [];
             foreach ($this->svc->manoObraDirectaPorPersona($codigosD, $anio, $mes) as $ced => $p) {
-                $porCed[(string) $ced] = ['nom' => $p['nombre'], 'doc' => $p['doc'], 'total' => $p['total']];
+                $porCed[(string) $ced] = ['nom' => $p['nombre'], 'doc' => $p['doc'], 'total' => $p['total'],
+                    'conceptos' => $p['conceptos'] ?? []];
             }
             $moPersonasDep[$d] = $porCed;
         }

@@ -244,6 +244,42 @@ class RedistribucionMoEspecialService
     }
 
     /**
+     * Parafiscales / seguridad social por persona y CONCEPTO PILA (aporte_empresa de la
+     * autoliquidación), para desglosar la mano de obra del personal (Pensión, Caja, ARL, Salud…).
+     * El empleado se cruza contra el maestro por cédula o nombre.
+     *
+     * @return array<string, array<string, float>>  [cédula => [concepto_pila => aporte_empresa]]
+     */
+    public function parafiscalesPorPersonaConcepto(int $mes, int $anio, $maestro = null): array
+    {
+        $maestro = $maestro ?? ManoObraDirecta::where('activo', true)->get();
+        if ($maestro->isEmpty()) {
+            return [];
+        }
+        [$porCed, $porNom] = $this->indicesMaestro($maestro);
+        if (empty($porCed) && empty($porNom)) {
+            return [];
+        }
+
+        $rows = AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+            ->selectRaw('empleado, empleado_nombre, concepto_pila, SUM(aporte_empresa) as monto')
+            ->groupBy('empleado', 'empleado_nombre', 'concepto_pila')
+            ->havingRaw('SUM(aporte_empresa) > 0.005')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $ced = $this->cruzar($r->empleado, $r->empleado_nombre, $porCed, $porNom);
+            if ($ced === null) {
+                continue;
+            }
+            $concepto = trim((string) $r->concepto_pila) ?: 'Otros aportes';
+            $out[$ced][$concepto] = ($out[$ced][$concepto] ?? 0) + (float) $r->monto;
+        }
+        return $out;
+    }
+
+    /**
      * Terceros con MO en bolsas (para elegirlos al registrar y evitar diferencias de digitación):
      * documento, nombre y monto total. Excluye los que ya están cruzando con el maestro.
      *
