@@ -430,17 +430,8 @@
                         <button type="submit" style="padding:5px 10px;background:#EFF6FF;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;cursor:pointer">⤵ Precargar mes anterior</button>
                     </form>
                     @endif
-                    <form method="GET" action="{{ route('operativo.mano-obra.plano') }}" style="display:flex;gap:4px;align-items:center;margin:0">
-                        <input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                        <input type="number" name="documento" min="1" value="1" title="N° documento" style="width:64px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px">
-                        <button type="submit" style="padding:5px 10px;background:#16A34A;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">⬇ Plano</button>
-                    </form>
-                    <form method="POST" action="{{ route('operativo.mano-obra.aplicar') }}" style="margin:0"
-                          onsubmit="return confirm('¿Aplicar en el sistema la mano de obra guardada de esta área? Se lleva al costo de cada proyecto destino. Guarda primero la distribución.');">
-                        @csrf<input type="hidden" name="departamento" value="{{ $moDep }}"><input type="hidden" name="mes" value="{{ $mes }}"><input type="hidden" name="anio" value="{{ $anio }}">
-                        <button type="submit" style="padding:5px 10px;background:#15803D;color:white;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">✓ Aplicar</button>
-                    </form>
-                    <a href="{{ route('operativo.mano-obra.resumen', ['departamento'=>$moDep,'mes'=>$mes,'anio'=>$anio]) }}" style="padding:5px 10px;background:white;border:1px solid #1B3F6E;border-radius:6px;font-size:11px;color:#1B3F6E;text-decoration:none">📊 Resumen</a>
+                    {{-- Vista SOLO INFORMATIVA: el plano, aplicar y el resumen se retiraron. La mano de
+                         obra se distribuye desde la tarjeta de cada proyecto, no desde aquí. --}}
                 </div>
                 @endif
             </div>
