@@ -542,7 +542,7 @@ class DistribucionService
             ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '
                 . 'MAX(nombre_proyecto) as nombre_proyecto, MAX(descripcion) as descripcion, '
-                . 'MAX(documento) as documento, MIN(fecha_docto) as fecha, '
+                . 'MAX(documento) as documento, MAX(tipo_documento) as tipo_doc, MIN(fecha_dcto) as fecha, '
                 . 'MIN(anio*100+mes) as periodo, SUM(estado_er) as saldo_er')
             ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
@@ -557,6 +557,10 @@ class DistribucionService
             $key = $un.'|'.$cuenta;
             $fecha = $f->fecha ? substr((string) $f->fecha, 0, 10) : null;
             $ord = $fecha ? (int) str_replace('-', '', $fecha) : ((int) $f->periodo) * 100; // FIFO: lo más antiguo primero
+            // Documento completo TIPO-NÚMERO (ej. CCC-00000339); si no hay tipo, solo el número.
+            $numDoc = trim((string) $f->documento);
+            $tipDoc = trim((string) $f->tipo_doc);
+            $docCompleto = ($tipDoc !== '' && $numDoc !== '') ? $tipDoc.'-'.$numDoc : $numDoc;
             $porCuenta[$key][] = [
                 'un'             => $un,
                 'cuenta'         => $cuenta,
@@ -564,7 +568,7 @@ class DistribucionService
                 'razon_social'   => trim((string) $f->razon_social),
                 'nombre_proyecto'=> (string) $f->nombre_proyecto,
                 'descripcion'    => (string) $f->descripcion,
-                'documento'      => (string) $f->documento,
+                'documento'      => $docCompleto,
                 'fecha'          => $fecha,
                 'ord'            => $ord,
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito

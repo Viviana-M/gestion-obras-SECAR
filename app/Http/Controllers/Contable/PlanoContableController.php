@@ -207,7 +207,11 @@ class PlanoContableController extends Controller
         }
 
         $obras   = $lineas->pluck('codigo_proyecto')->unique()->values()->all();
-        $reparto = new RepartoFifoTerceros($obras);
+        // Incluir las UN de las bolsas de origen: su crédito de cuenta 14 se reparte por el TERCERO
+        // REAL del saldo (no SECAR), para que la reversión 14→61 cruce en el ERP. El cruce de SECAR
+        // ya lo hace RepartoFifoTerceros al consumir FIFO lo ya aplicado (estado_er positivo).
+        $bolsasUn = $lineas->pluck('origen_bolsa')->filter()->unique()->values()->all();
+        $reparto  = new RepartoFifoTerceros(array_values(array_unique(array_merge($obras, $bolsasUn))));
 
         $movimientos = $this->construirMovimientos($lineas, $reparto, $numeroDoc, $centroCostos, $aplicanSet);
 
@@ -253,21 +257,23 @@ class PlanoContableController extends Controller
                 $c14   = (string) $l->cuenta_14;
                 $c61   = (string) $l->cuenta_61;
 
-                // Costo que viene de una bolsa de área. El tercero es SECAR (bolsa interna)
-                // y el crédito de la cuenta 14 va en la OT de la bolsa (origen).
+                // Costo que viene de una bolsa de área. El crédito de la cuenta 14 va en la OT de la
+                // bolsa (origen) y se separa por el TERCERO REAL de cada saldo (empleado/proveedor),
+                // no SECAR: así la reversión cruza en el ERP. SECAR solo se consume (FIFO), no se lleva.
                 //   - Obra cerrada/parcial: 14 → 61 (débito 61 en la OT destino, con centro).
-                //   - Obra abierta:         14 → 14 misma cuenta, reclasificando la UN
-                //                           (de la bolsa a la obra destino).
+                //   - Obra abierta:         14 → 14 misma cuenta, reclasificando la UN a la OT destino.
                 if (!empty($l->origen_bolsa)) {
-                    if (isset($cerradasParciales[(string) $obra])) {
-                        if ($c61 === 'SIN HOMOLOGAR' || $c61 === '') {
-                            continue; // sin cuenta 61 no se puede aplicar a la 6
+                    $esCerrada = isset($cerradasParciales[(string) $obra]);
+                    if ($esCerrada && ($c61 === 'SIN HOMOLOGAR' || $c61 === '')) {
+                        continue; // sin cuenta 61 no se puede aplicar a la 6
+                    }
+                    foreach ($reparto->repartir((string) $l->origen_bolsa, $c14, $monto) as $p) {
+                        $creditos[] = $this->fila($numeroDoc, $c14, $p['tercero'], (string) $l->origen_bolsa, null, 0, $p['monto']);
+                        if ($esCerrada) {
+                            $debitos[] = $this->fila($numeroDoc, $c61, $p['tercero'], (string) $obra, $centroCostos, $p['monto'], 0);
+                        } else {
+                            $debitos[] = $this->fila($numeroDoc, $c14, $p['tercero'], (string) $obra, null, $p['monto'], 0);
                         }
-                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
-                        $debitos[]  = $this->fila($numeroDoc, $c61, self::NIT_SECAR, (string) $obra, $centroCostos, $monto, 0);
-                    } else {
-                        $creditos[] = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $l->origen_bolsa, null, 0, $monto);
-                        $debitos[]  = $this->fila($numeroDoc, $c14, self::NIT_SECAR, (string) $obra, null, $monto, 0);
                     }
                     continue;
                 }

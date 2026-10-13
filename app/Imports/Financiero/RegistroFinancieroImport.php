@@ -82,7 +82,8 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
             'documento'        => $documento,
-            'fecha_docto'      => $this->fechaDocto($row['fecha_docto'] ?? null),
+            'tipo_documento'   => (trim((string) ($row['tipo_docto'] ?? $row['tipo_documento'] ?? $row['tipo_de_documento'] ?? $row['tipo'] ?? '')) ?: null),
+            'fecha_dcto'       => $this->fechaDocto($row['fecha_dcto'] ?? $row['fecha_docto'] ?? null),
             'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,

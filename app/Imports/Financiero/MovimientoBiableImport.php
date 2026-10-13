@@ -145,8 +145,10 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             'razon_social'     => (trim((string) ($row['nombre_tercero'] ?? '')) ?: trim((string) ($row['razon_social_docto'] ?? ''))) ?: null,
             // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
             'documento'        => $documento,
-            // Fecha del documento (col "Fecha_docto", AAAAMMDD) → fecha del movimiento / FIFO SECAR.
-            'fecha_docto'      => $this->fechaDocto($row['fecha_docto'] ?? null),
+            // Tipo de documento (CCC/FSP/NQ/APP…), para mostrar el documento completo TIPO-NÚMERO.
+            'tipo_documento'   => (trim((string) ($row['tipo_docto'] ?? $row['tipo_documento'] ?? $row['tipo_de_documento'] ?? $row['tipo'] ?? '')) ?: null),
+            // Fecha del documento (col "Fecha_dcto"/"Fecha_docto", AAAAMMDD) → fecha del movto / FIFO SECAR.
+            'fecha_dcto'       => $this->fechaDocto($row['fecha_dcto'] ?? $row['fecha_docto'] ?? null),
             'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,

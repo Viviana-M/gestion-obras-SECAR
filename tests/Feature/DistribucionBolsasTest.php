@@ -452,7 +452,7 @@ class DistribucionBolsasTest extends TestCase
                 'codigo_proyecto' => 'INS00001', 'nombre_proyecto' => 'Capacitación', 'cuenta_contable' => '14200563',
                 'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
                 'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
-                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+                'fecha_dcto' => $fecha, 'mes' => 8, 'anio' => 2026,
             ]);
         };
         $rf('1130627016', 'Jaramillo Carlos', 260000, 0, '2026-06-10');
@@ -525,6 +525,43 @@ class DistribucionBolsasTest extends TestCase
         $creAbie = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0 && abs($m['credito'] - 400) < 0.5);
         $this->assertSame('14200530', $creAbie['cuenta']);
 
+        $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 0.5);
+    }
+
+    #[Test]
+    public function el_plano_de_bolsa_acredita_la_14_con_el_tercero_real_no_con_secar(): void
+    {
+        // Saldo en la cuenta 14 de la bolsa (MTO00099): proveedor real 901510086 por 500k
+        // (entrada = estado_er negativo), y un reverso de SECAR (estado_er positivo) que se consume
+        // FIFO. La reversión del plano debe salir a nombre del proveedor real, no de SECAR.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14250101',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '901510086', 'razon_social' => 'ABC SAS',
+            'estado_er' => -500000, 'valor_debito' => 500000, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+        ]);
+
+        $dist = Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento', 'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false]);
+        AplicacionCosto::create([
+            'distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026, 'codigo_proyecto' => 'C-CERR',
+            'cuenta_14' => '14250101', 'origen_bolsa' => 'MTO00099', 'cuenta_61' => '61250101',
+            'categoria' => 'EQU-MAT-SUM', 'nombre' => 'Materiales', 'monto_aplicar' => 500000, 'es_provision' => false, 'estado' => 'borrador',
+        ]);
+        $lineas = AplicacionCosto::where('distribucion_id', $dist->id)->get();
+
+        $ctrl = new \App\Http\Controllers\Contable\PlanoContableController();
+        $reparto = new \App\Services\RepartoFifoTerceros(['MTO00099', 'C-CERR']); // incluye la UN de la bolsa
+        $mov = $ctrl->construirMovimientos($lineas, $reparto, 99, '30020105', ['C-CERR' => true]);
+
+        // CR cuenta 14 en la bolsa, a nombre del proveedor REAL (no SECAR 890319324).
+        $cr = collect($mov)->first(fn ($m) => $m['unidad'] === 'MTO00099' && $m['credito'] > 0);
+        $this->assertSame('14250101', $cr['cuenta']);
+        $this->assertSame('901510086', $cr['tercero']);
+        $this->assertNotSame('890319324', $cr['tercero']);
+        // DB cuenta 61 en la obra destino, mismo tercero real.
+        $db = collect($mov)->first(fn ($m) => $m['unidad'] === 'C-CERR' && $m['debito'] > 0);
+        $this->assertSame('61250101', $db['cuenta']);
+        $this->assertSame('901510086', $db['tercero']);
+        // Cuadra.
         $this->assertEqualsWithDelta(array_sum(array_column($mov, 'debito')), array_sum(array_column($mov, 'credito')), 0.5);
     }
 
