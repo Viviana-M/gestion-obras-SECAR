@@ -807,7 +807,7 @@
     foreach ($obras as $codH => $oH) {
         $depH = $oH['depto_margen'] ?? \App\Models\User::departamentoDeCodigo($codH);
         $pctH = $oH['mc_acum_cierre_pct'] ?? null;
-        $nivelH = \App\Services\DistribucionService::nivelMargen($pctH, $depH);
+        $nivelH = \App\Services\DistribucionService::nivelMargenCalor($pctH, $depH);
         $labelH = \App\Services\DistribucionService::DEPARTAMENTOS[$depH] ?? ($depH ? ucfirst($depH) : 'Otros');
         $heatGrupos[$labelH][] = ['cod' => $codH, 'nombre' => $oH['nombre'] ?? $codH, 'pct' => $pctH, 'nivel' => $nivelH];
     }

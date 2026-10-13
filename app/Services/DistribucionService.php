@@ -255,6 +255,23 @@ class DistribucionService
     }
 
     /**
+     * Nivel para el MAPA DE CALOR: TODO margen calculable se pinta verde/ámbar/rojo (sin gris para los
+     * bajos). Verde ≥ umbral sano; ámbar entre el umbral medio y el sano; rojo por debajo del medio,
+     * incluidos los negativos. El gris neutro queda SOLO para las celdas sin margen ("—": proyectos sin
+     * ingreso/sin dato) o sin departamento conocido.
+     */
+    public static function nivelMargenCalor(?float $pct, ?string $depto): string
+    {
+        if ($pct === null || $depto === null || ! isset(self::UMBRALES_MARGEN[$depto])) {
+            return 'gris';
+        }
+        $u = self::UMBRALES_MARGEN[$depto];
+        if ($pct >= $u['verde'])    return 'verde';     // sano
+        if ($pct >= $u['amarillo']) return 'amarillo';  // entre medio y sano
+        return 'rojo';                                  // por debajo del medio (incluidos negativos)
+    }
+
+    /**
      * DOS bolsas grandes (Mantenimiento, Instalaciones), cada una consolidando TODAS sus
      * UN. Cada línea del detalle es una cuenta 14 de una UN, con su tercero, saldo y el
      * "monto a distribuir" editable (sin registro = saldo completo por defecto). El

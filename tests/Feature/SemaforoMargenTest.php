@@ -50,6 +50,26 @@ class SemaforoMargenTest extends TestCase
     }
 
     #[Test]
+    public function el_mapa_de_calor_pinta_los_bajos_en_rojo_no_en_gris(): void
+    {
+        // Mantenimiento: sano ≥30, medio ≥27. Todo margen calculable es verde/ámbar/rojo.
+        $this->assertSame('verde',    DistribucionService::nivelMargenCalor(30, 'mantenimiento'));
+        $this->assertSame('amarillo', DistribucionService::nivelMargenCalor(27, 'mantenimiento'));
+        $this->assertSame('amarillo', DistribucionService::nivelMargenCalor(29.9, 'mantenimiento'));
+        $this->assertSame('rojo',     DistribucionService::nivelMargenCalor(26.9, 'mantenimiento')); // < medio
+        $this->assertSame('rojo',     DistribucionService::nivelMargenCalor(10, 'mantenimiento'));
+        $this->assertSame('rojo',     DistribucionService::nivelMargenCalor(-5, 'mantenimiento'));   // negativo → rojo
+        // Instalaciones: sano ≥23, medio ≥20.
+        $this->assertSame('verde',    DistribucionService::nivelMargenCalor(23, 'instalaciones'));
+        $this->assertSame('amarillo', DistribucionService::nivelMargenCalor(20, 'instalaciones'));
+        $this->assertSame('rojo',     DistribucionService::nivelMargenCalor(19.9, 'instalaciones')); // < medio
+        $this->assertSame('rojo',     DistribucionService::nivelMargenCalor(-100, 'instalaciones'));
+        // Gris SOLO para "—": sin margen (null) o sin departamento.
+        $this->assertSame('gris', DistribucionService::nivelMargenCalor(null, 'mantenimiento'));
+        $this->assertSame('gris', DistribucionService::nivelMargenCalor(15, null));
+    }
+
+    #[Test]
     public function el_departamento_se_deduce_del_prefijo_del_codigo(): void
     {
         $this->assertSame('mantenimiento', User::departamentoDeCodigo('C-100'));
