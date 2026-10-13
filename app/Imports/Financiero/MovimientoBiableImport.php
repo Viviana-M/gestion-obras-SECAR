@@ -146,9 +146,10 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
             // Número de documento ("Docto." → llave slug 'docto'); admite variantes; null si viene vacío.
             'documento'        => $documento,
             // Tipo de documento (CCC/FSP/NQ/APP…), para mostrar el documento completo TIPO-NÚMERO.
-            'tipo_documento'   => (trim((string) ($row['tipo_docto'] ?? $row['tipo_documento'] ?? $row['tipo_de_documento'] ?? $row['tipo'] ?? '')) ?: null),
-            // Fecha del documento (col "Fecha_dcto"/"Fecha_docto", AAAAMMDD) → fecha del movto / FIFO SECAR.
-            'fecha_dcto'       => $this->fechaDocto($row['fecha_dcto'] ?? $row['fecha_docto'] ?? null),
+            'tipo_documento'   => $this->primerNoVacio($row, ['tipo_docto', 'tipo_documento', 'tipo_de_documento', 'tipo_doc', 'tipo']),
+            // Fecha del documento (AAAAMMDD) → fecha del movto / FIFO SECAR. El encabezado BIABLE puede
+            // venir como "Fecha dcto", "Fecha_docto", "Fecha documento" o simplemente "Fecha".
+            'fecha_docto'      => $this->fechaDocto($this->primerNoVacio($row, ['fecha_docto', 'fecha_dcto', 'fecha_documento', 'fecha_del_documento', 'fecha_doc', 'fecha'])),
             'dedup_hash'       => self::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, $periodo),
             'valor_debito'     => $debito,
             'valor_credito'    => $credito,
@@ -305,7 +306,17 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         return is_numeric($valor) ? floatval($valor) : 0;
     }
 
-    /** "Fecha_docto" del cierre en AAAAMMDD (o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */
+    /** Primer valor no vacío entre varias claves de encabezado candidatas (slug de Maatwebsite). */
+    private function primerNoVacio(array $row, array $claves): ?string
+    {
+        foreach ($claves as $k) {
+            $v = trim((string) ($row[$k] ?? ''));
+            if ($v !== '') return $v;
+        }
+        return null;
+    }
+
+    /** Fecha del documento en AAAAMMDD (o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */
     private function fechaDocto($valor): ?string
     {
         $d = preg_replace('/\D/', '', (string) $valor);     // deja solo dígitos: 20260818

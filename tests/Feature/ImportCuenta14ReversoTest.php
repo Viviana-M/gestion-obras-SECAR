@@ -101,7 +101,7 @@ class ImportCuenta14ReversoTest extends TestCase
             'Tercero Docto', 'Razon Social Docto', 'Tipo Docto', 'Docto.', 'Fecha_dcto',
         ], null, 'A1');
         $sheet->fromArray(
-            ['INS00001', 'OBRA', '14200563', 'AUX', 500000, 0, 500000, '202608', '900', 'PROV', '901510086', 'ABC', 'CCC', '00000339', '20260818'],
+            ['INS00001', 'OBRA', '14200563', 'AUX', 500000, 0, 500000, '202608', '900', 'PROV', '901510086', 'ABC', 'CCC', '2462', '20260818'],
             null, 'A2'
         );
         $path = tempnam(sys_get_temp_dir(), 'biable').'.xlsx';
@@ -115,16 +115,16 @@ class ImportCuenta14ReversoTest extends TestCase
 
         $reg = RegistroFinanciero::where('cuenta_contable', '14200563')->first();
         $this->assertNotNull($reg);
-        $this->assertSame('2026-08-18', \Illuminate\Support\Carbon::parse($reg->fecha_dcto)->format('Y-m-d'));
+        $this->assertSame('2026-08-18', \Illuminate\Support\Carbon::parse($reg->fecha_docto)->format('Y-m-d'));
         $this->assertSame('CCC', $reg->tipo_documento);
-        $this->assertSame('00000339', (string) $reg->documento);
+        $this->assertSame('2462', (string) $reg->documento); // el número se conserva sin padding en la tabla
 
-        // El detalle por cuenta muestra el documento completo TIPO-NÚMERO y la fecha.
+        // El detalle por cuenta muestra el documento completo TIPO-NÚMERO con el número a 8 dígitos.
         $det = app(\App\Services\DistribucionService::class)
             ->detalleBolsaTerceros(['INS00001'], \App\Models\Homologacion::periodo(2026, 8), 2026, 8, 'todo');
         $linea = collect($det['INS00001'] ?? [])->firstWhere('cuenta_14', '14200563');
         $this->assertNotNull($linea);
-        $this->assertSame('CCC-00000339', $linea['documento']);
+        $this->assertSame('CCC-00002462', $linea['documento']);
         $this->assertSame('2026-08-18', $linea['fecha']);
     }
 }

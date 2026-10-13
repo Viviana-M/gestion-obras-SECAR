@@ -15,7 +15,7 @@ protected $fillable = [
     'razon_social',      // ← agregar
     'documento',         // Docto. del BIABLE: número/consecutivo (para reconciliar contra el ERP)
     'tipo_documento',    // Tipo de documento (CCC/FSP/NQ/APP…) → se muestra como TIPO-NÚMERO
-    'fecha_dcto',        // Fecha_dcto del cierre (AAAAMMDD) → fecha del movimiento / FIFO SECAR
+    'fecha_docto',       // Fecha del documento (AAAAMMDD) → fecha del movimiento / FIFO SECAR
     'dedup_hash',        // huella anti-duplicados (ver importador)
     'valor_debito',
     'valor_credito',

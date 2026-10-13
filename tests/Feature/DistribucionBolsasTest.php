@@ -452,7 +452,7 @@ class DistribucionBolsasTest extends TestCase
                 'codigo_proyecto' => 'INS00001', 'nombre_proyecto' => 'Capacitación', 'cuenta_contable' => '14200563',
                 'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
                 'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
-                'fecha_dcto' => $fecha, 'mes' => 8, 'anio' => 2026,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
             ]);
         };
         $rf('1130627016', 'Jaramillo Carlos', 260000, 0, '2026-06-10');

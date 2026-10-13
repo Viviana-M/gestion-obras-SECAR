@@ -542,7 +542,7 @@ class DistribucionService
             ->where($ventana)
             ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, '
                 . 'MAX(nombre_proyecto) as nombre_proyecto, MAX(descripcion) as descripcion, '
-                . 'MAX(documento) as documento, MAX(tipo_documento) as tipo_doc, MIN(fecha_dcto) as fecha, '
+                . 'MAX(documento) as documento, MAX(tipo_documento) as tipo_doc, MIN(fecha_docto) as fecha, '
                 . 'MIN(anio*100+mes) as periodo, SUM(estado_er) as saldo_er')
             ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
@@ -557,10 +557,9 @@ class DistribucionService
             $key = $un.'|'.$cuenta;
             $fecha = $f->fecha ? substr((string) $f->fecha, 0, 10) : null;
             $ord = $fecha ? (int) str_replace('-', '', $fecha) : ((int) $f->periodo) * 100; // FIFO: lo más antiguo primero
-            // Documento completo TIPO-NÚMERO (ej. CCC-00000339); si no hay tipo, solo el número.
-            $numDoc = trim((string) $f->documento);
-            $tipDoc = trim((string) $f->tipo_doc);
-            $docCompleto = ($tipDoc !== '' && $numDoc !== '') ? $tipDoc.'-'.$numDoc : $numDoc;
+            // Documento completo TIPO-NÚMERO con el número a 8 dígitos (ej. CCC-00002462). Si BIABLE ya
+            // trae el documento completo en un solo campo (con prefijo de letras), se deja tal cual.
+            $docCompleto = $this->documentoCompleto((string) $f->tipo_doc, (string) $f->documento);
             $porCuenta[$key][] = [
                 'un'             => $un,
                 'cuenta'         => $cuenta,
@@ -657,6 +656,20 @@ class DistribucionService
                 if ($t['tercero_dcto'] === self::NIT_SECAR) { $terceros[$i]['saldo'] = round(-$negSecar, 2); break; }
             }
         }
+    }
+
+    /**
+     * Documento completo para mostrar: TIPO-NÚMERO con el número a 8 dígitos (ej. CCC-00002462).
+     * Si BIABLE ya trae el documento completo en un solo campo (número con prefijo de letras, p. ej.
+     * "FSP-26352"), se deja tal cual. Sin tipo, solo el número; sin número, solo el tipo.
+     */
+    private function documentoCompleto(string $tipo, string $numero): string
+    {
+        $tipo = trim($tipo); $numero = trim($numero);
+        if ($numero === '') return $tipo;
+        if (preg_match('/[A-Za-z]/', $numero)) return $numero; // ya viene completo en un solo campo
+        if ($tipo === '') return $numero;
+        return $tipo.'-'.str_pad($numero, 8, '0', STR_PAD_LEFT);
     }
 
     /** Desglose de un conjunto de líneas de bolsa en los tres componentes. */
