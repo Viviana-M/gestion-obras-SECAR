@@ -69,7 +69,7 @@ class SemaforoMargenTest extends TestCase
             'cuenta_mayor' => 'Ingreso', 'estado_er' => 1000000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
         ]);
         RegistroFinanciero::create([
-            'codigo_proyecto' => 'C-777', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14350105',
+            'codigo_proyecto' => 'C-777', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200105',
             'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -100, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
 
@@ -94,7 +94,7 @@ class SemaforoMargenTest extends TestCase
             'valor_contratado' => 1000000, 'costo_estimado' => 0, 'margen_ofertado' => 15,
         ]);
         RegistroFinanciero::create([
-            'codigo_proyecto' => 'C-808', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14350105',
+            'codigo_proyecto' => 'C-808', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200105',
             'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -800000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);

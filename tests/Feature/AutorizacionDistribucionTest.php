@@ -201,7 +201,7 @@ class AutorizacionDistribucionTest extends TestCase
         RegistroFinanciero::create([
             'codigo_proyecto' => $cod,
             'nombre_proyecto' => 'Obra sin ingreso',
-            'cuenta_contable' => '143501',
+            'cuenta_contable' => '142001',
             'cuenta_mayor'    => 'Costos por aplicar',
             'estado_er'       => -1000, // saldo pendiente por aplicar
             'valor_debito'    => 0,
@@ -231,7 +231,7 @@ class AutorizacionDistribucionTest extends TestCase
         // Proyecto CON ingreso (saldo en cuenta 14 + ingreso en el mes).
         RegistroFinanciero::create([
             'codigo_proyecto' => 'C-800', 'nombre_proyecto' => 'Obra con ingreso',
-            'cuenta_contable' => '143502', 'cuenta_mayor' => 'Costos por aplicar',
+            'cuenta_contable' => '142002', 'cuenta_mayor' => 'Costos por aplicar',
             'estado_er' => -800, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
         ]);
         RegistroFinanciero::create([

@@ -39,7 +39,7 @@ class EstadoObraPorIngresoTest extends TestCase
     {
         // Obra con ingreso en julio: debe salir "parcial" (Parcial seleccionado).
         $this->rf('MOB07001', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB07001', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB07001', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -54,7 +54,7 @@ class EstadoObraPorIngresoTest extends TestCase
     public function sin_ingreso_en_el_mes_se_muestra_abierta(): void
     {
         // Obra sin ingreso en el mes filtrado (solo saldo de cuenta 14): debe salir "abierta".
-        $this->rf('MOB07002', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB07002', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -62,6 +62,24 @@ class EstadoObraPorIngresoTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('name="estado_obra[MOB07002]" id="estado-inp-MOB07002" value="abierta"', false);
         $resp->assertSee('data-estado="abierta" class="on"', false);
+    }
+
+    #[Test]
+    public function un_proyecto_con_saldo_solo_en_1455_no_aparece_en_distribucion(): void
+    {
+        // Inventario (1455) negativo y enorme, SIN saldo en 1420: no hay nada que distribuir,
+        // así que el proyecto queda fuera del listado (antes se colaba como "abierto").
+        $this->rf('MOB07010', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB07010', 'Costos por aplicar', -50000000, 6, 2026, '14552599'); // 1455 inventario
+        // Otro proyecto con saldo REAL en 1420: sí aparece.
+        $this->rf('MOB07011', 'Costos por aplicar', -100, 6, 2026, '14200105');
+
+        $html = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('id="card-MOB07010"', $html); // solo 1455 → fuera
+        $this->assertStringContainsString('id="card-MOB07011"', $html);     // 1420 → aparece
     }
 
     #[Test]
@@ -73,7 +91,7 @@ class EstadoObraPorIngresoTest extends TestCase
             'user_id' => User::factory()->create()->id,
         ]);
         $this->rf('MOB07003', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB07003', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB07003', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');

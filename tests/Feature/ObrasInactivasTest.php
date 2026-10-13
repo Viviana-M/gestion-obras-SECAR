@@ -38,7 +38,7 @@ class ObrasInactivasTest extends TestCase
     public function una_obra_inactiva_con_saldo_no_se_cierra_y_se_lista(): void
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09001', 'nombre_obra' => 'Obra con saldo', 'activa' => false]);
-        $this->rf('MOB09001', 'Costos por aplicar', -100000, 8, 2024, '14350105');
+        $this->rf('MOB09001', 'Costos por aplicar', -100000, 8, 2024, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=8&anio=2024&departamento=mantenimiento');
@@ -60,8 +60,8 @@ class ObrasInactivasTest extends TestCase
     {
         // Inactiva pero su cuenta 14 neta a cero (−100 y +100): sin saldo pendiente.
         FichaProyecto::create(['codigo_proyecto' => 'MOB09002', 'nombre_obra' => 'Obra sin saldo', 'activa' => false]);
-        $this->rf('MOB09002', 'Costos por aplicar', -100000, 8, 2024, '14350105');
-        $this->rf('MOB09002', 'Costos por aplicar', 100000, 8, 2024, '14350105');
+        $this->rf('MOB09002', 'Costos por aplicar', -100000, 8, 2024, '14200105');
+        $this->rf('MOB09002', 'Costos por aplicar', 100000, 8, 2024, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=8&anio=2024&departamento=mantenimiento');
@@ -78,8 +78,8 @@ class ObrasInactivasTest extends TestCase
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09010', 'nombre_obra' => 'Inactiva saldo', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'MOB09011', 'nombre_obra' => 'Activa saldo', 'activa' => true]);
-        $this->rf('MOB09010', 'Costos por aplicar', -50000, 8, 2024, '14350105');
-        $this->rf('MOB09011', 'Costos por aplicar', -80000, 8, 2024, '14350105');
+        $this->rf('MOB09010', 'Costos por aplicar', -50000, 8, 2024, '14200105');
+        $this->rf('MOB09011', 'Costos por aplicar', -80000, 8, 2024, '14200105');
 
         $resp = $this->actingAs($this->operador())->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024]));
         $resp->assertOk();
@@ -133,7 +133,7 @@ class ObrasInactivasTest extends TestCase
     {
         // MOB09030: inactiva CON saldo en cuenta 14 → no se cierra, va a la lista de revisión.
         // MOB09031: inactiva SIN saldo → se cierra (ProyectoCerrado origen excel).
-        $this->rf('MOB09030', 'Costos por aplicar', -120000, 8, 2024, '14350105');
+        $this->rf('MOB09030', 'Costos por aplicar', -120000, 8, 2024, '14200105');
 
         $resp = $this->actingAs($this->operador())->post(route('operativo.maestro.importar'), [
             'archivo' => $this->hoja([
@@ -208,13 +208,13 @@ class ObrasInactivasTest extends TestCase
     #[Test]
     public function el_detalle_netea_por_cuenta_nivel1_y_cuadra_con_el_saldo(): void
     {
-        \App\Models\Homologacion::create(['cuenta_14' => '14350105', 'cuenta_61' => '61350105', 'nombre' => 'Materiales',
+        \App\Models\Homologacion::create(['cuenta_14' => '14200105', 'cuenta_61' => '61350105', 'nombre' => 'Materiales',
             'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
         FichaProyecto::create(['codigo_proyecto' => 'MOB09070', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
 
-        // Cuenta 14350105: dos movimientos → neto 70.000. Cuenta 14200530: Pedro 30.000 + residuo Ana 100.
-        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
-        $this->mov('MOB09070', '14350105', '111', 'Juan', 'D1', -20000, 7, 2024, 20000, 0);
+        // Cuenta 14200105: dos movimientos → neto 70.000. Cuenta 14200530: Pedro 30.000 + residuo Ana 100.
+        $this->mov('MOB09070', '14200105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
+        $this->mov('MOB09070', '14200105', '111', 'Juan', 'D1', -20000, 7, 2024, 20000, 0);
         $this->mov('MOB09070', '14200530', '222', 'Pedro', 'D2', -30000, 8, 2024, 30000, 0);
         $this->mov('MOB09070', '14200530', '333', 'Ana', 'D3', -100, 8, 2024, 80000, 79900);
 
@@ -225,10 +225,10 @@ class ObrasInactivasTest extends TestCase
         $cuentas = collect($resp->json('cuentas'))->keyBy('cuenta');
         $this->assertCount(2, $cuentas);
         $this->assertEqualsWithDelta(100100, $cuentas->sum('neto'), 1);
-        $this->assertSame('Materiales', $cuentas['14350105']['concepto']);
-        $this->assertEqualsWithDelta(70000, $cuentas['14350105']['debito'], 1);
-        $this->assertEqualsWithDelta(0, $cuentas['14350105']['credito'], 1);
-        $this->assertEqualsWithDelta(70000, $cuentas['14350105']['neto'], 1);
+        $this->assertSame('Materiales', $cuentas['14200105']['concepto']);
+        $this->assertEqualsWithDelta(70000, $cuentas['14200105']['debito'], 1);
+        $this->assertEqualsWithDelta(0, $cuentas['14200105']['credito'], 1);
+        $this->assertEqualsWithDelta(70000, $cuentas['14200105']['neto'], 1);
         // Cuenta con débito y crédito grandes que netean a poco.
         $this->assertEqualsWithDelta(110000, $cuentas['14200530']['debito'], 1);
         $this->assertEqualsWithDelta(79900, $cuentas['14200530']['credito'], 1);
@@ -243,7 +243,7 @@ class ObrasInactivasTest extends TestCase
         // Residuo: débito y crédito casi iguales, neto pequeño (estado_er = -(déb−cré) = -100).
         $this->mov('MOB09071', '14200530', '333', 'Ana', 'D3', -100, 8, 2024, 80000, 79900);
         // Movimiento de otra cuenta: NO debe salir al abrir 14200530.
-        $this->mov('MOB09071', '14350105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
+        $this->mov('MOB09071', '14200105', '111', 'Juan', 'D1', -50000, 8, 2024, 50000, 0);
 
         $resp = $this->actingAs($this->operador())->get(route('operativo.obras-inactivas.detalle',
             ['codigo' => 'MOB09071', 'cuenta' => '14200530', 'mes' => 8, 'anio' => 2024]));
@@ -269,8 +269,8 @@ class ObrasInactivasTest extends TestCase
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09080', 'nombre_obra' => 'mant', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'GIX09080', 'nombre_obra' => 'inst', 'activa' => false]);
-        $this->mov('MOB09080', '14350105', '111', 'Juan', 'D1', -40000, 8, 2024);
-        $this->mov('GIX09080', '14350105', '111', 'Juan', 'D9', -40000, 8, 2024);
+        $this->mov('MOB09080', '14200105', '111', 'Juan', 'D1', -40000, 8, 2024);
+        $this->mov('GIX09080', '14200105', '111', 'Juan', 'D9', -40000, 8, 2024);
 
         $mant = $this->supervisor('dep_mantenimiento');
         // Su propia obra: 200.
@@ -294,8 +294,8 @@ class ObrasInactivasTest extends TestCase
         // MOB… = mantenimiento (prefijo MO); GIX… = instalaciones (prefijo GI).
         FichaProyecto::create(['codigo_proyecto' => 'MOB09060', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'GIX09060', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
-        $this->rf('MOB09060', 'Costos por aplicar', -50000, 8, 2024, '14350105');
-        $this->rf('GIX09060', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $this->rf('MOB09060', 'Costos por aplicar', -50000, 8, 2024, '14200105');
+        $this->rf('GIX09060', 'Costos por aplicar', -70000, 8, 2024, '14200105');
 
         // Supervisor de Mantenimiento: solo ve la obra de su departamento (lista, total y Excel).
         $mant = $this->supervisor('dep_mantenimiento');
@@ -320,8 +320,8 @@ class ObrasInactivasTest extends TestCase
         // Admin (ve todo): el listado se acota al departamento elegido en el filtro de pantalla.
         FichaProyecto::create(['codigo_proyecto' => 'MOB09065', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'GIX09065', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
-        $this->rf('MOB09065', 'Costos por aplicar', -50000, 8, 2024, '14350105');
-        $this->rf('GIX09065', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $this->rf('MOB09065', 'Costos por aplicar', -50000, 8, 2024, '14200105');
+        $this->rf('GIX09065', 'Costos por aplicar', -70000, 8, 2024, '14200105');
         $admin = User::factory()->create(['rol' => 'admin', 'activo' => true]);
 
         // Filtro = instalaciones → solo la obra de instalaciones (total 70k).
@@ -340,8 +340,8 @@ class ObrasInactivasTest extends TestCase
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09066', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'GIX09066', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
-        $this->rf('MOB09066', 'Costos por aplicar', -50000, 8, 2024, '14350105');
-        $this->rf('GIX09066', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $this->rf('MOB09066', 'Costos por aplicar', -50000, 8, 2024, '14200105');
+        $this->rf('GIX09066', 'Costos por aplicar', -70000, 8, 2024, '14200105');
         $admin = User::factory()->create(['rol' => 'admin', 'activo' => true]);
 
         $inact = collect($this->actingAs($admin)
@@ -357,8 +357,8 @@ class ObrasInactivasTest extends TestCase
     {
         FichaProyecto::create(['codigo_proyecto' => 'MOB09061', 'nombre_obra' => 'Inactiva mant', 'activa' => false]);
         FichaProyecto::create(['codigo_proyecto' => 'GIX09061', 'nombre_obra' => 'Inactiva inst', 'activa' => false]);
-        $this->rf('MOB09061', 'Costos por aplicar', -50000, 8, 2024, '14350105');
-        $this->rf('GIX09061', 'Costos por aplicar', -70000, 8, 2024, '14350105');
+        $this->rf('MOB09061', 'Costos por aplicar', -50000, 8, 2024, '14200105');
+        $this->rf('GIX09061', 'Costos por aplicar', -70000, 8, 2024, '14200105');
 
         $mant = $this->supervisor('dep_mantenimiento');
         $inact = collect($this->actingAs($mant)

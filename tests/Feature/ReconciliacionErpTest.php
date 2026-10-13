@@ -28,7 +28,7 @@ class ReconciliacionErpTest extends TestCase
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod,
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar',
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar',
             'estado_er' => $er, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
         ]);
     }

@@ -44,8 +44,8 @@ class PrecargaDistribucionTest extends TestCase
     {
         // Facturado del mes 1000 (ya no importa para el tope), pendiente 600 + 800 = 1400.
         $this->rf('Ingreso', 1000, 7, 2026, '41350100');
-        $this->rf('Costos por aplicar', -600, 5, 2026, '14350105');
-        $this->rf('Costos por aplicar', -800, 6, 2026, '14350206');
+        $this->rf('Costos por aplicar', -600, 5, 2026, '14200105');
+        $this->rf('Costos por aplicar', -800, 6, 2026, '14200206');
     }
 
     #[Test]
@@ -72,7 +72,7 @@ class PrecargaDistribucionTest extends TestCase
         // Obra SIN ingreso en el mes, con saldo pendiente en cuenta 14: debe precargar su saldo.
         RegistroFinanciero::create([
             'codigo_proyecto' => 'C-800', 'nombre_proyecto' => 'Sin ingreso',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar',
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar',
             'estado_er' => -400, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
         ]);
 
@@ -114,26 +114,26 @@ class PrecargaDistribucionTest extends TestCase
         // Operaciones deja el total (1400 > 1000 facturado): se guarda completo.
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['C-700' => ['14350105' => 600, '14350206' => 800]],
+            'aplicar' => ['C-700' => ['14200105' => 600, '14200206' => 800]],
         ])->assertRedirect();
 
-        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
-        $this->assertEqualsWithDelta(800, (float) AplicacionCosto::where('cuenta_14', '14350206')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14200105')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(800, (float) AplicacionCosto::where('cuenta_14', '14200206')->sum('monto_aplicar'), 0.5);
         $this->assertEqualsWithDelta(1400, (float) AplicacionCosto::where('codigo_proyecto', 'C-700')->sum('monto_aplicar'), 0.5);
     }
 
     #[Test]
     public function guardar_no_aplica_mas_que_el_saldo_de_la_cuenta(): void
     {
-        $this->sembrar(); // 14350105 con saldo 600
+        $this->sembrar(); // 14200105 con saldo 600
 
         // Aunque manden 9999, se recorta al saldo abierto de la cuenta (600).
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['C-700' => ['14350105' => 9999]],
+            'aplicar' => ['C-700' => ['14200105' => 9999]],
         ])->assertRedirect();
 
-        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14350105')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(600, (float) AplicacionCosto::where('cuenta_14', '14200105')->sum('monto_aplicar'), 0.5);
     }
 
     #[Test]
@@ -200,13 +200,13 @@ class PrecargaDistribucionTest extends TestCase
         // Ahora, al haber ingreso, se aplica el pendiente hasta el saldo (900).
         $this->rf('Ingreso', 500, 7, 2026, '41350100');
         $this->rf('Costos aplicados', -500, 7, 2026, '61350100');
-        $this->rf('Costos por aplicar', -900, 6, 2026, '14350206');
+        $this->rf('Costos por aplicar', -900, 6, 2026, '14200206');
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['C-700' => ['14350206' => 900]],
+            'aplicar' => ['C-700' => ['14200206' => 900]],
         ])->assertRedirect();
 
-        $this->assertEqualsWithDelta(900, (float) AplicacionCosto::where('cuenta_14', '14350206')->sum('monto_aplicar'), 0.5);
+        $this->assertEqualsWithDelta(900, (float) AplicacionCosto::where('cuenta_14', '14200206')->sum('monto_aplicar'), 0.5);
     }
 }

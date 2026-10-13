@@ -37,7 +37,7 @@ class ReconciliacionReasignacionTest extends TestCase
     {
         // La cuenta del ítem es la CUENTA 14 de la llave (reconocimiento y conciliación por la 14).
         return ItemDistribucion::create([
-            'codigo_obra' => $obra, 'mes' => 7, 'anio' => 2026, 'cuenta' => '14350105', 'item' => $item,
+            'codigo_obra' => $obra, 'mes' => 7, 'anio' => 2026, 'cuenta' => '14200105', 'item' => $item,
             'tipo_inventario' => '01', 'codigo_movimiento' => '14', 'tipo_movimiento' => 'Salida',
             'naturaleza' => $nat, 'tercero' => 'X', 'cantidad' => 1, 'fecha' => $fecha,
             'numero_documento' => 'D-'.$item, 'costo' => $costo,
@@ -49,9 +49,9 @@ class ReconciliacionReasignacionTest extends TestCase
     #[Test]
     public function al_reclasificar_parcial_reconoce_los_items_mas_antiguos_por_fifo(): void
     {
-        Homologacion::create(['cuenta_14' => '14350105', 'cuenta_61' => '73950505', 'nombre' => 'MO', 'estructura' => 'MOI', 'vigente_desde' => 200001]);
+        Homologacion::create(['cuenta_14' => '14200105', 'cuenta_61' => '73950505', 'nombre' => 'MO', 'estructura' => 'MOI', 'vigente_desde' => 200001]);
         $this->rf('C-700', 'Ingreso', 9000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14350105'); // pendiente cuenta 14
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105'); // pendiente cuenta 14
 
         // Ítems (mismo costo total 600) por fecha ascendente.
         $this->item('C-700', 'A', 200, '2026-07-05');
@@ -61,7 +61,7 @@ class ReconciliacionReasignacionTest extends TestCase
         // Reclasificar 400 (14→61) de la cuenta.
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['C-700' => ['14350105' => 400]],
+            'aplicar' => ['C-700' => ['14200105' => 400]],
         ])->assertRedirect();
 
         $a = ItemDistribucion::where('item', 'A')->first();
@@ -96,7 +96,7 @@ class ReconciliacionReasignacionTest extends TestCase
         // Trazabilidad.
         $this->assertDatabaseHas('reasignaciones_item', [
             'item_distribucion_id' => $it->id, 'codigo_obra_origen' => 'MO4501',
-            'codigo_obra_destino' => 'MO4502', 'cuenta' => '14350105', 'costo' => 500000, 'motivo' => 'Se usó en la otra obra',
+            'codigo_obra_destino' => 'MO4502', 'cuenta' => '14200105', 'costo' => 500000, 'motivo' => 'Se usó en la otra obra',
         ]);
     }
 

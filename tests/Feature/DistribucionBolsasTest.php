@@ -52,7 +52,7 @@ class DistribucionBolsasTest extends TestCase
     private function seedBase(): void
     {
         $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14200105');
         $this->bolsa('MTO00099', 1000, 6, 2026);
     }
 
@@ -104,7 +104,7 @@ class DistribucionBolsasTest extends TestCase
         // C-900 es una orden ABIERTA sin ingreso en el mes (solo saldo en cuenta 14),
         // p. ej. mano de obra del supervisor. Debe poder recibir costo desde la bolsa
         // SIN autorización (antes se bloqueaba); se reclasifica 14→14 hacia la OT.
-        $this->rf('C-900', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('C-900', 'Costos por aplicar', -100, 6, 2026, '14200105');
         $this->bolsa('MTO00099', 1000, 6, 2026);
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
@@ -275,7 +275,7 @@ class DistribucionBolsasTest extends TestCase
     {
         // MTO00099 con dos cuentas de distintos períodos: 300 en 2026-04 y 500 en 2026-06.
         $this->rf('C-700', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14200105');
         $this->bolsa('MTO00099', 300, 4, 2026, '14200530'); // antigua
         $this->bolsa('MTO00099', 500, 6, 2026, '14200536'); // nueva
 
@@ -299,7 +299,7 @@ class DistribucionBolsasTest extends TestCase
     public function el_disponible_es_el_acumulado_al_mes_filtrado(): void
     {
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -100, 6, 2026, '14200105');
         $this->bolsa('MTO00099', 300, 6, 2026, '14200530'); // dentro del corte (jul)
         $this->bolsa('MTO00099', 900, 8, 2026, '14200530'); // posterior a jul
 

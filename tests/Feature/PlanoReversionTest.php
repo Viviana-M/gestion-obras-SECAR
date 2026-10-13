@@ -45,17 +45,17 @@ class PlanoReversionTest extends TestCase
     {
         // C-900 cerrada con saldo POSITIVO en la 14 (reversado de más) → sale en la lista.
         $this->cerrar('C-900');
-        $this->rf('C-900', '14350105', 500000, 6, 2026, 'Materiales');
+        $this->rf('C-900', '14200105', 500000, 6, 2026, 'Materiales');
         // C-800 cerrada pero cuadrada (neto 0) → NO sale.
         $this->cerrar('C-800');
-        $this->rf('C-800', '14350105', 0.0, 6, 2026);
+        $this->rf('C-800', '14200105', 0.0, 6, 2026);
 
         $resp = $this->actingAs($this->contable())->get(route('contable.plano-reversion.index'));
 
         $resp->assertStatus(200);
         $resp->assertSee('saldos contrarios', false);
         $resp->assertSee('C-900', false);
-        $resp->assertSee('14350105', false);
+        $resp->assertSee('14200105', false);
         $resp->assertSee('Materiales', false);
         $resp->assertDontSee('C-800', false);
 
@@ -70,7 +70,7 @@ class PlanoReversionTest extends TestCase
     public function el_plano_tiene_las_mismas_columnas_que_el_cierre_contable(): void
     {
         $this->cerrar('C-900');
-        $this->rf('C-900', '14350105', 500000);
+        $this->rf('C-900', '14200105', 500000);
 
         $resp = $this->actingAs($this->contable())
             ->get(route('contable.plano-reversion.excel', ['documento' => 77]));
@@ -88,7 +88,7 @@ class PlanoReversionTest extends TestCase
         $this->assertSame('Auxiliar de cuenta contable', $mov->getCell('C1')->getValue());
         $this->assertSame('Unidad de negocio', $mov->getCell('E1')->getValue());
         // Primera línea del asiento: la cuenta 14 en la unidad C-900 con el documento 77.
-        $this->assertSame('14350105', (string) $mov->getCell('C2')->getValue());
+        $this->assertSame('14200105', (string) $mov->getCell('C2')->getValue());
         $this->assertSame('C-900', (string) $mov->getCell('E2')->getValue());
         $this->assertSame('77', (string) $mov->getCell('B2')->getValue());
     }

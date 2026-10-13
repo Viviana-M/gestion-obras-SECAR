@@ -34,15 +34,15 @@ class ObrasRevisionTest extends TestCase
     /** GM000045: cuenta 14 neta ≈ 0 (se cancela) pero con costo en cuenta 6. */
     private function seedGM000045(): void
     {
-        $this->rf('GM000045', 'Costos por aplicar', 500, '14350150');   // +500
-        $this->rf('GM000045', 'Costos por aplicar', -500, '14350151');  // -500  => neto 0
+        $this->rf('GM000045', 'Costos por aplicar', 500, '14200150');   // +500
+        $this->rf('GM000045', 'Costos por aplicar', -500, '14200151');  // -500  => neto 0
         $this->rf('GM000045', 'Costos aplicados', -800, '61350150');    // costo cuenta 6
     }
 
     /** C-800: saldo real en cuenta 14 (aparece en Distribución, no en revisión). */
     private function seedConSaldo(): void
     {
-        $this->rf('C-800', 'Costos por aplicar', -900, '14350110');
+        $this->rf('C-800', 'Costos por aplicar', -900, '14200110');
         $this->rf('C-800', 'Ingreso', 1500, '41350110');
     }
 

@@ -40,13 +40,13 @@ class ReporteObrasTest extends TestCase
             'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso', 'estado_er' => 5000000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
         RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Torre Norte',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
 
         // Lo aplicado en esta distribución.
         AplicacionCosto::create([
             'distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026, 'codigo_proyecto' => 'MO4501',
-            'cuenta_14' => '14350105', 'cuenta_61' => '73950505', 'categoria' => 'EQU-MAT-SUM',
+            'cuenta_14' => '14200105', 'cuenta_61' => '73950505', 'categoria' => 'EQU-MAT-SUM',
             'nombre' => 'Materiales', 'monto_aplicar' => 600000, 'es_provision' => false, 'estado' => 'borrador',
         ]);
 

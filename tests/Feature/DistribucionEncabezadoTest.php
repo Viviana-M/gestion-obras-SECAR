@@ -42,7 +42,7 @@ class DistribucionEncabezadoTest extends TestCase
             'cliente'         => 'JARAMILLO MORA CONSTRUCTORA SA',
         ]);
         $this->rf('MOB08656', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB08656', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB08656', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -57,7 +57,7 @@ class DistribucionEncabezadoTest extends TestCase
     public function la_tarjeta_usa_terminos_de_ingenieria_y_el_acumulado_de_cierre(): void
     {
         $this->rf('MOB08660', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB08660', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB08660', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -83,7 +83,7 @@ class DistribucionEncabezadoTest extends TestCase
     public function la_tarjeta_aplica_los_cambios_del_mockup_v3(): void
     {
         $this->rf('MOB08670', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB08670', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB08670', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
@@ -116,7 +116,7 @@ class DistribucionEncabezadoTest extends TestCase
             'cliente'         => 'CLINICA VALLE DEL LILI',
         ]);
         $this->rf('O-2201', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('O-2201', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('O-2201', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=instalaciones');
@@ -133,7 +133,7 @@ class DistribucionEncabezadoTest extends TestCase
     {
         // Sin ficha: cae al nombre_proyecto de los movimientos ("Proy MOB08657").
         $this->rf('MOB08657', 'Ingreso', 5000, 7, 2026, '41350100');
-        $this->rf('MOB08657', 'Costos por aplicar', -100, 6, 2026, '14350105');
+        $this->rf('MOB08657', 'Costos por aplicar', -100, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');

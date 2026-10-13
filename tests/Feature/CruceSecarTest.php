@@ -25,7 +25,7 @@ class CruceSecarTest extends TestCase
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod,
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => $cuentaMayor,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => $cuentaMayor,
             'tercero_dcto' => $tercero, 'razon_social' => $razon,
             'estado_er' => $er, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 8, 'anio' => 2024,
         ]);

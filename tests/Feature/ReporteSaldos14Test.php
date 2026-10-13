@@ -37,7 +37,7 @@ class ReporteSaldos14Test extends TestCase
             'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso', 'estado_er' => 5000000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
         RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Torre Norte',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
 
         $resp = $this->actingAs($this->operador())
@@ -66,7 +66,7 @@ class ReporteSaldos14Test extends TestCase
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
         // Obra CON saldo en cuenta 14.
         RegistroFinanciero::create(['codigo_proyecto' => 'MO4700', 'nombre_proyecto' => 'Con saldo',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -500000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -500000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
 
         $this->actingAs($this->operador())
@@ -86,10 +86,10 @@ class ReporteSaldos14Test extends TestCase
 
         // Obra de Mantenimiento (prefijo C) y obra de Instalaciones (prefijo GI), ambas con saldo 14.
         RegistroFinanciero::create(['codigo_proyecto' => 'C-100', 'nombre_proyecto' => 'Mant',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
         RegistroFinanciero::create(['codigo_proyecto' => 'GI-200', 'nombre_proyecto' => 'Inst',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -50000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
 
         // Sin 'departamento' en la petición: se descargan las dos áreas y el archivo no lleva sufijo.

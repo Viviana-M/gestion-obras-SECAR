@@ -147,7 +147,12 @@ class DistribucionCostosController extends Controller
             });
         };
 
+        // El "saldo por distribuir" y el estado abierto/cerrado se calculan SOLO sobre cuentas 1420
+        // (costo por aplicar). La familia 1455 (inventario/cruce) NO entra: es inventario en tránsito,
+        // mismo criterio que la bolsa. Así un proyecto sin saldo real en 1420 no aparece como abierto.
+        $pref1420 = \App\Services\DistribucionService::PREFIJO_BOLSA.'%';
         $saldos14Query = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', $pref1420)
             ->selectRaw('codigo_proyecto, nombre_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_contable')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5');
@@ -164,6 +169,7 @@ class DistribucionCostosController extends Controller
         // Evita mostrar obras cuyos movimientos de cuenta 14 se cancelan entre sí
         // (neto ≈ 0): no hay nada que distribuir y solo hacen ruido.
         $netoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', $pref1420) // solo 1420: si SUM(déb−cré) de 1420 = 0 → fuera del listado
             ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
             ->groupBy('codigo_proyecto')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5');
@@ -183,6 +189,7 @@ class DistribucionCostosController extends Controller
         // reparto FIFO topado al facturado del mes. El reparto en sí se calcula más
         // abajo, sobre el saldo NETO abierto de cada cuenta (no el bruto por período).
         $periodoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', $pref1420) // antigüedad solo de las cuentas 1420 (las que se distribuyen)
             ->selectRaw('codigo_proyecto, cuenta_contable, MIN(anio*100+mes) as periodo')
             ->groupBy('codigo_proyecto', 'cuenta_contable');
         if ($vista === 'mes') {

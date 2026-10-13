@@ -39,12 +39,12 @@ class DistribucionInformesTest extends TestCase
     public function el_resumen_incluye_lo_aplicado_y_las_asignaciones_de_bolsa(): void
     {
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
         $this->rf('MTO00099', 'Costos por aplicar', -1000, 6, 2026, '14200530'); // bolsa (negativo)
 
         $payload = [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['C-700' => ['14350105' => 100]],
+            'aplicar' => ['C-700' => ['14200105' => 100]],
             'asignacion_bolsa' => ['C-700' => ['n1' => ['bolsa' => 'mantenimiento', 'monto' => 400]]],
         ];
 
@@ -56,7 +56,7 @@ class DistribucionInformesTest extends TestCase
         $resp->assertSee('Aplicado ahora', false);
         $resp->assertSee('Desde bolsa', false);
         // El botón de descarga reenvía EXACTAMENTE el mismo payload (mismos totales).
-        $resp->assertSee('name="aplicar[C-700][14350105]" value="100"', false);
+        $resp->assertSee('name="aplicar[C-700][14200105]" value="100"', false);
         $resp->assertSee('name="asignacion_bolsa[C-700]', false);
     }
 
@@ -64,11 +64,11 @@ class DistribucionInformesTest extends TestCase
     public function la_descarga_del_resumen_usa_el_mismo_payload_que_la_pantalla(): void
     {
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
 
         $resp = $this->actingAs($this->operador())->post(route('operativo.distribucion.resumen'), [
             'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento', 'descargar' => 1,
-            'aplicar' => ['C-700' => ['14350105' => 250]],
+            'aplicar' => ['C-700' => ['14200105' => 250]],
         ]);
 
         $resp->assertStatus(200);
@@ -81,13 +81,13 @@ class DistribucionInformesTest extends TestCase
     public function reenviar_una_distribucion_habilitada_reemplaza_todas_las_lineas(): void
     {
         $this->rf('MO4501', 'Ingreso', 9000000, 7, 2026, '41350100');
-        $this->rf('MO4501', 'Costos por aplicar', -5000, 6, 2026, '14350105');
+        $this->rf('MO4501', 'Costos por aplicar', -5000, 6, 2026, '14200105');
         $op = $this->operador();
 
         // Enviar con 500.
         $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
             'accion' => 'enviar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 500]],
+            'aplicar' => ['MO4501' => ['14200105' => 500]],
             'estado_obra' => ['MO4501' => 'cerrada'],
         ])->assertRedirect();
 
@@ -100,7 +100,7 @@ class DistribucionInformesTest extends TestCase
         // Operaciones edita el monto a 800 y REENVÍA la misma versión.
         $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
             'accion' => 'enviar', 'dist' => $dist->id, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 800]],
+            'aplicar' => ['MO4501' => ['14200105' => 800]],
             'estado_obra' => ['MO4501' => 'cerrada'],
         ])->assertRedirect();
 
@@ -115,12 +115,12 @@ class DistribucionInformesTest extends TestCase
     public function un_reenvio_en_nueva_version_marca_la_anterior_como_reemplazada(): void
     {
         $this->rf('MO4501', 'Ingreso', 9000000, 7, 2026, '41350100');
-        $this->rf('MO4501', 'Costos por aplicar', -5000, 6, 2026, '14350105');
+        $this->rf('MO4501', 'Costos por aplicar', -5000, 6, 2026, '14200105');
         $op = $this->operador();
 
         $enviar = fn ($monto) => $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
             'accion' => 'enviar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => $monto]],
+            'aplicar' => ['MO4501' => ['14200105' => $monto]],
             'estado_obra' => ['MO4501' => 'cerrada'],
         ])->assertRedirect();
 

@@ -34,7 +34,7 @@ class CierrePeriodoTest extends TestCase
     private function obraConSaldo(): void
     {
         RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso', 'estado_er' => 9000000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
-        RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+        RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -1000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
     }
 
     #[Test]
@@ -56,7 +56,7 @@ class CierrePeriodoTest extends TestCase
 
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 500]],
+            'aplicar' => ['MO4501' => ['14200105' => 500]],
         ])->assertRedirect()->assertSessionHas('error');
 
         // No se creó ninguna distribución.
@@ -82,7 +82,7 @@ class CierrePeriodoTest extends TestCase
         // Y ahora guardar SÍ funciona.
         $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
             'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 500]],
+            'aplicar' => ['MO4501' => ['14200105' => 500]],
         ])->assertRedirect();
         $this->assertDatabaseCount('distribuciones', 1);
     }
@@ -108,7 +108,7 @@ class CierrePeriodoTest extends TestCase
         // Autoguardado (AJAX): responde JSON con el id del borrador y NO redirige.
         $resp = $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
             'auto' => 1, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 300]],
+            'aplicar' => ['MO4501' => ['14200105' => 300]],
         ]);
         $resp->assertOk()->assertJson(['ok' => true]);
         $distId = $resp->json('dist');
@@ -123,7 +123,7 @@ class CierrePeriodoTest extends TestCase
         // Un segundo autoguardado reutiliza el MISMO borrador (no crea otra versión).
         $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
             'auto' => 1, 'dist' => $distId, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 450]],
+            'aplicar' => ['MO4501' => ['14200105' => 450]],
         ])->assertOk()->assertJson(['ok' => true, 'dist' => $distId]);
         $this->assertSame(1, \App\Models\Distribucion::count());
     }
@@ -135,7 +135,7 @@ class CierrePeriodoTest extends TestCase
 
         $this->actingAs($this->operador())->postJson(route('operativo.distribucion.guardar'), [
             'auto' => 1, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
-            'aplicar' => ['MO4501' => ['14350105' => 300]],
+            'aplicar' => ['MO4501' => ['14200105' => 300]],
         ])->assertStatus(422)->assertJson(['ok' => false]);
 
         $this->assertSame(0, \App\Models\Distribucion::count());

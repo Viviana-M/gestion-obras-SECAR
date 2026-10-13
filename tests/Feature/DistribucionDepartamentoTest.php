@@ -33,7 +33,7 @@ class DistribucionDepartamentoTest extends TestCase
             'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso',
             'estado_er' => 5000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio]);
         RegistroFinanciero::create(['codigo_proyecto' => $codigo, 'nombre_proyecto' => 'Proy '.$codigo,
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar',
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar',
             'estado_er' => -1000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio]);
     }
 

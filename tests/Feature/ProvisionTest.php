@@ -66,7 +66,7 @@ class ProvisionTest extends TestCase
             'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso', 'estado_er' => 9000000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
         RegistroFinanciero::create(['codigo_proyecto' => 'MO4501', 'nombre_proyecto' => 'Obra',
-            'cuenta_contable' => '14350105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -500000,
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -500000,
             'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
 
         // En JULIO la provisión de junio sigue apareciendo como activa.

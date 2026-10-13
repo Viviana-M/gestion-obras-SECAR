@@ -39,7 +39,7 @@ class ItemsDistribucionTest extends TestCase
     {
         // La cuenta del ítem es la CUENTA 14 de la llave (la conciliación es contra la 14).
         ItemDistribucion::create(array_merge([
-            'codigo_obra' => 'C-700', 'mes' => 7, 'anio' => 2026, 'cuenta' => '14350105',
+            'codigo_obra' => 'C-700', 'mes' => 7, 'anio' => 2026, 'cuenta' => '14200105',
             'item' => 'Cemento', 'tipo_inventario' => '01', 'codigo_movimiento' => '14',
             'tipo_movimiento' => 'Salida Directa Inventario en Obra', 'naturaleza' => 'Débito',
             'tercero' => 'FERRETERIA X', 'cantidad' => 10, 'fecha' => '2026-07-10',
@@ -51,7 +51,7 @@ class ItemsDistribucionTest extends TestCase
     private function homologar(): void
     {
         Homologacion::create([
-            'cuenta_14' => '14350105', 'cuenta_61' => '73950505',
+            'cuenta_14' => '14200105', 'cuenta_61' => '73950505',
             'nombre' => 'Materiales', 'estructura' => 'EQU-MAT-SUM', 'vigente_desde' => 200001,
         ]);
     }
@@ -63,7 +63,7 @@ class ItemsDistribucionTest extends TestCase
         $this->rf('C-700', 'Ingreso', 50000000, 7, 2026, '41350100');
         // Contabilidad (BIABLE) ya reclasificó casi todo: el saldo pendiente REAL de la
         // cuenta 14 es solo 153.060, aunque la app nunca marcó nada como reconocido.
-        $this->rf('C-700', 'Costos por aplicar', -153060, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -153060, 6, 2026, '14200105');
 
         // Ítems por fecha ascendente; suman 6.991.786.
         $this->item(['item' => 'Viejo', 'costo' => 5000000, 'fecha' => '2026-07-01']);
@@ -87,7 +87,7 @@ class ItemsDistribucionTest extends TestCase
         $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
         // Saldo pendiente de la cuenta 14 = 600.000 (neto de ítems, nada reclasificado aún).
-        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14200105');
 
         // Dos salidas (suman) y un reintegro (resta): neto 500+300−200 = 600.000.
         $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
@@ -102,7 +102,7 @@ class ItemsDistribucionTest extends TestCase
         // Ya NO existe la sección separada; el detalle va inline bajo la fila de la cuenta 14.
         $resp->assertDontSee('Detalle de ítems por cuenta', false);
         // La fila expandible de la cuenta 14 y su detalle inline.
-        $resp->assertSee('14350105', false);          // fila de la cuenta 14
+        $resp->assertSee('14200105', false);          // fila de la cuenta 14
         $resp->assertSee('caret-itc', false);          // el ▸ para expandir
         $resp->assertSee('Cemento', false);
         $resp->assertSee('FERRETERIA X', false);
@@ -121,7 +121,7 @@ class ItemsDistribucionTest extends TestCase
         $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
         // Saldo cuenta 14 = 1.000.000, pero los ítems solo suman 600.000 → dif 400.000.
-        $this->rf('C-700', 'Costos por aplicar', -1000000, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -1000000, 6, 2026, '14200105');
 
         $this->item(['item' => 'Cemento', 'costo' => 500000, 'naturaleza' => 'Débito']);
         $this->item(['item' => 'Arena', 'costo' => 300000, 'naturaleza' => 'Débito']);
@@ -143,7 +143,7 @@ class ItemsDistribucionTest extends TestCase
     {
         $this->homologar();
         $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
-        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14350105');
+        $this->rf('C-700', 'Costos por aplicar', -600000, 6, 2026, '14200105');
 
         // Ítem de un mes anterior (junio): SÍ entra en el acumulado a julio.
         $this->item(['item' => 'ItemJunio', 'mes' => 6, 'anio' => 2026, 'costo' => 111111]);
