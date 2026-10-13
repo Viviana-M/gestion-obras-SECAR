@@ -106,6 +106,9 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         // como 14552505, para que el neto (débito − crédito) de la bolsa cuadre con el Libro 1.
         if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
+        // 26 (provisiones) y 28 (facturación anticipada): se cargan como datos, fuera de costos.
+        if (str_starts_with($cuenta, '26'))   return 'Provisiones';
+        if (str_starts_with($cuenta, '28'))   return 'Facturación anticipada';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';
         if (str_starts_with($cuenta, '3'))    return 'Patrimonio';

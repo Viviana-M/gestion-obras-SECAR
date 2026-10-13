@@ -127,4 +127,37 @@ class ImportCuenta14ReversoTest extends TestCase
         $this->assertSame('CCC-00002462', $linea['documento']);
         $this->assertSame('2026-08-18', $linea['fecha']);
     }
+
+    #[Test]
+    public function importa_las_cuentas_26_y_28_como_datos_fuera_de_la_logica_de_costos(): void
+    {
+        // 26 (provisiones) y 28 (facturación anticipada) son pasivo: se cargan como datos pero NO
+        // entran en costos/distribución/bolsas. Una 14 normal se trae para contraste.
+        $archivo = $this->biable([
+            ['INS00006', '26050604', 1000000, 0, 'CCC-1'],  // provisión (26)
+            ['INS00006', '28050101', 0,       2000000, 'CCC-2'],  // facturación anticipada (28)
+            ['INS00006', '14200551', 500000,  0, 'CCC-3'],  // costo normal (14)
+        ]);
+
+        $this->actingAs($this->contable())
+            ->post(route('contable.carga.store'), ['archivo' => $archivo, 'mes' => 9, 'anio' => 2026])
+            ->assertRedirect();
+
+        // 26 y 28 se importan con su propia etiqueta de cuenta mayor.
+        $c26 = RegistroFinanciero::where('cuenta_contable', '26050604')->sole();
+        $this->assertSame('Provisiones', $c26->cuenta_mayor);
+        $c28 = RegistroFinanciero::where('cuenta_contable', '28050101')->sole();
+        $this->assertSame('Facturación anticipada', $c28->cuenta_mayor);
+
+        // NO contaminan los costos: el pool "Costos por aplicar" de INS00006 es solo la cuenta 14.
+        $costos = RegistroFinanciero::where('codigo_proyecto', 'INS00006')
+            ->where('cuenta_mayor', 'Costos por aplicar')->pluck('cuenta_contable')->all();
+        $this->assertSame(['14200551'], $costos);
+
+        // El detalle de bolsa (por tercero) tampoco las incluye.
+        $det = app(\App\Services\DistribucionService::class)
+            ->detalleBolsaTerceros(['INS00006'], \App\Models\Homologacion::periodo(2026, 9), 2026, 9, 'todo');
+        $cuentas = collect($det['INS00006'] ?? [])->pluck('cuenta_14')->unique()->values()->all();
+        $this->assertSame(['14200551'], $cuentas);
+    }
 }

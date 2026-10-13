@@ -289,6 +289,11 @@ class MovimientoBiableImport implements ToCollection, WithHeadingRow, WithChunkR
         // el Libro 1 del ERP. estado_er y signo ya tratan todas las 14 igual.
         if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
+        // Pasivos que SÍ se cargan como datos (no entran en costos/distribución/bolsas): 26
+        // (provisiones) y 28 (facturación anticipada). Van con su propia etiqueta para quedar fuera
+        // de todas las consultas de costos (que filtran por 'Costos por aplicar'/'Costos aplicados').
+        if (str_starts_with($cuenta, '26'))   return 'Provisiones';
+        if (str_starts_with($cuenta, '28'))   return 'Facturación anticipada';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';
         if (str_starts_with($cuenta, '3'))    return 'Patrimonio';
