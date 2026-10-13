@@ -277,10 +277,15 @@ class DistribucionService
         foreach ($saldos as $un => $lineas) {
             $depto = $deptoDeUn[$un] ?? 'otros';
             foreach ($lineas as $l) {
-                $saldo = (float) $l['pendiente'];
+                $saldo = (float) $l['pendiente'];           // neto de la (U.N., cuenta), ambos signos
                 $key   = $un.'|'.$l['cuenta_14'];
-                // Sin registro: se distribuye el saldo completo. Con registro(s): la suma por tercero (tope = saldo).
-                $aDist = isset($montoGuardado[$key]) ? max(0.0, min($saldo, (float) ($montosSum[$key] ?? 0))) : $saldo;
+                // Una (U.N., cuenta) con neto NEGATIVO es "reversado de más": no es distribuible, se
+                // reporta aparte (solo lectura) y NO se resta del disponible.
+                $reversado = $saldo < -0.005;
+                $aDist = $reversado
+                    ? 0.0
+                    // Sin registro: se distribuye el saldo completo. Con registro(s): la suma por tercero (tope = saldo).
+                    : (isset($montoGuardado[$key]) ? max(0.0, min($saldo, (float) ($montosSum[$key] ?? 0))) : $saldo);
                 $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
                 $terceros = $l['terceros'] ?? [];
                 $porDepto[$depto][] = [
@@ -296,6 +301,7 @@ class DistribucionService
                     'es_mo'            => $esMo,
                     'periodo'          => $l['periodo'],
                     'saldo'            => round($saldo, 2),
+                    'reversado'        => $reversado,       // neto negativo: por revisar, no distribuible
                     'monto_distribuir' => round($aDist, 2),
                     'pendiente'        => round($aDist, 2), // tope consumible = lo a distribuir
                     'observaciones'    => $obsPorCuenta[$key] ?? null, // obs por tercero, agregada por cuenta
@@ -313,7 +319,11 @@ class DistribucionService
                 continue;
             }
             usort($lineas, fn ($a, $b) => [$a['un_codigo'], $a['cuenta_14']] <=> [$b['un_codigo'], $b['cuenta_14']]);
-            $total = round(array_sum(array_column($lineas, 'saldo')), 2);
+            // "Disponible por distribuir" = suma de las (U.N., cuenta) con neto POSITIVO (lo realmente
+            // distribuible); coincide con el total del detalle. Las de neto negativo se reportan aparte
+            // como "reversado de más / por revisar" y NO se restan del disponible.
+            $total          = round(array_sum(array_map(fn ($l) => $l['reversado'] ? 0.0 : $l['saldo'], $lineas)), 2);
+            $totalReversado = round(array_sum(array_map(fn ($l) => $l['reversado'] ? -$l['saldo'] : 0.0, $lineas)), 2);
 
             // Mano de obra DIRECTA a distribuir = costo completo de las personas del maestro (Y).
             // El resto de la bolsa (X = Total − Y) es lo demás (materiales, seguros y la MO que no
@@ -328,7 +338,8 @@ class DistribucionService
                 'codigo'       => $d,
                 'nombre'       => $nombre,
                 'departamento' => $d,
-                'total'        => $total,
+                'total'        => $total,                    // distribuible = suma de netos positivos (cuadra con el detalle)
+                'total_reversado' => $totalReversado,        // netos negativos (reversado de más / por revisar), solo lectura
                 'total_mo'     => $mo,                       // MO directa a distribuir (costo por persona)
                 'total_sinmo'  => round($total - $mo, 2),    // resto de la bolsa
                 'mo_personas'  => $personas,                 // una fila por persona del maestro (con buckets)

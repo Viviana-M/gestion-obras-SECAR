@@ -294,6 +294,12 @@
             <div style="height:7px;background:#EEF1F6;border-radius:20px;overflow:hidden">
                 <div id="bolsa-bar-{{ $b['codigo'] }}" style="height:100%;width:{{ $pct }}%;background:linear-gradient(90deg,#1B4C7A,#3A79B5);border-radius:20px;transition:width .2s"></div>
             </div>
+            @if(($b['total_reversado'] ?? 0) > 0.5)
+            {{-- Netos negativos por (U.N., cuenta): no se distribuyen, se reportan para revisar con contabilidad. --}}
+            <div style="margin-top:7px;font-size:10.5px;color:#B91C1C;display:flex;align-items:center;gap:6px" title="Cuentas con neto negativo; no se restan del disponible">
+                ⚠ Reversado de más / por revisar: <b>${{ number_format($b['total_reversado'], 0, ',', '.') }}</b>
+            </div>
+            @endif
             {{-- Indicador visual (NO es un botón): acompaña el hover/clic de toda la tarjeta. --}}
             <div class="detbtn">
                 <span><span class="caret-bolsa-{{ $b['codigo'] }}">▸</span> Ver detalle por cuenta</span>

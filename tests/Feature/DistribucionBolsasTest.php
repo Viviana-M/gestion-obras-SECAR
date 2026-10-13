@@ -597,26 +597,39 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
+    public function la_bolsa_distribuye_solo_los_netos_positivos_y_reporta_aparte_los_negativos(): void
     {
-        $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // -41M por repartir
-        $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');     // +500K a favor (contrario)
+        $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // +41M por repartir (distribuible)
+        $this->rf('MTO00099', 'Costos por aplicar', 500000, 6, 2026, '14200536');     // −500K neto (reversado de más)
 
         $svc = new DistribucionService();
         $periodo = \App\Models\Homologacion::periodo(2026, 7);
         $mant = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 7))->first();
 
-        // Total neto (ambos signos) = 41M − 0.5M.
-        $this->assertEqualsWithDelta(40500000, $mant['total'], 0.5);
+        // "Disponible por distribuir" = solo el neto POSITIVO (41M); el negativo NO se resta.
+        $this->assertEqualsWithDelta(41000000, $mant['total'], 0.5);
+        // El neto negativo se reporta aparte como "reversado de más / por revisar" (en positivo).
+        $this->assertEqualsWithDelta(500000, $mant['total_reversado'], 0.5);
 
         $lineas = collect($mant['lineas'])->keyBy('cuenta_14');
         $this->assertTrue($lineas->has('14200530'));
-        $this->assertTrue($lineas->has('14200536'));                    // el contrario ahora SÍ aparece
-        $this->assertEqualsWithDelta(41000000, $lineas['14200530']['pendiente'], 0.5);  // por repartir (positivo)
-        $this->assertEqualsWithDelta(-500000, $lineas['14200536']['pendiente'], 0.5);   // a favor (signo real, negativo)
+        $this->assertTrue($lineas->has('14200536'));                    // el contrario SÍ aparece (marcado reversado)
+        // La cuenta positiva se distribuye completa; la negativa no (pendiente 0, marcada reversado).
+        $this->assertEqualsWithDelta(41000000, $lineas['14200530']['pendiente'], 0.5);
+        $this->assertFalse($lineas['14200530']['reversado']);
+        $this->assertEqualsWithDelta(0, $lineas['14200536']['pendiente'], 0.5);
+        $this->assertTrue($lineas['14200536']['reversado']);
+        $this->assertEqualsWithDelta(-500000, $lineas['14200536']['saldo'], 0.5); // conserva su signo real
 
-        // La suma de las líneas cuadra con el saldo real de cuenta 14 de la bolsa (−SUM(estado_er)).
-        $this->assertEqualsWithDelta(40500000, collect($mant['lineas'])->sum('pendiente'), 0.5);
+        // El disponible a distribuir (suma de pendientes) coincide con el total distribuible.
+        $this->assertEqualsWithDelta(41000000, collect($mant['lineas'])->sum('pendiente'), 0.5);
+        // El neto contable se conserva en 'saldo' (41M − 0.5M = 40.5M).
+        $this->assertEqualsWithDelta(40500000, collect($mant['lineas'])->sum('saldo'), 0.5);
+
+        // El total de la tarjeta COINCIDE con el total distribuible del detalle (líneas no-alerta).
+        $det = $svc->detalleBolsaTerceros(['MTO00099'], $periodo, 2026, 7, 'todo');
+        $distribuibleDetalle = collect($det['MTO00099'] ?? [])->reject(fn ($l) => $l['alerta'])->sum('saldo');
+        $this->assertEqualsWithDelta($mant['total'], $distribuibleDetalle, 0.5);
     }
 
     #[Test]
