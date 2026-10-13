@@ -113,17 +113,20 @@ class DistribucionManoObraTest extends TestCase
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')->assertOk();
         $html = $resp->getContent();
 
-        // Dos subtemas en la tarjeta de la bolsa.
+        // Dos valores separados + total en la tarjeta de la bolsa.
         $this->assertStringContainsString('Otros costos', $html);
-        $this->assertStringContainsString('Mano de obra del personal', $html);
-        // "Otros costos" ya SIN la MO: 200.000 (materiales); MO del personal aparte: 600.000.
+        $this->assertStringContainsString('Mano de obra', $html);
+        $this->assertStringContainsString('Total bolsa', $html);
+        // Otros costos neto 200.000 (materiales, sin reversado); MO 600.000; total 800.000.
         $this->assertStringContainsString('$200.000', $html);
         $this->assertStringContainsString('$600.000', $html);
+        $this->assertStringContainsString('$800.000', $html);
 
-        // "Otros costos" = bolsa − MO: 800k − 600k = 200k (el número grande de la tarjeta).
+        // Identidad: otros costos (neto) + mano de obra = total bolsa (neto).
         $b = $this->bolsaMto($resp);
-        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1);
+        $this->assertEqualsWithDelta(200000, $b['otros_neto'], 1);
         $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);
+        $this->assertEqualsWithDelta($b['otros_neto'] + $b['mano_obra'], $b['neto'], 1);
     }
 
     #[Test]

@@ -328,38 +328,38 @@
              onclick="toggleBolsaDetalle('{{ $b['codigo'] }}')"
              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleBolsaDetalle('{{ $b['codigo'] }}');}"
              style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
             </div>
 
-            {{-- SUBTEMA 1 · OTROS COSTOS = la bolsa MENOS la mano de obra del personal (materiales,
-                 servicios…). Es el valor que operaciones reparte desde la bolsa. --}}
-            <div style="font-size:10px;font-weight:800;color:#1B4C7A;letter-spacing:.03em;text-transform:uppercase">Otros costos</div>
-            <div style="font-size:10.5px;color:#6B7686;margin-top:2px">Disponible por distribuir (sin mano de obra)</div>
-            <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 6px">
-                <b id="bolsa-otros-{{ $b['codigo'] }}" style="font-size:22px;font-weight:800;color:#1B4C7A" title="La bolsa (materiales, servicios…) ya sin la mano de obra del personal.">${{ number_format($b['otros_costos'] ?? $b['total'], 0, ',', '.') }}</b>
-            </div>
-            @if(($b['total_reversado'] ?? 0) > 0.5)
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#B91C1C;padding:2px 0" title="Llaves (U.N., cuenta) con neto negativo; no se distribuyen">
-                <span>(−) Reversado de más / por revisar</span>
-                <b>${{ number_format($b['total_reversado'], 0, ',', '.') }}</b>
-            </div>
-            @endif
-            <div style="display:flex;justify-content:space-between;font-size:10px;color:#95A0AF;padding:1px 0" title="Saldo neto de la cuenta 14 de la bolsa (otros costos + mano de obra − reversado); reconcilia con contabilidad">
-                <span>Saldo cuenta 14 (bolsa)</span>
-                <b>${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
+            {{-- Dos valores separados: OTROS COSTOS (neto) y MANO DE OBRA. El reversado de más queda
+                 como línea secundaria pequeña dentro de Otros costos. --}}
+            <div style="display:flex;gap:10px;align-items:stretch">
+                {{-- Otros costos: saldo NETO = disponible − reversado de más (no el disponible bruto). --}}
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:10px;font-weight:800;color:#1B4C7A;letter-spacing:.03em;text-transform:uppercase">Otros costos</div>
+                    <div style="font-size:10px;color:#6B7686;margin-top:1px">Saldo neto por distribuir</div>
+                    <b id="bolsa-otros-{{ $b['codigo'] }}" style="font-size:20px;font-weight:800;color:#1B4C7A;display:block;margin-top:1px" title="Otros costos neto = disponible por distribuir − reversado de más (materiales, servicios…).">${{ number_format($b['otros_neto'] ?? (($b['otros_costos'] ?? $b['total']) - ($b['total_reversado'] ?? 0)), 0, ',', '.') }}</b>
+                    <div style="font-size:9.5px;color:#95A0AF;margin-top:3px;line-height:1.5">
+                        Disponible ${{ number_format($b['otros_costos'] ?? $b['total'], 0, ',', '.') }}
+                        @if(($b['total_reversado'] ?? 0) > 0.5)
+                        · <span style="color:#A52020">Reversado de más ${{ number_format($b['total_reversado'], 0, ',', '.') }}</span>
+                        @endif
+                    </div>
+                </div>
+                {{-- Mano de obra del personal (pool distinto): se reparte por persona a los proyectos. --}}
+                <div style="flex:1;min-width:0;background:#F1EDFB;border:1px solid #D8CBF0;border-radius:9px;padding:7px 9px">
+                    <div style="font-size:10px;font-weight:800;color:#5B3FA8;letter-spacing:.03em;text-transform:uppercase">Mano de obra</div>
+                    <div style="font-size:10px;color:#6B7686;margin-top:1px">A distribuir por persona</div>
+                    <b style="font-size:20px;font-weight:800;color:#5B3FA8;display:block;margin-top:1px" title="Costo del personal del maestro Mano de obra directa. Se reparte a cada proyecto, no es saldo de la bolsa.">${{ number_format($b['mano_obra'] ?? 0, 0, ',', '.') }}</b>
+                    <div style="font-size:9.5px;color:#95A0AF;margin-top:3px">Se reparte a cada proyecto.</div>
+                </div>
             </div>
 
-            {{-- SUBTEMA 2 · MANO DE OBRA DEL PERSONAL (pool distinto, NO sumado a otros costos). Es el
-                 costo completo (sueldos + parafiscales vía PILA) del maestro de mano de obra directa;
-                 se distribuye por persona a los proyectos (no se queda como saldo en la bolsa). --}}
-            <div style="margin-top:9px;padding-top:9px;border-top:1px dashed #E5E9F0">
-                <div style="font-size:10px;font-weight:800;color:#0E7490;letter-spacing:.03em;text-transform:uppercase">Mano de obra del personal</div>
-                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px">
-                    <span style="font-size:10.5px;color:#6B7686">A distribuir por persona</span>
-                    <b style="font-size:16px;font-weight:800;color:#0E7490" title="Costo del personal del maestro Mano de obra directa (sueldos + parafiscales de la PILA). Se reparte a los proyectos, no es saldo de la bolsa.">${{ number_format($b['mano_obra'] ?? 0, 0, ',', '.') }}</b>
-                </div>
-                <div style="font-size:10px;color:#95A0AF;margin-top:2px">Se reparte a cada proyecto (abajo en “Mano de obra directa”).</div>
+            {{-- Total bolsa = Otros costos (neto) + Mano de obra = saldo neto de la cuenta 14 (cuadra con contabilidad). --}}
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding:7px 10px;background:#F3F8F4;border:1px solid #CDE9D6;border-radius:9px">
+                <span style="font-size:10.5px;font-weight:800;color:#15803D;text-transform:uppercase;letter-spacing:.03em">Total bolsa</span>
+                <b style="font-size:17px;font-weight:800;color:#15803D" title="Otros costos (neto) + Mano de obra = saldo neto de la cuenta 14; cuadra con contabilidad">${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
             </div>
 
             {{-- Indicador visual (NO es un botón): acompaña el hover/clic de toda la tarjeta. --}}

@@ -66,10 +66,10 @@ class DistribucionBolsasTest extends TestCase
 
         $resp->assertStatus(200);
         $resp->assertSee('Otros costos', false);                   // subtema 1
-        $resp->assertSee('Mano de obra del personal', false);      // subtema 2
-        $resp->assertSee('Disponible por distribuir', false);
+        $resp->assertSee('Mano de obra', false);                   // subtema 2
+        $resp->assertSee('Total bolsa', false);                    // total = otros (neto) + MO
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);   // bolsa grande por departamento
-        $resp->assertSee('id="bolsa-otros-mantenimiento"', false); // número grande = otros costos (sin MO)
+        $resp->assertSee('id="bolsa-otros-mantenimiento"', false); // valor de otros costos (neto)
         $resp->assertSee('Ver detalle por cuenta', false);
         $resp->assertSee('MTO00099', false);                        // la UN aparece en el detalle
         $resp->assertSee('Asignar desde bolsa de área', false);
@@ -493,6 +493,36 @@ class DistribucionBolsasTest extends TestCase
             ->movimientosReversoBolsa(7, 2026, 'mantenimiento', 99);
 
         $this->assertCount(0, $mov); // sin destino no se genera asiento
+    }
+
+    #[Test]
+    public function el_detalle_de_otros_costos_excluye_personal_directo_y_de_apoyo(): void
+    {
+        // Faustino (maestro Mano de obra DIRECTA) y Nubia (maestro Mano de obra de APOYO) NO deben
+        // aparecer en el detalle de "otros costos": los directos se reparten por persona y el apoyo
+        // lo reclasifica contabilidad (PILA). Un proveedor normal SÍ aparece.
+        \App\Models\TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Faustino Directo', 'departamento' => 'mantenimiento', 'activo' => true]);
+        \App\Models\ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'Nubia Apoyo', 'activo' => true]);
+
+        $rf = function (string $t, string $razon, float $monto) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'tipo_documento' => 'FSE', 'documento' => $t, 'fecha_docto' => '2026-07-10',
+                'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+            ]);
+        };
+        $rf('111', 'Faustino Directo', 500000);
+        $rf('222', 'Nubia Apoyo', 300000);
+        $rf('900', 'Proveedor SAS', 200000);
+
+        $det = app(DistribucionService::class)
+            ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
+        $terceros = collect($det['MTO00099'] ?? [])->pluck('tercero_dcto')->all();
+
+        $this->assertContains('900', $terceros);    // proveedor normal → en otros costos
+        $this->assertNotContains('111', $terceros);  // directo → fuera del detalle
+        $this->assertNotContains('222', $terceros);  // apoyo → fuera del detalle
     }
 
     #[Test]

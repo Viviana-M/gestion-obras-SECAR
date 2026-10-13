@@ -338,8 +338,9 @@ class DistribucionService
             foreach ($personas as &$per) $per['total'] = round($per['total'], 2);
             unset($per);
             usort($personas, fn ($a, $b) => $b['total'] <=> $a['total']);
-            $mo         = round(min($total, array_sum(array_column($personas, 'total'))), 2);
-            $otrosCostos = round($total - $mo, 2);
+            $mo          = round(min($total, array_sum(array_column($personas, 'total'))), 2);
+            $otrosCostos = round($total - $mo, 2);                      // disponible bruto de otros costos
+            $otrosNeto   = round($otrosCostos - $totalReversado, 2);    // otros costos neto = disponible − reversado
 
             $result[] = [
                 'codigo'       => $d,
@@ -348,7 +349,8 @@ class DistribucionService
                 'total'        => $total,                    // distribuible = suma de netos positivos (cuadra con el detalle)
                 'neto'         => $neto,                      // saldo de la bolsa (positivos − negativos): reconcilia con contabilidad
                 'total_reversado' => $totalReversado,        // netos negativos (reversado de más / por revisar), solo lectura
-                'otros_costos' => $otrosCostos,              // pool "Otros costos" = la bolsa menos la MO del personal
+                'otros_costos' => $otrosCostos,              // "Otros costos" disponible (bruto) = la bolsa menos la MO
+                'otros_neto'   => $otrosNeto,                // "Otros costos" neto = disponible − reversado de más
                 'mano_obra'    => $mo,                        // pool "Mano de obra del personal" (maestro directa)
                 'total_mo'     => $mo,                        // alias retrocompat: MO directa a distribuir (costo por persona)
                 'total_sinmo'  => $otrosCostos,              // alias retrocompat: otros costos (ya sin MO)
@@ -587,11 +589,20 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
+        // El personal de MANO DE OBRA no es "otros costos" y NO se distribuye desde este detalle:
+        //  · DIRECTA (maestro TerceroManoObra): se reparte por persona en cada proyecto (sección MO).
+        //  · APOYO (maestro ManoObraDirecta): contabilidad lo reclasifica 14→61 desde la PILA.
+        // Se excluyen del detalle los terceros de ambos maestros.
+        $terceroExcluido = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
+            ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
+            ->map(fn ($c) => trim((string) $c))->filter()->flip();
+
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
         // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
         // misma cuenta contable.
         $porCuenta = [];
         foreach ($filas as $f) {
+            if (isset($terceroExcluido[trim((string) $f->tercero_dcto)])) continue; // MO directa/apoyo: fuera del detalle
             $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
             $key = $un.'|'.$cuenta;
             $fecha = $f->fecha_docto ? substr((string) $f->fecha_docto, 0, 10) : null;
