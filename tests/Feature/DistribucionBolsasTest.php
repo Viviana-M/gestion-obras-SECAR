@@ -413,6 +413,35 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_detalle_oculta_por_defecto_las_cuentas_ya_cruzadas_en_cero(): void
+    {
+        // Cuenta ya cruzada ($0): un tercero +500k y SECAR −500k → neto Libro 1 = 0.
+        $this->bolsaTercero('MTO00099', '14209999', '111', 'JUAN PEREZ', 500000, 7, 2026); // estado_er −500k → +500k
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14209999',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '890319324', 'razon_social' => 'SECAR',
+            'estado_er' => 500000, 'valor_debito' => 0, 'valor_credito' => 500000, 'mes' => 7, 'anio' => 2026,
+        ]);
+        // Cuenta con saldo real.
+        $this->bolsaTercero('MTO00099', '14200530', '222', 'AIR EZ SAS', 300000, 7, 2026);
+
+        $html = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        // La cuenta cruzada se marca como oculta (clase bz-cuenta) con badge "ya cruzada".
+        $this->assertStringContainsString('bz-cuenta', $html);
+        $this->assertStringContainsString('ya cruzada', $html);
+        // Banner de ocultos + contador de cuentas con saldo (solo 1 con saldo real).
+        $this->assertStringContainsString('Se ocultaron', $html);
+        $this->assertStringContainsString('Cuentas con saldo:', $html);
+        // El interruptor para auditar los $0 existe.
+        $this->assertStringContainsString('Mostrar cuentas ya cruzadas', $html);
+        // La cuenta con saldo real sí aparece.
+        $this->assertStringContainsString('14200530', $html);
+    }
+
+    #[Test]
     public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
     {
         $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // -41M por repartir

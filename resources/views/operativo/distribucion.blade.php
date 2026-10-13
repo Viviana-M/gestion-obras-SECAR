@@ -60,6 +60,19 @@
     .bolsa .detbtn .chev { transition:transform .15s }
     .bolsa:hover .detbtn { background:#DCE9F6; border-color:#B9D2EB }
     .bolsa:hover .detbtn .chev { transform:translateX(2px) }
+
+    /* Detalle por cuenta: ocultar lo ya cruzado ($0 exacto) salvo que se active el interruptor. */
+    .bolsa-det .bz-cuenta, .bolsa-det .bz-terc { display:none }
+    .bolsa-det.show-zeros .bz-cuenta, .bolsa-det.show-zeros .bz-terc { display:table-row }
+    .bolsa-det.show-zeros .bz-cuenta td, .bolsa-det.show-zeros .bz-terc td { opacity:.65 }
+    .bolsa-det.show-zeros .hidenote { display:none }
+    .badge-cruzada { display:inline-flex;align-items:center;gap:4px;background:#E7F6EC;border:1px solid #BEE3C9;
+        color:#15803D;border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700;white-space:nowrap }
+    /* Interruptor (toggle) del detalle. */
+    .sw-zeros .sw-tr { width:34px;height:20px;border-radius:20px;background:#CBD5E1;position:relative;transition:.18s;flex:none;display:inline-block }
+    .sw-zeros .sw-tr::after { content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2) }
+    .sw-zeros input:checked + .sw-tr { background:#1B4C7A }
+    .sw-zeros input:checked + .sw-tr::after { transform:translateX(14px) }
 </style>
 @php
     $depLabel = ['mantenimiento' => 'Mantenimiento (MT)', 'instalaciones' => 'Instalaciones (IN)'];
@@ -298,7 +311,38 @@
         {{-- Detalle por cuenta de cada bolsa grande. En el cierre se edita el "a distribuir"
              (cuánto de cada cuenta se carga este mes) + observaciones; el disponible = suma de eso. --}}
         @foreach($bolsas as $b)
-        <div id="bolsa-det-{{ $b['codigo'] }}" style="display:none;margin-top:8px;border:1px solid #FDE68A;border-radius:10px;overflow:hidden">
+        @php
+            // Presentación: ocultar lo ya cruzado ($0 exacto en Libro 1 = débito − crédito, al peso).
+            // NO cambia la lógica ni los saldos; solo decide qué se muestra de entrada.
+            $zCuentas = 0; $zTerceros = 0; $conSaldo = 0;
+            foreach ($b['lineas'] as $ln) {
+                if (round($ln['saldo']) == 0) {
+                    $zCuentas++;
+                } else {
+                    $conSaldo++;
+                    foreach (($ln['terceros'] ?? []) as $tt) { if (round($tt['saldo']) == 0) $zTerceros++; }
+                }
+            }
+        @endphp
+        <div id="bolsa-det-{{ $b['codigo'] }}" class="bolsa-det" style="display:none;margin-top:8px;border:1px solid #E5E9F0;border-radius:10px;overflow:hidden;background:#fff">
+            {{-- Toolbar del detalle: interruptor de cuentas ya cruzadas + "Cuentas con saldo". --}}
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid #EEF1F6;background:#FAFBFD">
+                <label class="sw-zeros" style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#1E2A38;cursor:pointer;user-select:none">
+                    <input type="checkbox" onchange="toggleBolsaZeros('{{ $b['codigo'] }}', this.checked)">
+                    <span class="sw-tr"></span> Mostrar cuentas ya cruzadas ($0)
+                </label>
+                <span style="flex:1"></span>
+                <span style="font-size:11.5px;color:#6B7686">Cuentas con saldo: <b style="color:#1B4C7A">{{ $conSaldo }}</b></span>
+            </div>
+            @if($zCuentas > 0 || $zTerceros > 0)
+            <div class="hidenote" style="background:#EAF1F8;border-bottom:1px solid #D4E3F2;color:#1B4C7A;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <span>✓ Se ocultaron</span>
+                @if($zCuentas > 0)<b>{{ $zCuentas }} cuenta(s) ya cruzada(s) ($0)</b>@endif
+                @if($zCuentas > 0 && $zTerceros > 0)<span>y</span>@endif
+                @if($zTerceros > 0)<b>{{ $zTerceros }} tercero(s) en $0</b>@endif
+                <span>· actívalos con el interruptor si necesitas auditarlos.</span>
+            </div>
+            @endif
             <form method="POST" action="{{ route('operativo.distribucion.bolsa-montos') }}">
                 @csrf
                 <input type="hidden" name="mes" value="{{ $mes }}">
@@ -306,7 +350,7 @@
                 <input type="hidden" name="departamento" value="{{ $b['codigo'] }}">
                 <div style="overflow-x:auto">
                     <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;background:#fff">
-                        <tr style="background:#FFFBEB;color:#92400E;text-align:left">
+                        <tr style="background:#F3F6FA;color:#1B4C7A;text-align:left">
                             <td style="padding:6px 8px">UN</td>
                             <td style="padding:6px 8px">Nombre UN</td>
                             <td style="padding:6px 8px">Cuenta</td>
@@ -322,22 +366,31 @@
                             $k = $l['un_codigo'].'|'.$l['cuenta_14'];
                             $kid = preg_replace('/[^A-Za-z0-9]/', '_', $b['codigo'].'_'.$k);
                             $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
+                            $tercs = $l['terceros'] ?? [];
+                            // Cuenta ya cruzada: saldo neto Libro 1 = $0 (al peso). Se oculta por defecto.
+                            $cuentaCero = round($l['saldo']) == 0;
                         @endphp
-                        <tr style="border-top:1px solid #FDE68A">
+                        <tr class="{{ $cuentaCero ? 'bz-cuenta' : '' }}" style="border-top:1px solid #EEF1F6">
                             <td style="padding:5px 8px;font-family:monospace">{{ $l['un_codigo'] }}</td>
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['un_nombre'], 22) }}</td>
                             <td style="padding:5px 8px;font-family:monospace">{{ $l['cuenta_14'] }}</td>
                             <td style="padding:5px 8px;color:#6B7280">{{ Str::limit($l['nombre'], 26) }}</td>
-                            @php $tercs = $l['terceros'] ?? []; @endphp
                             <td style="padding:5px 8px;color:#6B7280">
-                                {{ Str::limit($l['tercero'], 24) }}
-                                @if(count($tercs) > 1)
-                                    <span style="color:#9CA3AF">· +{{ count($tercs) - 1 }}</span>
+                                @if($cuentaCero)
+                                    <span class="badge-cruzada">✓ ya cruzada</span>
+                                @else
+                                    {{ Str::limit($l['tercero'], 24) }}
+                                    @php $tercsVis = collect($tercs)->filter(fn ($t) => round($t['saldo']) != 0)->count(); @endphp
+                                    @if($tercsVis > 1)
+                                        <span style="color:#9CA3AF">· +{{ $tercsVis - 1 }}</span>
+                                    @endif
                                 @endif
                             </td>
                             <td style="padding:5px 8px;text-align:right;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
                             <td style="padding:5px 8px;text-align:right">
-                                @if($puedeEditarBolsa)
+                                @if($cuentaCero)
+                                    <span style="color:#9CA3AF">—</span>
+                                @elseif($puedeEditarBolsa)
                                     <input type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}"
                                         data-tipo="bolsamonto" data-saldo="{{ round($l['saldo']) }}" data-kid="{{ $kid }}" data-bolsa="{{ $b['codigo'] }}" oninput="onMontoInput(this)"
                                         style="width:130px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;text-align:right;background:#fff">
@@ -349,7 +402,9 @@
                                 <b id="queda-{{ $kid }}">${{ number_format($queda, 0, ',', '.') }}</b>
                             </td>
                             <td style="padding:5px 8px">
-                                @if($puedeEditarBolsa)
+                                @if($cuentaCero)
+                                    <span style="color:#9CA3AF"></span>
+                                @elseif($puedeEditarBolsa)
                                     <input type="text" name="obs[{{ $k }}]" value="{{ $l['observaciones'] }}" placeholder="Observación…"
                                         style="width:100%;min-width:160px;padding:3px 6px;border:1px solid #D97706;border-radius:4px;font-size:11px;background:#fff">
                                 @else
@@ -359,12 +414,15 @@
                         </tr>
                         @if(count($tercs) > 1)
                             @foreach($tercs as $t)
-                            <tr style="background:#FFFDF5">
+                            @php $tercCero = round($t['saldo']) == 0; @endphp
+                            {{-- Un tercero de una cuenta ya cruzada se oculta con la cuenta (bz-cuenta);
+                                 un tercero en $0 dentro de una cuenta con saldo se oculta aparte (bz-terc). --}}
+                            <tr class="{{ $cuentaCero ? 'bz-cuenta' : ($tercCero ? 'bz-terc' : '') }}" style="background:#FFFDF5">
                                 <td style="padding:3px 8px"></td>
                                 <td style="padding:3px 8px"></td>
                                 <td style="padding:3px 8px"></td>
                                 <td style="padding:3px 8px;color:#9CA3AF;font-size:10px;text-align:right">↳</td>
-                                <td style="padding:3px 8px;color:#6B7280;font-size:11px">{{ Str::limit($t['tercero'], 28) }}@if(!empty($t['doc']) && $t['doc'] !== $t['tercero'])<span style="color:#9CA3AF"> · {{ $t['doc'] }}</span>@endif</td>
+                                <td style="padding:3px 8px;color:#6B7280;font-size:11px">{{ Str::limit($t['tercero'], 28) }}@if(!empty($t['doc']) && $t['doc'] !== $t['tercero'])<span style="color:#9CA3AF"> · {{ $t['doc'] }}</span>@endif{!! ($tercCero && !$cuentaCero) ? '<span style="color:#9CA3AF"> · ya cruzado</span>' : '' !!}</td>
                                 <td style="padding:3px 8px;text-align:right;color:#A16207;font-size:11px">${{ number_format($t['saldo'], 0, ',', '.') }}</td>
                                 <td></td><td></td><td></td>
                             </tr>
@@ -742,6 +800,12 @@ function toggleBolsaDetalle(c){
     const mostrar = (e.style.display === 'none' || !e.style.display);
     e.style.display = mostrar ? 'block' : 'none';
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+}
+
+/* Interruptor "Mostrar cuentas ya cruzadas ($0)" del detalle de una bolsa (presentación). */
+function toggleBolsaZeros(c, on){
+    const e = document.getElementById('bolsa-det-'+c); if(!e) return;
+    e.classList.toggle('show-zeros', on);
 }
 
 // Solo dígitos de un valor con formato (ej. "1.500.000" → 1500000).
