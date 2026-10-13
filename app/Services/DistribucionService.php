@@ -487,6 +487,34 @@ class DistribucionService
             $porCuenta[$key]['terceros'][] = ['tercero' => ($nom ?: $doc ?: '—'), 'doc' => $doc, 'saldo' => $pend];
         }
 
+        // SECAR cruza a nivel DEPARTAMENTO + cuenta: su reverso en la bolsa consume el crédito de SECAR
+        // repartido en las obras del depto (por prefijo), además de sus propios positivos en la bolsa.
+        // Así su reverso deja de reportarse como "reversado de más" cuando lo respaldan las obras, y el
+        // neto (positivos − reversado) refleja el saldo real. Los demás terceros no se tocan.
+        $deptoDeUn   = UnBolsa::whereIn('codigo', $codigos)->pluck('departamento', 'codigo');
+        $creditoSecar = $this->creditoSecarEnObras(
+            array_values(array_unique(array_filter($deptoDeUn->all()))), $anio, $mes, $vista);
+        $secarPorDC = []; // "depto|cuenta" => [ [key, idxTercero], ... ]
+        foreach ($porCuenta as $key => $c) {
+            $dep = (string) ($deptoDeUn[$c['un']] ?? '');
+            foreach ($c['terceros'] as $ti => $t) {
+                if ($t['doc'] === self::NIT_SECAR) $secarPorDC[$dep.'|'.$c['cuenta']][] = [$key, $ti];
+            }
+        }
+        foreach ($secarPorDC as $dc => $refs) {
+            $celdas = [];
+            foreach ($refs as $n => [$key, $ti]) {
+                $celdas[$n] = ['saldo' => $porCuenta[$key]['terceros'][$ti]['saldo'], 'ord' => 0];
+            }
+            $res = $this->absorberReversoSecar($celdas, (float) ($creditoSecar[$dc] ?? 0.0));
+            foreach ($refs as $n => [$key, $ti]) {
+                $porCuenta[$key]['terceros'][$ti]['saldo'] = $res[$n]['saldo'];
+            }
+        }
+        foreach ($porCuenta as $key => $c) { // recomputar el total de cada (U.N., cuenta) tras ajustar SECAR
+            $porCuenta[$key]['total'] = round(array_sum(array_column($c['terceros'], 'saldo')), 2);
+        }
+
         $out = [];
         foreach ($porCuenta as $c) {
             $h = $homol[$c['cuenta']] ?? null;
@@ -551,7 +579,8 @@ class DistribucionService
      * Detalle por DOCUMENTO de las bolsas, para la tabla plana de "Detalle por cuenta". Una fila por
      * (UN, cuenta, tercero, DOCUMENTO) con: fecha del movimiento (fecha_docto), nombre del proyecto,
      * auxiliar (cuenta) y su descripción, NIT, razón social, documento y el remanente de ESE documento
-     * tras el CRUCE FIFO por (U.N., cuenta).
+     * tras el CRUCE FIFO. Los parafiscales y proveedores cruzan por (U.N., cuenta); SECAR (890319324)
+     * cruza a nivel DEPARTAMENTO + cuenta (sus positivos están repartidos en las obras), ver más abajo.
      *
      * IMPORTANTE: el cruce consume los documentos más ANTIGUOS primero (quedan en $0 y se ocultan); los
      * que sobreviven son los más RECIENTES y cada fila muestra la fecha/documento/saldo de ese documento
@@ -625,9 +654,46 @@ class DistribucionService
             ];
         }
 
+        // ───────────── CRUCE ─────────────
+        // Los parafiscales y proveedores cruzan DENTRO de su (U.N., cuenta). SECAR es la excepción:
+        // cruza a nivel DEPARTAMENTO + cuenta, porque sus reversos viven en la bolsa pero sus positivos
+        // están repartidos en las obras reales. Por eso su reverso consume primero sus positivos en la
+        // bolsa y luego el crédito de SECAR acumulado en las obras del departamento (por prefijo). NO
+        // toca lo distribuible de la bolsa (otros costos + MO de otros terceros).
+        $deptoDeUn    = UnBolsa::whereIn('codigo', $codigos)->pluck('departamento', 'codigo');
+        $creditoSecar = $this->creditoSecarEnObras(
+            array_values(array_unique(array_filter($deptoDeUn->all()))), $anio, $mes, $vista);
+
+        $secarPorDC = []; // "depto|cuenta" => [ [key,i], ... ]  (líneas de SECAR de cualquier U.N.)
+        foreach ($porCuenta as $key => &$grp) {
+            $idxNoSecar = [];
+            foreach ($grp as $i => $row) {
+                if ($row['tercero_dcto'] === self::NIT_SECAR) {
+                    $dep = (string) ($deptoDeUn[$row['un']] ?? '');
+                    $secarPorDC[$dep.'|'.$row['cuenta']][] = [$key, $i];
+                } else {
+                    $idxNoSecar[] = $i;
+                }
+            }
+            $this->cruzarFifo($grp, $idxNoSecar); // los demás terceros, dentro de la (U.N., cuenta)
+        }
+        unset($grp);
+
+        // SECAR: cruce a nivel departamento + cuenta (consume sus positivos de bolsa y el crédito de obras).
+        foreach ($secarPorDC as $dc => $refs) {
+            $celdas = [];
+            foreach ($refs as $n => [$key, $i]) {
+                $celdas[$n] = ['saldo' => $porCuenta[$key][$i]['saldo'], 'ord' => (int) $porCuenta[$key][$i]['ord']];
+            }
+            $res = $this->absorberReversoSecar($celdas, (float) ($creditoSecar[$dc] ?? 0.0));
+            foreach ($refs as $n => [$key, $i]) {
+                $porCuenta[$key][$i]['saldo']  = $res[$n]['saldo'];
+                $porCuenta[$key][$i]['alerta'] = $res[$n]['alerta'];
+            }
+        }
+
         $out = [];
         foreach ($porCuenta as $terceros) {
-            $this->cruzarFifo($terceros); // reatribuye el neto: los negativos consumen FIFO los positivos más antiguos
             $cuenta = $terceros[0]['cuenta'];
             $un     = $terceros[0]['un'];
             $h      = $homol[$cuenta] ?? null;
@@ -678,28 +744,32 @@ class DistribucionService
     }
 
     /**
-     * Cruce FIFO GENERAL dentro de una (U.N., cuenta) (modifica $terceros por referencia). El llamador
-     * ya agrupa por esa llave, así que aquí nunca se mezclan terceros de distintas U.N.
+     * Cruce FIFO dentro de una (U.N., cuenta) (modifica $terceros por referencia). El llamador ya agrupa
+     * por esa llave, así que aquí nunca se mezclan terceros de distintas U.N.
      *
-     * TODOS los saldos negativos de la (U.N., cuenta) (de cualquier tercero, no solo SECAR) forman un "pool"
-     * que consume los saldos positivos del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'),
-     * dejándolos en $0 a medida que los absorbe. Lo que queda en los positivos es el saldo real por
-     * tercero: esas son las líneas que ve operaciones y sobre las que distribuye. El neto de la cuenta
-     * NO cambia: solo se reatribuye y se presenta.
+     * Los saldos negativos (de los terceros considerados) forman un "pool" que consume los saldos
+     * positivos del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'), dejándolos en $0 a
+     * medida que los absorbe. Lo que queda en los positivos es el saldo real por tercero. El neto de la
+     * cuenta NO cambia: solo se reatribuye y se presenta.
      *
-     * Si los positivos no alcanzan a cubrir el pool (la cuenta neta negativo), el sobrante se marca en
-     * UNA línea como ALERTA de solo lectura ("reversado de más — revisar con contabilidad"), nunca como
-     * saldo a distribuir.
+     * Si los positivos no alcanzan a cubrir el pool, el sobrante se marca en UNA línea como ALERTA de
+     * solo lectura ("reversado de más — revisar con contabilidad"), nunca como saldo a distribuir.
+     *
+     * $soloIdx limita el cruce a esos índices (los demás terceros quedan intactos). Se usa para apartar
+     * a SECAR: los parafiscales y proveedores cruzan por (U.N., cuenta); SECAR cruza aparte, a nivel
+     * departamento, en cruzarSecarDepartamento(). Con null, cruza todos los terceros del grupo.
      */
-    private function cruzarFifo(array &$terceros): void
+    private function cruzarFifo(array &$terceros, ?array $soloIdx = null): void
     {
-        // 1) Pool con TODOS los negativos (cualquier tercero); se consumen (quedan en $0).
+        $indices = $soloIdx ?? array_keys($terceros);
+
+        // 1) Pool con los negativos de los terceros considerados; se consumen (quedan en $0).
         $pool   = 0.0;
         $idxNeg = [];
-        foreach ($terceros as $i => $t) {
+        foreach ($indices as $i) {
             $terceros[$i]['alerta'] = false;
-            if ($t['saldo'] < -0.005) {
-                $pool += -$t['saldo'];
+            if ($terceros[$i]['saldo'] < -0.005) {
+                $pool += -$terceros[$i]['saldo'];
                 $terceros[$i]['saldo'] = 0.0;
                 $idxNeg[] = $i;
             }
@@ -708,8 +778,8 @@ class DistribucionService
 
         // 2) Positivos del más antiguo al más reciente.
         $orden = [];
-        foreach ($terceros as $i => $t) {
-            if ($t['saldo'] > 0.005) $orden[] = $i;
+        foreach ($indices as $i) {
+            if ($terceros[$i]['saldo'] > 0.005) $orden[] = $i;
         }
         usort($orden, fn ($a, $b) => [$terceros[$a]['ord'], $terceros[$a]['min_id']] <=> [$terceros[$b]['ord'], $terceros[$b]['min_id']]);
 
@@ -721,7 +791,7 @@ class DistribucionService
             $pool = round($pool - $consumir, 2);
         }
 
-        // 5) Sobrante del pool (positivos insuficientes) = cuenta neta negativo → ALERTA de solo lectura.
+        // 5) Sobrante del pool (positivos insuficientes) = neto negativo → ALERTA de solo lectura.
         if ($pool > 0.5) {
             // Lo lleva la línea negativa MÁS RECIENTE (así la alerta queda al final del FIFO).
             $destino = null;
@@ -736,6 +806,104 @@ class DistribucionService
                 $terceros[$destino]['alerta'] = true;
             }
         }
+    }
+
+    /**
+     * Crédito de SECAR (tercero 890319324) repartido en las OBRAS reales del departamento, por cuenta
+     * 1420. Son los costos cargados a las obras a nombre de SECAR (saldo positivo): el reverso de SECAR
+     * en la bolsa los consume a nivel departamento. Se delimitan las obras por PREFIJO de código
+     * (C/R/MO/GM, GI/O), excluyendo las U.N. del maestro de bolsa.
+     *
+     * @return array<string,float>  ["departamento|cuenta" => saldo positivo de SECAR en las obras]
+     */
+    private function creditoSecarEnObras(array $departamentos, int $anio, int $mes, string $vista): array
+    {
+        // Prefijos de obra por departamento (p. ej. mantenimiento → C/R/MO/GM).
+        $prefijos = [];
+        foreach ($departamentos as $d) {
+            foreach (\App\Models\User::prefijosDeDepartamento((string) $d) as $p) {
+                $prefijos[] = $p;
+            }
+        }
+        $prefijos = array_values(array_unique($prefijos));
+        if (empty($prefijos)) return [];
+
+        $bolsaCodigos = UnBolsa::pluck('codigo')->all();
+        $ventana = $vista === 'mes'
+            ? function ($q) use ($anio, $mes) { $q->where('anio', $anio)->where('mes', $mes); }
+            : function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($q2) => $q2->where('anio', $anio)->where('mes', '<=', $mes));
+            };
+
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', self::PREFIJO_BOLSA.'%')
+            ->where('tercero_dcto', self::NIT_SECAR)
+            ->where(function ($q) use ($prefijos) {
+                foreach ($prefijos as $p) $q->orWhere('codigo_proyecto', 'like', $p.'%');
+            })
+            ->when(! empty($bolsaCodigos), fn ($q) => $q->whereNotIn('codigo_proyecto', $bolsaCodigos))
+            ->where($ventana)
+            ->selectRaw('codigo_proyecto, cuenta_contable, SUM(estado_er) as saldo_er')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->get();
+
+        $credito = [];
+        foreach ($filas as $f) {
+            $saldo = round(-1 * (float) $f->saldo_er, 2); // débito − crédito; positivo = costo a nombre de SECAR
+            if ($saldo <= 0.005) continue;                 // solo positivos: absorben el reverso de la bolsa
+            $dep = \App\Models\User::departamentoDeCodigo((string) $f->codigo_proyecto);
+            if ($dep === null) continue;
+            $k = $dep.'|'.$f->cuenta_contable;
+            $credito[$k] = round(($credito[$k] ?? 0.0) + $saldo, 2);
+        }
+        return $credito;
+    }
+
+    /**
+     * Resuelve el reverso de SECAR de un conjunto de celdas (líneas de SECAR de una misma cuenta, de
+     * cualquier U.N. del departamento). Los negativos (reverso) consumen: 1) los positivos de SECAR en
+     * la bolsa, del más antiguo al más reciente; 2) el crédito de SECAR repartido en las obras del
+     * departamento. El sobrante queda como neto negativo en la celda negativa MÁS RECIENTE, marcada
+     * como alerta (reversado de más real). No altera las demás celdas ni el crédito de obras (que no se
+     * muestra: solo absorbe).
+     *
+     * @param array<int,array{saldo:float,ord:int}> $celdas  indexado; 'ord' = antigüedad (AAAAMMDD)
+     * @return array<int,array{saldo:float,alerta:bool}>      mismas claves que $celdas
+     */
+    private function absorberReversoSecar(array $celdas, float $credito): array
+    {
+        $res = [];
+        foreach ($celdas as $i => $c) $res[$i] = ['saldo' => round((float) $c['saldo'], 2), 'alerta' => false];
+
+        $pool = 0.0; $neg = []; $pos = [];
+        foreach ($celdas as $i => $c) {
+            $s = (float) $c['saldo'];
+            if ($s < -0.005)      { $pool += -$s; $res[$i]['saldo'] = 0.0; $neg[] = $i; }
+            elseif ($s > 0.005)   { $pos[] = $i; }
+        }
+        if ($pool <= 0.5) return $res;
+
+        // 1) Positivos de SECAR en la bolsa, del más antiguo al más reciente.
+        usort($pos, fn ($a, $b) => [(int) $celdas[$a]['ord'], $a] <=> [(int) $celdas[$b]['ord'], $b]);
+        foreach ($pos as $i) {
+            if ($pool <= 0.5) break;
+            $use = min($res[$i]['saldo'], $pool);
+            $res[$i]['saldo'] = round($res[$i]['saldo'] - $use, 2);
+            $pool = round($pool - $use, 2);
+        }
+        // 2) Crédito de SECAR repartido en las obras del departamento (no se muestra; solo absorbe).
+        if ($pool > 0.5 && $credito > 0.005) {
+            $pool = round($pool - min($pool, $credito), 2);
+        }
+        // 3) Sobrante = reverso real (reversado de más): queda en la celda negativa más reciente.
+        if ($pool > 0.5 && ! empty($neg)) {
+            usort($neg, fn ($a, $b) => [(int) $celdas[$a]['ord'], $a] <=> [(int) $celdas[$b]['ord'], $b]);
+            $dest = end($neg);
+            $res[$dest]['saldo']  = round(-$pool, 2);
+            $res[$dest]['alerta'] = true;
+        }
+        return $res;
     }
 
     /**
