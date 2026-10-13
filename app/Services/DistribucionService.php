@@ -324,6 +324,9 @@ class DistribucionService
             // como "reversado de más / por revisar" y NO se restan del disponible.
             $total          = round(array_sum(array_map(fn ($l) => $l['reversado'] ? 0.0 : $l['saldo'], $lineas)), 2);
             $totalReversado = round(array_sum(array_map(fn ($l) => $l['reversado'] ? -$l['saldo'] : 0.0, $lineas)), 2);
+            // Saldo NETO de la bolsa = positivos − negativos: es el que reconcilia con contabilidad.
+            // Invariante: neto = disponible (positivos) − reversado de más (negativos).
+            $neto           = round($total - $totalReversado, 2);
 
             // Mano de obra DIRECTA a distribuir = costo completo de las personas del maestro (Y).
             // El resto de la bolsa (X = Total − Y) es lo demás (materiales, seguros y la MO que no
@@ -339,6 +342,7 @@ class DistribucionService
                 'nombre'       => $nombre,
                 'departamento' => $d,
                 'total'        => $total,                    // distribuible = suma de netos positivos (cuadra con el detalle)
+                'neto'         => $neto,                      // saldo de la bolsa (positivos − negativos): reconcilia con contabilidad
                 'total_reversado' => $totalReversado,        // netos negativos (reversado de más / por revisar), solo lectura
                 'total_mo'     => $mo,                       // MO directa a distribuir (costo por persona)
                 'total_sinmo'  => round($total - $mo, 2),    // resto de la bolsa

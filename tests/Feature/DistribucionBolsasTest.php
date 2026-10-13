@@ -700,6 +700,10 @@ class DistribucionBolsasTest extends TestCase
         $det = $svc->detalleBolsaTerceros(['MTO00099'], $periodo, 2026, 7, 'todo');
         $distribuibleDetalle = collect($det['MTO00099'] ?? [])->reject(fn ($l) => $l['alerta'])->sum('saldo');
         $this->assertEqualsWithDelta($mant['total'], $distribuibleDetalle, 0.5);
+
+        // Jerarquía de la tarjeta: Saldo neto = Disponible − Reversado (reconcilia con contabilidad).
+        $this->assertEqualsWithDelta(40500000, $mant['neto'], 0.5);                    // 41M − 0.5M
+        $this->assertEqualsWithDelta($mant['total'] - $mant['total_reversado'], $mant['neto'], 0.5);
     }
 
     #[Test]

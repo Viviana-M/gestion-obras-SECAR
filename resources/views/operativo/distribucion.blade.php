@@ -284,7 +284,8 @@
              style="flex:1 1 300px;min-width:260px;background:#fff;border:1px solid #E5E9F0;border-radius:12px;box-shadow:0 1px 2px rgba(16,32,54,.06);padding:13px 15px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
                 <span style="font-weight:700;font-size:13.5px;color:#1B4C7A;display:inline-flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4C7A"></span>{{ $b['nombre'] }}</span>
-                <span style="font-size:12px;color:#6B7686">Total ${{ number_format($b['total'], 0, ',', '.') }}</span>
+                {{-- Saldo NETO de la bolsa (positivos − negativos): el que reconcilia con contabilidad. --}}
+                <span style="font-size:12px;color:#6B7686" title="Saldo neto de la bolsa (positivos − negativos); reconcilia con contabilidad">Saldo bolsa ${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</span>
             </div>
             <div style="font-size:10.5px;color:#6B7686">Disponible por distribuir</div>
             <div style="display:flex;align-items:baseline;gap:8px;margin:1px 0 6px">

@@ -925,8 +925,11 @@ class DistribucionCostosController extends Controller
             ->pluck('codigo')->all();
         $detalleUn = $this->svc->detalleBolsaTerceros($uns, $periodo, $anio, $mes, $vista);
 
-        $filas = [['U.N.', 'Fecha', 'Desc. U.N.', 'Nombre del proyecto', 'Auxiliar', 'Desc. auxiliar',
-            'Nit movto.', 'Razón social tercero', 'Docto.', 'Saldo', 'A distribuir', 'Queda mes sig.', 'Observaciones']];
+        $headers = ['U.N.', 'Fecha', 'Desc. U.N.', 'Nombre del proyecto', 'Auxiliar', 'Desc. auxiliar',
+            'Nit movto.', 'Razón social tercero', 'Docto.', 'Saldo', 'A distribuir', 'Queda mes sig.', 'Observaciones'];
+
+        $filas = [];
+        $sumSaldo = 0.0; $sumDist = 0.0; $sumQueda = 0.0; $conSaldo = 0;
         foreach ($detalleUn as $lineas) {
             foreach ($lineas as $l) {
                 if (! $incluirCero && $l['cero']) continue;
@@ -934,17 +937,35 @@ class DistribucionCostosController extends Controller
                 $obs = $alerta
                     ? trim('Reversado de más — revisar con contabilidad. '.$l['observaciones'])
                     : $l['observaciones'];
+                $queda = round($l['saldo'] - $l['monto_distribuir'], 2);
                 $filas[] = [
                     $l['un_codigo'], $l['fecha'] ?? '', $l['un_nombre'], $l['nombre_proyecto'], $l['cuenta_14'], $l['nombre'],
                     $l['tercero_dcto'], $l['razon_social'], $l['documento'],
-                    round($l['saldo'], 2), round($l['monto_distribuir'], 2), round($l['saldo'] - $l['monto_distribuir'], 2),
-                    $obs,
+                    round($l['saldo'], 2), round($l['monto_distribuir'], 2), $queda, $obs,
                 ];
+                $sumSaldo += (float) $l['saldo'];
+                $sumDist  += (float) $l['monto_distribuir'];
+                $sumQueda += $queda;
+                if (round((float) $l['saldo']) != 0) $conSaldo++;
             }
         }
 
-        $nombre = 'Detalle_bolsa_'.($departamento ?: 'todas')."_{$mes}_{$anio}.xlsx";
-        return Excel::download(new \App\Exports\DetalleBolsaExport($filas), $nombre);
+        $nombreBolsa = DistribucionService::DEPARTAMENTOS[$departamento] ?? 'Todas las bolsas';
+        $usuario = (string) ($u->name ?: $u->email ?: 'Usuario');
+
+        $export = new \App\Exports\DetalleBolsaExport(
+            titulo: 'Detalle de Otros Costos por Cuenta',
+            subtitulo: 'Bolsa: '.$nombreBolsa.'   ·   Saldos en Libro 1 (PCGA)',
+            headers: $headers,
+            filas: $filas,
+            totales: ['saldo' => $sumSaldo, 'distribuir' => $sumDist, 'queda' => $sumQueda],
+            lineasConSaldo: $conSaldo,
+            usuario: $usuario,
+            extraidoEn: now(),
+        );
+
+        $nombre = 'Detalle_OtrosCostos_'.($departamento ?: 'todas')."_{$mes}_{$anio}.xlsx";
+        return Excel::download($export, $nombre);
     }
 
     /**
