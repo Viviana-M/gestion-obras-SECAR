@@ -577,7 +577,7 @@ class DistribucionService
 
         $out = [];
         foreach ($porCuenta as $terceros) {
-            $this->cruzarSecarFifo($terceros); // reatribuye el neto: SECAR consume FIFO los más antiguos
+            $this->cruzarFifo($terceros); // reatribuye el neto: los negativos consumen FIFO los positivos más antiguos
             $cuenta = $terceros[0]['cuenta'];
             $un     = $terceros[0]['un'];
             $h      = $homol[$cuenta] ?? null;
@@ -589,9 +589,11 @@ class DistribucionService
                 ->keyBy(fn ($m) => (string) $m->tercero);
 
             foreach ($terceros as $t) {
-                $saldo = round((float) $t['saldo'], 2);
-                $g     = $guardados[$t['tercero_dcto']] ?? null;
-                $aDist = $g ? max(0.0, min($saldo, (float) $g->monto_distribuir)) : $saldo;
+                $saldo  = round((float) $t['saldo'], 2);
+                $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
+                $g      = $guardados[$t['tercero_dcto']] ?? null;
+                // La alerta no se distribuye; en lo demás, por defecto se distribuye el saldo completo.
+                $aDist  = $alerta ? 0.0 : ($g ? max(0.0, min($saldo, (float) $g->monto_distribuir)) : $saldo);
                 $out[$un][] = [
                     'un_codigo'        => $un,
                     'un_nombre'        => (string) ($nombreUn[$un] ?? ''),
@@ -605,7 +607,8 @@ class DistribucionService
                     'saldo'            => $saldo,
                     'monto_distribuir' => round($aDist, 2),
                     'observaciones'    => (string) ($g->observaciones ?? ''),
-                    'cero'             => round($saldo) == 0,
+                    'cero'             => ! $alerta && round($saldo) == 0,
+                    'alerta'           => $alerta,
                     'ord'              => $t['ord'],
                     'min_id'           => $t['min_id'],
                 ];
@@ -622,40 +625,61 @@ class DistribucionService
     }
 
     /**
-     * Cruce FIFO de SECAR dentro de una cuenta (modifica $terceros por referencia): el saldo negativo
-     * de SECAR consume primero los saldos positivos más antiguos (por 'ord'), dejándolos en $0, y el
-     * remanente queda en el tercero positivo más reciente. SECAR queda en $0 (o conserva el sobrante
-     * negativo si los positivos no alcanzan). El neto de la cuenta no cambia: solo se reatribuye.
+     * Cruce FIFO GENERAL dentro de una cuenta (modifica $terceros por referencia).
+     *
+     * TODOS los saldos negativos de la cuenta (de cualquier tercero, no solo SECAR) forman un "pool"
+     * que consume los saldos positivos del más ANTIGUO al más reciente (por 'ord', desempate 'min_id'),
+     * dejándolos en $0 a medida que los absorbe. Lo que queda en los positivos es el saldo real por
+     * tercero: esas son las líneas que ve operaciones y sobre las que distribuye. El neto de la cuenta
+     * NO cambia: solo se reatribuye y se presenta.
+     *
+     * Si los positivos no alcanzan a cubrir el pool (la cuenta neta negativo), el sobrante se marca en
+     * UNA línea como ALERTA de solo lectura ("reversado de más — revisar con contabilidad"), nunca como
+     * saldo a distribuir.
      */
-    private function cruzarSecarFifo(array &$terceros): void
+    private function cruzarFifo(array &$terceros): void
     {
-        $negSecar = 0.0;
+        // 1) Pool con TODOS los negativos (cualquier tercero); se consumen (quedan en $0).
+        $pool   = 0.0;
+        $idxNeg = [];
         foreach ($terceros as $i => $t) {
-            if ($t['tercero_dcto'] === self::NIT_SECAR && $t['saldo'] < 0) {
-                $negSecar += -$t['saldo'];   // acumula el negativo de SECAR
-                $terceros[$i]['saldo'] = 0.0; // SECAR se consume
+            $terceros[$i]['alerta'] = false;
+            if ($t['saldo'] < -0.005) {
+                $pool += -$t['saldo'];
+                $terceros[$i]['saldo'] = 0.0;
+                $idxNeg[] = $i;
             }
         }
-        if ($negSecar <= 0.5) return;
+        if ($pool <= 0.5) return;
 
-        // Índices de terceros POSITIVOS (no SECAR) ordenados del más antiguo al más reciente.
+        // 2) Positivos del más antiguo al más reciente.
         $orden = [];
         foreach ($terceros as $i => $t) {
-            if ($t['tercero_dcto'] !== self::NIT_SECAR && $t['saldo'] > 0) $orden[] = $i;
+            if ($t['saldo'] > 0.005) $orden[] = $i;
         }
         usort($orden, fn ($a, $b) => [$terceros[$a]['ord'], $terceros[$a]['min_id']] <=> [$terceros[$b]['ord'], $terceros[$b]['min_id']]);
 
+        // 3) El pool absorbe los positivos; el más antiguo primero, hasta agotarse.
         foreach ($orden as $i) {
-            if ($negSecar <= 0.5) break;
-            $consumir = min($terceros[$i]['saldo'], $negSecar);
+            if ($pool <= 0.5) break;
+            $consumir = min($terceros[$i]['saldo'], $pool);
             $terceros[$i]['saldo'] = round($terceros[$i]['saldo'] - $consumir, 2);
-            $negSecar = round($negSecar - $consumir, 2);
+            $pool = round($pool - $consumir, 2);
         }
 
-        // Si quedó negativo de SECAR sin consumir (positivos insuficientes), se deja en una línea SECAR.
-        if ($negSecar > 0.5) {
-            foreach ($terceros as $i => $t) {
-                if ($t['tercero_dcto'] === self::NIT_SECAR) { $terceros[$i]['saldo'] = round(-$negSecar, 2); break; }
+        // 5) Sobrante del pool (positivos insuficientes) = cuenta neta negativo → ALERTA de solo lectura.
+        if ($pool > 0.5) {
+            // Lo lleva la línea negativa MÁS RECIENTE (así la alerta queda al final del FIFO).
+            $destino = null;
+            foreach ($idxNeg as $i) {
+                if ($destino === null
+                    || [$terceros[$i]['ord'], $terceros[$i]['min_id']] > [$terceros[$destino]['ord'], $terceros[$destino]['min_id']]) {
+                    $destino = $i;
+                }
+            }
+            if ($destino !== null) {
+                $terceros[$destino]['saldo']  = round(-$pool, 2);
+                $terceros[$destino]['alerta'] = true;
             }
         }
     }

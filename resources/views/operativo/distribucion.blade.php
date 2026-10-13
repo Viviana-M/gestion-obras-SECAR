@@ -323,14 +323,17 @@
     @if(!empty($bolsas))
     <div style="margin-bottom:4px">
         {{-- Detalle por TERCERO de cada bolsa: tabla plana donde operaciones distribuye directo en
-             cada línea. El Saldo ya trae el cruce FIFO de SECAR atribuido; lo que quedó en $0 se
-             oculta salvo que se active el interruptor. El plano al ERP sigue agregado por cuenta. --}}
+             cada línea. El Saldo ya trae el cruce FIFO general atribuido (todos los negativos de la
+             cuenta consumen los positivos más antiguos); lo que quedó en $0 se oculta salvo que se
+             active el interruptor. Si la cuenta neta negativo, el sobrante se muestra como alerta de
+             solo lectura. El plano al ERP sigue agregado por cuenta. --}}
         @foreach($bolsas as $b)
         @php
             $det = $detalleBolsas[$b['codigo']] ?? [];
-            $conSaldo = 0; $ocultas = 0; $totSaldo = 0.0; $totDist = 0.0;
+            $conSaldo = 0; $ocultas = 0; $totSaldo = 0.0; $totDist = 0.0; $alertas = 0; $totAlerta = 0.0;
             foreach ($det as $dl) {
-                if ($dl['cero']) { $ocultas++; }
+                if (! empty($dl['alerta'])) { $alertas++; $totAlerta += $dl['saldo']; }
+                elseif ($dl['cero']) { $ocultas++; }
                 else { $conSaldo++; $totSaldo += $dl['saldo']; $totDist += $dl['monto_distribuir']; }
             }
         @endphp
@@ -348,7 +351,12 @@
             </div>
             @if($ocultas > 0)
             <div class="hidenote" style="background:#EAF1F8;border-bottom:1px solid #D4E3F2;color:#1B4C7A;padding:8px 12px;font-size:12px">
-                ✓ Se ocultaron <b>{{ $ocultas }}</b> línea(s) que ya quedaron en $0 (cruzadas con SECAR). Actívalas con el interruptor si las necesitas.
+                ✓ Se ocultaron <b>{{ $ocultas }}</b> línea(s) que ya quedaron en $0 (cruzadas por antigüedad). Actívalas con el interruptor si las necesitas.
+            </div>
+            @endif
+            @if($alertas > 0)
+            <div style="background:#FEF2F2;border-bottom:1px solid #FECACA;color:#B91C1C;padding:8px 12px;font-size:12px">
+                ⚠ <b>{{ $alertas }}</b> cuenta(s) con <b>reversado de más</b> (neto negativo): revisar con contabilidad. Se muestran como alerta y no se distribuyen.
             </div>
             @endif
             <form method="POST" action="{{ route('operativo.distribucion.bolsa-montos') }}">
@@ -369,7 +377,7 @@
                             $k = $l['un_codigo'].'|'.$l['cuenta_14'].'|'.$l['tercero_dcto'];
                             $queda = max(0, $l['saldo'] - $l['monto_distribuir']);
                         @endphp
-                        <tr class="{{ $l['cero'] ? 'bz-row' : '' }}" data-saldo="{{ round($l['saldo']) }}">
+                        <tr class="{{ !empty($l['alerta']) ? 'bz-alerta' : ($l['cero'] ? 'bz-row' : '') }}" data-saldo="{{ round($l['saldo']) }}" @if(!empty($l['alerta'])) style="background:#FEF2F2" @endif>
                             <td style="font-family:monospace">{{ $l['un_codigo'] }}</td>
                             <td>{{ $l['fecha'] ?? '—' }}</td>
                             <td style="color:#6B7686">{{ Str::limit($l['un_nombre'], 22) }}</td>
@@ -377,10 +385,12 @@
                             <td style="font-family:monospace">{{ $l['cuenta_14'] }}</td>
                             <td style="color:#6B7686">{{ Str::limit($l['nombre'], 24) }}</td>
                             <td style="font-family:monospace;color:#6B7686">{{ $l['tercero_dcto'] }}</td>
-                            <td>{{ Str::limit($l['razon_social'], 28) }}@if($l['cero']) <span class="z0">cruzado</span>@endif</td>
+                            <td>{{ Str::limit($l['razon_social'], 28) }}@if(!empty($l['alerta'])) <span class="z0" style="background:#FEE2E2;color:#B91C1C">reversado de más</span>@elseif($l['cero']) <span class="z0">cruzado</span>@endif</td>
                             <td style="font-family:monospace;color:#6B7686">{{ $l['documento'] }}</td>
-                            <td class="n" style="font-weight:700;color:#854D0E">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
-                            @if($l['cero'])
+                            <td class="n" style="font-weight:700;color:{{ !empty($l['alerta']) ? '#B91C1C' : '#854D0E' }}">${{ number_format($l['saldo'], 0, ',', '.') }}</td>
+                            @if(!empty($l['alerta']))
+                            <td class="bd-act" colspan="3" style="color:#B91C1C;font-size:11.5px">⚠ Reversado de más — revisar con contabilidad (no se distribuye).</td>
+                            @elseif($l['cero'])
                             <td class="n bd-act">—</td><td class="n bd-act">—</td><td class="bd-act">—</td>
                             @elseif($puedeEditarBolsa)
                             <td class="n bd-act"><input class="bd-inp" type="text" inputmode="numeric" name="monto[{{ $k }}]" value="{{ number_format($l['monto_distribuir'], 0, ',', '.') }}" data-tipo="bolsamonto" data-bolsa="{{ $b['codigo'] }}" oninput="onBolsaDetInput(this)"></td>
@@ -789,6 +799,7 @@ function bolsaDetTotales(code){
     let s = 0, d = 0;
     document.querySelectorAll('#bolsa-det-'+code+' tbody tr').forEach(tr => {
         if (tr.classList.contains('bz-row')) return;      // las $0 (ya cruzadas) no suman
+        if (tr.classList.contains('bz-alerta')) return;   // reversado de más (negativo): no es saldo a distribuir
         s += Number(tr.dataset.saldo || 0);
         const i = tr.querySelector('input[data-tipo="bolsamonto"]');
         d += i ? soloDigitos(i.value) : 0;

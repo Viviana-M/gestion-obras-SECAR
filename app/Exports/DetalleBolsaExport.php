@@ -8,7 +8,8 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 
 /**
  * Detalle por tercero de una bolsa de área (tabla plana de "Ver detalle por cuenta"), con el cruce
- * FIFO de SECAR ya aplicado. Recibe el arreglo (encabezado + filas) desde el controlador.
+ * FIFO general ya aplicado (todos los negativos de la cuenta cruzan los positivos más antiguos).
+ * Recibe el arreglo (encabezado + filas) desde el controlador.
  */
 class DetalleBolsaExport implements FromArray, WithTitle, WithColumnFormatting
 {

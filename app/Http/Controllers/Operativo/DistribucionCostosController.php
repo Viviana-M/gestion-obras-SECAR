@@ -930,11 +930,15 @@ class DistribucionCostosController extends Controller
         foreach ($detalleUn as $lineas) {
             foreach ($lineas as $l) {
                 if (! $incluirCero && $l['cero']) continue;
+                $alerta = ! empty($l['alerta']);
+                $obs = $alerta
+                    ? trim('Reversado de más — revisar con contabilidad. '.$l['observaciones'])
+                    : $l['observaciones'];
                 $filas[] = [
                     $l['un_codigo'], $l['fecha'] ?? '', $l['un_nombre'], $l['nombre_proyecto'], $l['cuenta_14'], $l['nombre'],
                     $l['tercero_dcto'], $l['razon_social'], $l['documento'],
                     round($l['saldo'], 2), round($l['monto_distribuir'], 2), round($l['saldo'] - $l['monto_distribuir'], 2),
-                    $l['observaciones'],
+                    $obs,
                 ];
             }
         }

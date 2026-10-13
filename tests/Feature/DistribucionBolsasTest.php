@@ -474,6 +474,93 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
+    public function el_cruce_fifo_cruza_negativos_de_cualquier_tercero_no_solo_secar(): void
+    {
+        // Cuenta 14200563 de INS00002: dos entradas positivas (Prov A más antiguo, Prov B más reciente)
+        // y una NOTA CRÉDITO negativa de un tercero REAL (no SECAR). El pool negativo consume los
+        // positivos por antigüedad: A completo y el resto de B. El neto de la cuenta no cambia.
+        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'INS00002', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200563',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+            ]);
+        };
+        $rf('111', 'Proveedor A',   300000, 0, '2026-06-10');   // positivo, más antiguo
+        $rf('222', 'Proveedor B',   500000, 0, '2026-08-20');   // positivo, más reciente
+        $rf('333', 'Nota Credito X', 0, 400000, '2026-09-30');  // NEGATIVO, tercero real (no SECAR)
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 8);
+        $det = $svc->detalleBolsaTerceros(['INS00002'], $periodo, 2026, 8, 'todo');
+        $por = collect($det['INS00002'])->keyBy('tercero_dcto');
+
+        $this->assertEqualsWithDelta(0, $por['111']['saldo'], 1);          // A consumido completo
+        $this->assertTrue($por['111']['cero']);
+        $this->assertEqualsWithDelta(400000, $por['222']['saldo'], 1);     // B queda con 500k − 100k
+        $this->assertEqualsWithDelta(0, $por['333']['saldo'], 1);          // la nota crédito se cruza
+        $this->assertTrue($por['333']['cero']);
+        $this->assertFalse($por['333']['alerta']);                         // hay positivos suficientes
+        // Neto conservado: 300k + 500k − 400k = 400k.
+        $this->assertEqualsWithDelta(400000, collect($det['INS00002'])->sum('saldo'), 1);
+    }
+
+    #[Test]
+    public function si_la_cuenta_neta_negativo_el_sobrante_es_alerta_de_solo_lectura(): void
+    {
+        // Cuenta 14200599 de INS00003: una entrada +200k y una nota crédito −500k. Los positivos no
+        // alcanzan; el sobrante (−300k) se marca como ALERTA (reversado de más), no como saldo a distribuir.
+        $rf = function (string $t, string $razon, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'INS00003', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => '14200599',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 8, 'anio' => 2026,
+            ]);
+        };
+        $rf('111', 'Proveedor A',    200000, 0, '2026-06-10');
+        $rf('999', 'Nota Credito Y', 0, 500000, '2026-09-30');
+
+        $svc = new DistribucionService();
+        $periodo = \App\Models\Homologacion::periodo(2026, 8);
+        $det = $svc->detalleBolsaTerceros(['INS00003'], $periodo, 2026, 8, 'todo');
+        $por = collect($det['INS00003'])->keyBy('tercero_dcto');
+
+        $this->assertEqualsWithDelta(0, $por['111']['saldo'], 1);
+        $this->assertTrue($por['111']['cero']);
+        $this->assertEqualsWithDelta(-300000, $por['999']['saldo'], 1);    // sobrante negativo
+        $this->assertTrue($por['999']['alerta']);
+        $this->assertFalse($por['999']['cero']);
+        $this->assertEqualsWithDelta(0, $por['999']['monto_distribuir'], 1); // no se distribuye
+        // El neto de la cuenta se conserva (200k − 500k = −300k).
+        $this->assertEqualsWithDelta(-300000, collect($det['INS00003'])->sum('saldo'), 1);
+    }
+
+    #[Test]
+    public function el_detalle_muestra_el_reversado_de_mas_como_alerta_en_pantalla(): void
+    {
+        // MTO00099 (mantenimiento): entrada +200k y nota crédito −500k en una cuenta → neto −300k.
+        $rf = function (string $t, float $deb, float $cred, string $fecha) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14207777',
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => 'Tercero '.$t,
+                'estado_er' => -($deb - $cred), 'valor_debito' => $deb, 'valor_credito' => $cred,
+                'fecha_docto' => $fecha, 'mes' => 7, 'anio' => 2026,
+            ]);
+        };
+        $rf('111', 200000, 0, '2026-06-10');
+        $rf('999', 0, 500000, '2026-09-30');
+
+        $html = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('bz-alerta', $html);
+        $this->assertStringContainsString('reversado de más', $html);
+    }
+
+    #[Test]
     public function la_bolsa_incluye_los_saldos_de_ambos_signos_y_cuadra(): void
     {
         $this->bolsa('MTO00099', 41000000, 6, 2026, '14200530');                    // -41M por repartir
