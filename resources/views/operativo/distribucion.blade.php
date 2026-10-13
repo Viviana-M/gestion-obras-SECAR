@@ -108,6 +108,12 @@
     .bd-tbl thead tr.bd-filtros input { width:100%; min-width:58px; border:1px solid #E5E9F0; border-radius:6px;
         padding:3px 6px; font-size:10.5px; font-weight:400; color:#1E2A38; background:#fff }
     .bd-tbl thead tr.bd-filtros .bd-nofilter { background:#F3F6FA }
+    /* Filas resumen "Totales" (siempre) y "Total filtrado" (solo con filtro): fijas (sticky) arriba,
+       entre los filtros y la primera línea de datos. El 'top' exacto lo ajusta fixBolsaStickyTops() al
+       abrir el detalle; estos valores son el respaldo. */
+    .bd-tbl thead tr.bd-sumrow td { position:sticky; top:58px; z-index:2; font-weight:800;
+        background:#F6FCF8; color:#15803D; border-top:2px solid #CDE9D6; border-bottom:1px solid #CDE9D6 }
+    .bd-tbl thead tr.bd-totfilt td { background:#EAF1F8; color:#1B4C7A }
     /* Filas de un periodo ANTERIOR al mes que se está cerrando: resalte ámbar + barra lateral. */
     .bd-tbl tr.bd-anterior td { background:#FFF7E6 }
     .bd-tbl tr.bd-anterior td:first-child { box-shadow: inset 4px 0 0 #D97706 }
@@ -519,6 +525,20 @@
                             @endforeach
                             <th class="bd-nofilter"></th><th class="bd-nofilter"></th><th class="bd-nofilter"></th>
                         </tr>
+                        {{-- Resumen FIJO (sticky) arriba, entre los filtros y la primera línea de datos.
+                             "Totales" siempre; "Total filtrado" solo cuando hay un filtro activo. --}}
+                        <tr class="bd-sumrow bd-totales">
+                            <td colspan="9" style="text-align:right">Totales</td>
+                            <td class="n" id="ftSaldo-{{ $b['codigo'] }}">${{ number_format($totSaldo, 0, ',', '.') }}</td>
+                            <td class="n" id="ftDist-{{ $b['codigo'] }}">${{ number_format($totDist, 0, ',', '.') }}</td>
+                            <td class="n" id="ftQueda-{{ $b['codigo'] }}">${{ number_format(max(0, $totSaldo - $totDist), 0, ',', '.') }}</td>
+                            <td></td>
+                        </tr>
+                        <tr class="bd-sumrow bd-totfilt" id="ftFiltRow-{{ $b['codigo'] }}" style="display:none">
+                            <td colspan="9" id="ftFiltLbl-{{ $b['codigo'] }}" style="text-align:right">Total filtrado</td>
+                            <td class="n" id="ftFilt-{{ $b['codigo'] }}">$0</td>
+                            <td colspan="3"></td>
+                        </tr>
                         </thead>
                         <tbody>
                         @forelse($det as $l)
@@ -592,15 +612,8 @@
                         @endforelse
                         </tbody>
                         <tfoot>
-                        <tr>
-                            <td colspan="9" style="text-align:right">Totales</td>
-                            <td class="n" id="ftSaldo-{{ $b['codigo'] }}">${{ number_format($totSaldo, 0, ',', '.') }}</td>
-                            <td class="n" id="ftDist-{{ $b['codigo'] }}">${{ number_format($totDist, 0, ',', '.') }}</td>
-                            <td class="n" id="ftQueda-{{ $b['codigo'] }}">${{ number_format(max(0, $totSaldo - $totDist), 0, ',', '.') }}</td>
-                            <td></td>
-                        </tr>
-                        {{-- Conciliación con contabilidad: Disponible − Reversado de más = Saldo de la bolsa (neto).
-                             Con filtros activos se reemplaza por "Total filtrado" (suma de las filas visibles). --}}
+                        {{-- Conciliación con contabilidad (siempre visible): Disponible − Reversado de más =
+                             Saldo de la bolsa (neto). Los "Totales" y el "Total filtrado" ahora van arriba. --}}
                         <tr id="ftRowDisp-{{ $b['codigo'] }}">
                             <td colspan="9" style="text-align:right;font-weight:600;color:#6B7686">Disponible por distribuir (suma de líneas con saldo)</td>
                             <td class="n" style="color:#1B4C7A">${{ number_format($totSaldo, 0, ',', '.') }}</td>
@@ -936,6 +949,24 @@ function toggleBolsaDetalle(c){
     const mostrar = (e.style.display === 'none' || !e.style.display);
     e.style.display = mostrar ? 'block' : 'none';
     document.querySelectorAll('.caret-bolsa-'+c).forEach(x => x.textContent = mostrar ? '▾' : '▸');
+    if (mostrar) fixBolsaStickyTops(c);   // ya visible: ahora sí se pueden medir las alturas reales
+}
+
+/* Ajusta el 'top' fijo (sticky) de las filas del encabezado para que queden contiguas sin huecos:
+   encabezado → filtros → Totales → Total filtrado. Se mide con el detalle ya visible. */
+function fixBolsaStickyTops(code){
+    const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
+    const tbl  = cont.querySelector('table.bd-tbl'); if(!tbl) return;
+    const head = tbl.querySelector('thead tr:first-child');
+    const filt = tbl.querySelector('thead tr.bd-filtros');
+    const tot  = tbl.querySelector('thead tr.bd-totales');
+    const flt  = tbl.querySelector('thead tr.bd-totfilt');
+    const hH = head ? head.offsetHeight : 28;
+    if (filt) { filt.querySelectorAll('th').forEach(th => th.style.top = hH + 'px'); }
+    const fH = filt ? filt.offsetHeight : 28;
+    const totTop = hH + fH;
+    if (tot) { tot.querySelectorAll('td').forEach(td => td.style.top = totTop + 'px'); }
+    if (flt) { const tH = tot ? tot.offsetHeight : 0; flt.querySelectorAll('td').forEach(td => td.style.top = (totTop + tH) + 'px'); }
 }
 
 /* Abre/cierra el panel de "Mano de obra" (personal por aplicar) dentro de la zona de la bolsa. */
@@ -971,14 +1002,14 @@ function filtrarBolsaDet(code){
     });
     footerBolsa(code, filtros.length > 0);
 }
-/* Footer del detalle: con filtros activos muestra "Total filtrado" (suma de las filas visibles,
-   positivos + negativos); sin filtros vuelve al "Saldo de la bolsa (neto)" completo. */
+/* Fila "Total filtrado" (fija, arriba): con filtros activos muestra la suma de las filas visibles
+   (positivos + negativos) y el conteo; sin filtros se oculta. La conciliación del pie (Disponible −
+   Reversado = Saldo de la bolsa neto) queda siempre visible y no cambia con los filtros. */
 function footerBolsa(code, hayFiltro){
     const cont = document.getElementById('bolsa-det-'+code); if(!cont) return;
-    const lbl  = document.getElementById('ftNetoLbl-'+code);
-    const val  = document.getElementById('ftNeto-'+code);
-    const rowD = document.getElementById('ftRowDisp-'+code);
-    const rowR = document.getElementById('ftRowRev-'+code);
+    const row = document.getElementById('ftFiltRow-'+code);
+    const lbl = document.getElementById('ftFiltLbl-'+code);
+    const val = document.getElementById('ftFilt-'+code);
     if (hayFiltro) {
         let vis = 0, n = 0;
         cont.querySelectorAll('table.bd-tbl tbody tr').forEach(tr => {
@@ -987,13 +1018,9 @@ function footerBolsa(code, hayFiltro){
         });
         if (lbl) lbl.textContent = 'Total filtrado (' + n + (n === 1 ? ' línea' : ' líneas') + ' visibles)';
         if (val) val.textContent = fmt(vis);
-        if (rowD) rowD.style.display = 'none';
-        if (rowR) rowR.style.display = 'none';
+        if (row) row.style.display = '';
     } else {
-        if (lbl) lbl.textContent = '= Saldo de la bolsa (neto) · cuadra con contabilidad';
-        if (val) val.textContent = fmt(Number(val.dataset.neto || 0));
-        if (rowD) rowD.style.display = '';
-        if (rowR) rowR.style.display = '';
+        if (row) row.style.display = 'none';
     }
 }
 function limpiarFiltrosBolsa(code){

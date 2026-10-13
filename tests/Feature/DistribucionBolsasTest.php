@@ -392,6 +392,13 @@ class DistribucionBolsasTest extends TestCase
         $this->assertEqualsWithDelta(300000, $mant['total_reversado'], 1); // reversado
         $this->assertEqualsWithDelta(1100000, $mant['neto'], 1);           // 1.4M − 0.3M
         $this->assertEqualsWithDelta($mant['total'] - $mant['total_reversado'], $mant['neto'], 1);
+
+        // Las filas "Totales" y "Total filtrado" van ARRIBA (en el thead, fijas), entre los filtros y los
+        // datos: deben aparecer antes del <tbody>. "Total filtrado" arranca oculta (solo con filtro).
+        $this->assertStringContainsString('bd-totales', $html);
+        $this->assertStringContainsString('id="ftFiltRow-mantenimiento" style="display:none"', $html);
+        $this->assertLessThan(strpos($html, '<tbody'), strpos($html, 'bd-totales'));
+        $this->assertLessThan(strpos($html, '<tbody'), strpos($html, 'id="ftSaldo-mantenimiento"'));
     }
 
     #[Test]
