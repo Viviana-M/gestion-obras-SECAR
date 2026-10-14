@@ -52,9 +52,12 @@ class DistribucionInformesTest extends TestCase
             ->post(route('operativo.distribucion.resumen'), $payload);
 
         $resp->assertStatus(200);
-        // El resumen refleja el aplicado y la bolsa (ambos orígenes visibles).
-        $resp->assertSee('Aplicado ahora', false);
-        $resp->assertSee('Desde bolsa', false);
+        // Tabla vertical simplificada: Tipo · Ingreso · Costos · Rentabilidad %.
+        $resp->assertSee('RENTABILIDAD %', false);
+        $resp->assertSee('Contratos', false); // C-700 es tipo Contrato
+        // Los "Costos" del tipo suman lo aplicado (100) + la bolsa (400) = 500 (ambos orígenes incluidos).
+        $resp->assertSee('$500', false);
+        $resp->assertSee('$5.000.000', false); // ingreso del mes
         // El botón de descarga reenvía EXACTAMENTE el mismo payload (mismos totales).
         $resp->assertSee('name="aplicar[C-700][14200105]" value="100"', false);
         $resp->assertSee('name="asignacion_bolsa[C-700]', false);
