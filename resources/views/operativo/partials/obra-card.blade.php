@@ -51,6 +51,13 @@
             <div class="k">✎ En esta distribución</div>
             <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
         </div>
+        {{-- Acción PRINCIPAL de la tarjeta: abre/despliega la zona de distribución (inventario, bolsa,
+             mano de obra, provisiones). Mientras está cerrada solo se ve el resumen. --}}
+        <button type="button" id="distbtn-{{ $cod }}" onclick="event.stopPropagation(); toggleObra('{{ $cod }}')"
+                title="Abrir la distribución de este proyecto (inventario, bolsa, mano de obra, provisiones)"
+                style="flex:1 1 200px;min-width:190px;align-self:stretch;background:#1B3F6E;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 7px rgba(27,63,110,.28);padding:10px 16px">
+            <span id="distbtn-ico-{{ $cod }}" style="font-size:18px">⊕</span> <span id="distbtn-txt-{{ $cod }}">Distribuir costos</span>
+        </button>
     </div>
 
     {{-- RENTABILIDAD DEL MES (primero: todo lo del mes; MC dinámico al aplicar inventario) --}}

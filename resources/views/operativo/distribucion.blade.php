@@ -1191,7 +1191,18 @@ function cambiarDepartamento(sel){
     form.submit();
 }
 
-function toggleObra(cod){ const e=document.getElementById('obra-'+cod); if(e) e.style.display = e.style.display==='none'?'block':'none'; }
+/* Abre/cierra la zona de distribución de una obra y sincroniza el botón "⊕ Distribuir costos". */
+function setObraAbierta(cod, abrir){
+    const e=document.getElementById('obra-'+cod); if(!e) return;
+    e.style.display = abrir ? 'block' : 'none';
+    const txt=document.getElementById('distbtn-txt-'+cod);
+    const ico=document.getElementById('distbtn-ico-'+cod);
+    const btn=document.getElementById('distbtn-'+cod);
+    if(txt) txt.textContent = abrir ? 'Ocultar distribución' : 'Distribuir costos';
+    if(ico) ico.textContent = abrir ? '▾' : '⊕';
+    if(btn) btn.style.background = abrir ? '#5A6B82' : '#1B3F6E';
+}
+function toggleObra(cod){ const e=document.getElementById('obra-'+cod); if(!e) return; setObraAbierta(cod, e.style.display==='none' || !e.style.display); }
 
 /* ===== Grupos colapsables (Con ingreso / Sin ingreso) ===== */
 function toggleGrupo(g){
@@ -1211,7 +1222,7 @@ function abrirGrupo(g){
 /* Expandir / colapsar el detalle de todas las obras. */
 function expandirTodo(abrir){
     if(abrir){ abrirGrupo('con'); abrirGrupo('sin'); }
-    document.querySelectorAll('[id^="obra-"]').forEach(e => { e.style.display = abrir ? 'block' : 'none'; });
+    document.querySelectorAll('[id^="obra-"]').forEach(e => setObraAbierta(e.id.slice(5), abrir));
 }
 /* Normaliza para buscar: minúsculas y SIN acentos (á→a), para que "valle"
    encuentre "FUNDACIÓN VALLE DEL LILI". */

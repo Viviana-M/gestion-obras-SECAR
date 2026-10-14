@@ -197,6 +197,10 @@ class DistribucionManoObraTest extends TestCase
         );
         // "Costo aplicado del mes" tiene id para recalcularse en vivo al asignar (ya no queda estático).
         $this->assertStringContainsString('id="costomes-C-500"', $html);
+        // Botón primario evidente para abrir la distribución.
+        $this->assertStringContainsString('id="distbtn-C-500"', $html);
+        $this->assertStringContainsString("toggleObra('C-500')", $html);
+        $this->assertStringContainsString('Distribuir costos', $html);
     }
 
     #[Test]
