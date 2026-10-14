@@ -131,6 +131,28 @@ class DistribucionEncabezadoTest extends TestCase
     }
 
     #[Test]
+    public function el_boton_de_inventario_se_renombra_segun_el_departamento(): void
+    {
+        // Una obra de cada área (con saldo 1420) para que la barra de herramientas aparezca en ambos filtros.
+        $this->rf('MOB09001', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB09001', 'Costos por aplicar', -100, 6, 2026, '14200105');
+        $this->rf('O-9001', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('O-9001', 'Costos por aplicar', -100, 6, 2026, '14200105');
+        $op = $this->operador();
+
+        $mant = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $mant->assertSee('Inventario Mantenimiento', false);
+        $mant->assertDontSee('Excel saldos 14', false);
+
+        $inst = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=instalaciones');
+        $inst->assertSee('Inventario Instalaciones', false);
+
+        // Sin filtro de departamento ("Todos").
+        $todos = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026');
+        $todos->assertSee('Inventario de proyectos en transito', false);
+    }
+
+    #[Test]
     public function el_buscador_indexa_codigo_nombre_y_cliente(): void
     {
         FichaProyecto::create([

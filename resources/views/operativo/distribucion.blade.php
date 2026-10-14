@@ -663,7 +663,14 @@
     </div>
     @endif
     @if($kpiObras > 0)
-    {{-- Toolbar discreto: Expandir/Colapsar + Mapa de calor + Excel saldos 14. --}}
+    {{-- Toolbar discreto: Expandir/Colapsar + Mapa de calor + descarga del inventario (saldos 1420). --}}
+    @php
+        $invLabel = match ($depEfectivo) {
+            'instalaciones' => 'Inventario Instalaciones',
+            'mantenimiento' => 'Inventario Mantenimiento',
+            default         => 'Inventario de proyectos en transito',
+        };
+    @endphp
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button type="button" id="btn-expandir" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Expandir todo</button>
         <button type="button" id="btn-colapsar" style="font-size:12px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#374151;cursor:pointer">Colapsar todo</button>
@@ -673,7 +680,7 @@
             Mapa de calor
         </button>
         <a href="{{ route('operativo.distribucion.reporte-saldos', ['mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}"
-           style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500;white-space:nowrap">⬇ Excel saldos 14</a>
+           style="font-size:12px;padding:6px 12px;border:1px solid #15803D;border-radius:8px;background:#F0FDF4;color:#15803D;cursor:pointer;text-decoration:none;font-weight:500;white-space:nowrap">⬇ {{ $invLabel }}</a>
     </div>
 
     {{-- Semáforo de margen: referencia, colapsable tras un ícono de ayuda (no ocupa espacio fijo) --}}
