@@ -104,6 +104,32 @@ class ReporteSaldos14Test extends TestCase
     }
 
     #[Test]
+    public function excluye_las_obras_de_centavos_que_redondean_a_cero(): void
+    {
+        Excel::fake();
+
+        // Obra "de centavos": varias líneas 1420 que, redondeadas a peso, dan $0 (|saldo| < $1).
+        foreach ([-0.30, -0.40, -0.20] as $i => $v) {
+            RegistroFinanciero::create(['codigo_proyecto' => 'C-CENT', 'nombre_proyecto' => 'Centavos',
+                'cuenta_contable' => '1420010'.$i, 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => $v,
+                'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+        }
+        // Obra con saldo real (≥ $1).
+        RegistroFinanciero::create(['codigo_proyecto' => 'C-REAL', 'nombre_proyecto' => 'Real',
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -300000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+
+        $this->actingAs($this->operador())
+            ->get(route('operativo.distribucion.reporte-saldos', ['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento']))
+            ->assertOk();
+
+        Excel::assertDownloaded('Saldos_cuenta_14_Julio_2026_Mantenimiento.xlsx', function ($export) {
+            $plano = json_encode($export->array());
+            return str_contains($plano, 'C-REAL') && ! str_contains($plano, 'C-CENT');
+        });
+    }
+
+    #[Test]
     public function sin_departamento_incluye_ambas_areas(): void
     {
         Excel::fake();

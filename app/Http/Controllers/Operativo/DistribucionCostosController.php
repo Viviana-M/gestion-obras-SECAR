@@ -155,7 +155,7 @@ class DistribucionCostosController extends Controller
             ->where('cuenta_contable', 'like', $pref1420)
             ->selectRaw('codigo_proyecto, nombre_proyecto, cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto', 'nombre_proyecto', 'cuenta_contable')
-            ->havingRaw('ABS(SUM(estado_er)) > 0.5');
+            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1'); // material: redondeado a peso ≥ $1 (sin centavos)
 
         if ($vista === 'mes') {
             $saldos14Query->where('anio', $anio)->where('mes', $mes);
@@ -172,7 +172,7 @@ class DistribucionCostosController extends Controller
             ->where('cuenta_contable', 'like', $pref1420) // solo 1420: si SUM(déb−cré) de 1420 = 0 → fuera del listado
             ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
             ->groupBy('codigo_proyecto')
-            ->havingRaw('ABS(SUM(estado_er)) > 0.5');
+            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1'); // |neto| redondeado a peso ≥ $1 (sin $0 ni centavos)
         if ($vista === 'mes') {
             $netoQuery->where('anio', $anio)->where('mes', $mes);
         } else {
@@ -2193,21 +2193,36 @@ class DistribucionCostosController extends Controller
             });
         };
 
-        // MISMO filtro que el listado de pantalla: obras con saldo NETO real en cuentas 1420 ≠ 0
-        // (acumulado al mes), excluyendo 1455 (inventario) y las obras en $0. Así el conteo del Excel
-        // coincide siempre con el de la pantalla.
+        // MISMO filtro que el listado de pantalla: obras con saldo NETO real en cuentas 1420
+        // (acumulado al mes), excluyendo 1455 (inventario), las obras en blanco/$0 y las de centavos
+        // (todo lo que, redondeado a peso, da $0). Así el conteo del Excel coincide con el de pantalla.
         $pref1420 = \App\Services\DistribucionService::PREFIJO_BOLSA.'%';
+
+        // Neto por obra: solo cuenta si |neto|, redondeado a peso, es ≥ $1.
         $neto = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('cuenta_contable', 'like', $pref1420)
             ->where($corteAcum)
             ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto')
-            ->havingRaw('ABS(SUM(estado_er)) > 0.5')
+            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1')
             ->pluck('saldo', 'codigo_proyecto');
+
+        // La obra debe tener AL MENOS una cuenta 1420 con saldo material (que, redondeado a peso, sea
+        // ≥ $1) — exactamente como arma el listado la pantalla. Esto descarta las obras formadas solo de
+        // centavos (sus movimientos individuales redondean a $0), que es lo que hacía que el Excel
+        // trajera obras de más frente a la pantalla.
+        $cuentasMaterial = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', $pref1420)
+            ->where($corteAcum)
+            ->selectRaw('codigo_proyecto, cuenta_contable')
+            ->groupBy('codigo_proyecto', 'cuenta_contable')
+            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1')
+            ->pluck('codigo_proyecto')->unique()->flip();
 
         // Las bolsas de área (UN) son el ORIGEN del costo, no obras: nunca se listan (igual que en pantalla).
         $bolsaCods = array_flip(\App\Models\UnBolsa::codigos());
         $codigos = collect($neto->keys())
+            ->filter(fn ($cod) => isset($cuentasMaterial[(string) $cod]))
             ->filter(fn ($cod) => ! isset($bolsaCods[(string) $cod]))
             ->filter(fn ($cod) => ! $prefijos || $this->empiezaPorAlguno((string) $cod, $prefijos))
             ->values()->all();
