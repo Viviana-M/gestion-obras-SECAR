@@ -21,6 +21,7 @@ class FichaProyecto extends Model
         'responsable_comercial',
         'origen',
         'user_id',
+        'activa',
     ];
 
     protected $casts = [
@@ -28,5 +29,6 @@ class FichaProyecto extends Model
         'costo_estimado'    => 'float',
         'margen_ofertado'   => 'float',
         'utilidad_ofertada' => 'float',
+        'activa'            => 'boolean',
     ];
 }

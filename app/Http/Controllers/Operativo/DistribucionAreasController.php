@@ -11,17 +11,19 @@ use App\Models\ForecastOperativo;
 use App\Models\ObraEstado;
 use App\Models\UnBolsa;
 use App\Models\User;
+use App\Services\DistribucionService;
 use Illuminate\Http\Request;
 
 class DistribucionAreasController extends Controller
 {
-    private array $categorias = [
-        'EQU-MAT-SUM' => 'Equipos y materiales',
-        'MOI'         => 'M.O. interna',
-        'MOE'         => 'M.O. externa',
-        'OTROS COSTO' => 'Otros costos',
-        'MOFIJAOPER'  => 'M.O. fija (supervisores)',
-    ];
+    private array $categorias = DistribucionService::CATEGORIAS;
+
+    private DistribucionService $svc;
+
+    public function __construct()
+    {
+        $this->svc = new DistribucionService();
+    }
 
     public function index(Request $request)
     {
@@ -48,7 +50,7 @@ class DistribucionAreasController extends Controller
         $bolsaSel = $request->get('bolsa');
         $saldoBolsa = [];
         if ($bolsaSel) {
-            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel, $periodo);
+            $saldoBolsa = $this->saldoBolsaPorCuenta($bolsaSel, $periodo, $anio, $mes);
         }
 
         // OT del departamento (proyectos reales, excluyendo las bolsas)
@@ -74,12 +76,20 @@ class DistribucionAreasController extends Controller
     // La cuenta 61 destino y la estructura se toman de la homologación VIGENTE EN EL
     // PERÍODO que se está distribuyendo, no de la de hoy. Así, si contabilidad cambió
     // una cuenta, un período anterior sigue mostrando la cuenta que le correspondía.
-    private function saldoBolsaPorCuenta(string $bolsa, int $periodo): array
+    private function saldoBolsaPorCuenta(string $bolsa, int $periodo, int $anio, int $mes): array
     {
         $homol = Homologacion::mapaEn($periodo);
 
+        // Saldo ACUMULADO AL MES FILTRADO (mismo corte que sumaAcum): no se cuentan los
+        // movimientos de meses posteriores al seleccionado.
         $saldos = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->where('codigo_proyecto', $bolsa)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(function ($q2) use ($anio, $mes) {
+                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
+                  });
+            })
             ->selectRaw('cuenta_contable, MAX(descripcion) as descripcion, SUM(estado_er) as saldo')
             ->groupBy('cuenta_contable')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
@@ -134,7 +144,7 @@ class DistribucionAreasController extends Controller
             ->groupBy('codigo_proyecto')->pluck('saldo', 'codigo_proyecto');
 
         $fichas = FichaProyecto::whereIn('codigo_proyecto', $codigos)
-            ->get(['codigo_proyecto', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
+            ->get(['codigo_proyecto', 'nombre_obra', 'cliente', 'margen_ofertado', 'valor_contratado', 'costo_estimado'])
             ->keyBy('codigo_proyecto');
 
         $nombres = RegistroFinanciero::whereIn('codigo_proyecto', $codigos)
@@ -154,7 +164,9 @@ class DistribucionAreasController extends Controller
 
             $o = [
                 'codigo'         => $cod,
-                'nombre'         => $nombres[$cod] ?? '',
+                // Nombre del proyecto de la ficha; si no hay, el de los movimientos.
+                'nombre'         => ($fichas[$cod]->nombre_obra ?? null) ?: ($nombres[$cod] ?? ''),
+                'cliente'        => $fichas[$cod]->cliente ?? null,
                 'estado'         => $estadoManual[$cod] ?? (isset($cerradas[$cod]) ? 'cerrada' : 'abierta'),
                 'ingreso_mes'    => (float) ($ingresoMes[$cod] ?? 0),
                 'ingreso_acum'   => (float) ($ingresoAcum[$cod] ?? 0),
@@ -180,91 +192,25 @@ class DistribucionAreasController extends Controller
         return $proyectos;
     }
 
-    // ===== Métodos reutilizados de la distribución normal =====
+    // ===== Cálculos delegados al DistribucionService =====
 
     private function calcularMargenes(array &$o): void
     {
-        $ingMes  = $o['ingreso_mes'];
-        $ingAcum = $o['ingreso_acum'];
-
-        $o['margen_acum'] = $ingAcum != 0
-            ? round(($ingAcum - $o['costo_apl_acum']) / $ingAcum * 100, 1) : null;
-        $o['margen_proy'] = $ingAcum != 0
-            ? round(($ingAcum - ($o['costo_apl_acum'] + $o['sum_aplicar'] + $o['sum_prov'])) / $ingAcum * 100, 1) : null;
-
-        // Estado de avance (acumulado al mes anterior)
-        $o['fact_acum_rec']     = $ingAcum - $ingMes;
-        $o['costo_acum_rec']    = $o['costo_apl_acum'] - $o['costo_apl_mes'];
-        $o['margen_acum_pesos'] = $o['fact_acum_rec'] - $o['costo_acum_rec'];
-        $o['mc_pct_acum']       = $o['fact_acum_rec'] != 0
-            ? round((1 - $o['costo_acum_rec'] / $o['fact_acum_rec']) * 100, 1) : null;
-
-        // Rentabilidad del mes
-        $o['costo_mes_c6'] = $o['costo_apl_mes'];
-        $aplicadoIni       = $o['sum_aplicar'] + $o['sum_prov'];
-        $o['aplicado_mes'] = $aplicadoIni;
-        $costoMesTotal     = $o['costo_apl_mes'] + $aplicadoIni;
-        $o['mc_mes_pesos'] = $ingMes - $costoMesTotal;
-        $o['mc_mes_pct']   = $ingMes != 0 ? round($o['mc_mes_pesos'] / $ingMes * 100, 1) : null;
-
-        // Proyección
-        $valorOferta  = $o['valor_oferta'];
-        $costoPresup  = $o['costo_presup'];
-        $factTotal    = $ingAcum;
-        $costoAcumTot = $o['costo_apl_acum'];
-        $costoTotal   = $costoAcumTot + $o['inventario_obra'] + $o['inventario_almacen'];
-
-        $o['pr_valor_oferta'] = $valorOferta;
-        $o['pr_dif_facturar'] = $valorOferta - $factTotal;
-        $o['pr_avance_fact']  = $valorOferta != 0 ? round($factTotal / $valorOferta * 100, 1) : null;
-        $o['pr_inv_obra']     = $o['inventario_obra'];
-        $o['pr_inv_almacen']  = $o['inventario_almacen'];
-        $o['pr_costo_total']  = $costoTotal;
-        $o['pr_mc_ofertado']  = $o['ofertado'];
-        $o['pr_mc_proy']      = $valorOferta != 0 ? round(($valorOferta - $costoTotal) / $valorOferta * 100, 1) : null;
-        $o['pr_costo_presup'] = $costoPresup;
-        $o['pr_avance_ejec']  = $costoPresup != 0 ? round($costoTotal / $costoPresup * 100, 1) : null;
-
-        $of = $o['ofertado'];
-        if ($of === null || $o['margen_acum'] === null) {
-            $o['semaforo'] = 'gris';  $o['orden_sem'] = 3;
-        } elseif ($o['margen_acum'] < $of) {
-            $o['semaforo'] = 'rojo';  $o['orden_sem'] = 0;
-        } elseif ($o['margen_proy'] !== null && $o['margen_proy'] < $of) {
-            $o['semaforo'] = 'ambar'; $o['orden_sem'] = 1;
-        } else {
-            $o['semaforo'] = 'verde'; $o['orden_sem'] = 2;
-        }
+        $this->svc->calcularMargenes($o);
     }
 
     private function sumaMes(string $cm, int $anio, int $mes, array $codigos)
     {
-        return RegistroFinanciero::where('cuenta_mayor', $cm)
-            ->where('anio', $anio)->where('mes', $mes)
-            ->whereIn('codigo_proyecto', $codigos)
-            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+        return $this->svc->sumaMes($cm, $anio, $mes, $codigos);
     }
 
     private function sumaAcum(string $cm, int $anio, int $mes, array $codigos)
     {
-        return RegistroFinanciero::where('cuenta_mayor', $cm)
-            ->whereIn('codigo_proyecto', $codigos)
-            ->where(function ($q) use ($anio, $mes) {
-                $q->where('anio', '<', $anio)
-                  ->orWhere(function ($q2) use ($anio, $mes) {
-                      $q2->where('anio', $anio)->where('mes', '<=', $mes);
-                  });
-            })
-            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+        return $this->svc->sumaAcum($cm, $anio, $mes, $codigos);
     }
 
     private function normalizarMargen($v): ?float
     {
-        if ($v === null || $v === '') return null;
-        $v = (float) $v;
-        if (abs($v) <= 1.5) $v = $v * 100;
-        return round($v, 1);
+        return $this->svc->normalizarMargen($v);
     }
 }

@@ -10,7 +10,9 @@
     $anioFin = max((int) date('Y') + 1, $periodoMinAnio);
 @endphp
 
-<h1 class="page-title">Homologaciones — Plan de cuentas (14 ↔ 61)</h1>
+<x-page-banner title="Homologaciones — Plan de cuentas (14 ↔ 61)" icon="🔗">
+    Vincula cada cuenta de <b>inventario de obra (14)</b> con su cuenta de <b>costo (61)</b>. Los cambios tienen vigencia y no reescriben el pasado.
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#15803D">{{ session('success') }}</div>

@@ -10,6 +10,13 @@ class DashboardInicioController extends Controller
 {
     public function index(Request $request)
     {
+        // El inicio financiero pertenece al módulo de gestión financiera: si el usuario
+        // no lo puede ver (ni es admin), lo mandamos a SU página de inicio. Así, aunque
+        // escriba /dashboard a mano, no ve los financieros.
+        if (! $request->user()->puedeVerModulo('gestion_financiera')) {
+            return redirect($request->user()->paginaInicio());
+        }
+
         $anio1 = $request->get('anio1', date('Y') - 1);
         $anio2 = $request->get('anio2', date('Y'));
 

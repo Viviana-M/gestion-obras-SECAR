@@ -19,7 +19,8 @@ class AuthenticationTest extends TestCase
 
     public function test_users_can_authenticate_using_the_login_screen(): void
     {
-        $user = User::factory()->create();
+        // Usuario con permiso financiero: su página de inicio es el dashboard.
+        $user = User::factory()->create(['permisos_modulos' => ['gestion_financiera' => 'ver']]);
 
         $response = $this->post('/login', [
             'email' => $user->email,
@@ -49,6 +50,7 @@ class AuthenticationTest extends TestCase
         $response = $this->actingAs($user)->post('/logout');
 
         $this->assertGuest();
-        $response->assertRedirect('/');
+        // La app redirige el logout al login (no a la raíz).
+        $response->assertRedirect(route('login'));
     }
 }

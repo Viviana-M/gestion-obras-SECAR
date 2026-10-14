@@ -13,9 +13,13 @@ protected $fillable = [
     'descripcion',
     'tercero_dcto',      // ← agregar
     'razon_social',      // ← agregar
+    'documento',         // Docto. del BIABLE: número/consecutivo (para reconciliar contra el ERP)
+    'tipo_documento',    // Tipo de documento (CCC/FSP/NQ/APP…) → se muestra como TIPO-NÚMERO
+    'fecha_docto',       // Fecha del documento (AAAAMMDD) → fecha del movimiento / FIFO SECAR
+    'dedup_hash',        // huella anti-duplicados (ver importador)
     'valor_debito',
     'valor_credito',
-    'movto_libro2',
+    'movto_libro1',      // Movimiento libro 1 (PCGA) = débito − crédito
     'cuenta_mayor',
     'signo_contable',
     'estado_er',
@@ -24,5 +28,6 @@ protected $fillable = [
     'mes',
     'anio',
     'origen',
+    'plano_aplicado_id',   // aplicación de plano que generó el movimiento (null = biable)
 ];
 }
