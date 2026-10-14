@@ -63,7 +63,7 @@
             </div>
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Costo aplicado del mes</div>
-                <div style="font-size:14px;font-weight:600;color:#374151">{{ $fmt($o['costo_mes_c6']) }}</div>
+                <div style="font-size:14px;font-weight:600;color:#374151" id="costomes-{{ $cod }}">{{ $fmt(($o['costo_mes_c6'] ?? 0) + ($o['aplicado_mes'] ?? 0)) }}</div>
             </div>
             <div>
                 <div style="font-size:9px;color:#B45309;line-height:1.3">Inventario aplicado este mes <span class="info-i" data-tip="Lo que YA llevaste al costo este mes. Sube a medida que distribuyes; lo que falta aparece arriba como «A aplicar».">i</span></div>
@@ -362,11 +362,19 @@
                 <div data-prov-id="{{ $pr['id'] }}" data-cod="{{ $cod }}" data-monto="{{ round($pr['monto']) }}" style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px">
                     <span>🧾 <span style="font-family:monospace">{{ $pr['cuenta_14'] }}</span> → <span style="font-family:monospace">{{ $pr['cuenta_26'] }}</span>{{ $pr['descripcion'] ? ' · '.Str::limit($pr['descripcion'], 28) : '' }}
                         <span style="color:#9CA3AF">· activa desde {{ $pr['desde'] }}</span>
-                        @if($pr['nueva'])<span style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">nueva</span>@endif
+                        @if(!empty($pr['enviada']))
+                            <span title="Ya entró en un plano enviado a contabilidad: solo se puede reversar." style="font-size:9px;padding:1px 6px;border-radius:6px;background:#E0E7FF;color:#3730A3;margin-left:4px">enviada a contabilidad</span>
+                        @else
+                            <span title="Registrada este mes y aún no enviada a contabilidad: se puede eliminar sin generar reverso." style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">del mes · no enviada</span>
+                        @endif
                     </span>
                     <span style="display:flex;align-items:center;gap:10px"><b>{{ $fmt($pr['monto']) }}</b>
                         @if($puedeEditar ?? false)
-                        <a href="#" onclick="reversarProvision({{ $pr['id'] }});return false" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a>
+                            @if(!empty($pr['enviada']))
+                            <a href="#" onclick="reversarProvision({{ $pr['id'] }});return false" title="Genera el asiento de reverso (26 → 61)" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a>
+                            @else
+                            <a href="#" onclick="eliminarProvision({{ $pr['id'] }});return false" title="Borrado directo: no se ha enviado a contabilidad, no genera reverso" style="color:#DC2626;text-decoration:none;font-weight:600">Eliminar</a>
+                            @endif
                         @endif
                     </span>
                 </div>

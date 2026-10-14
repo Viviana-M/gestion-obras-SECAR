@@ -49,4 +49,18 @@ class Provision extends Model
                     ->orWhereRaw('COALESCE(reversada_anio,0) * 100 + COALESCE(reversada_mes,0) > ?', [$periodo]);
             });
     }
+
+    /**
+     * ¿La provisión ya entró en un plano ENVIADO a contabilidad? Se considera enviada cuando existe una
+     * distribución enviada de su mismo período (y departamento, si lo tiene): ese plano ya registró el
+     * asiento. Si aún no se ha enviado, la provisión es "del mes · no enviada" y se puede ELIMINAR
+     * directamente (sin reverso); una vez enviada, solo se puede REVERSAR.
+     */
+    public function fueEnviada(): bool
+    {
+        return \App\Models\Distribucion::where('estado', 'enviado')
+            ->where('mes', $this->mes)->where('anio', $this->anio)
+            ->when($this->departamento, fn ($q) => $q->where('departamento', $this->departamento))
+            ->exists();
+    }
 }

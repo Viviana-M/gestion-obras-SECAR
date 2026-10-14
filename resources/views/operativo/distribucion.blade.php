@@ -1360,6 +1360,9 @@ function recalc(cod){
     const porll=document.getElementById('porllevar-'+cod); if(porll) porll.textContent=fmt(Math.max(0, (d.pend||0) - sumA));
     const a6=document.getElementById('aplic6-'+cod); if(a6) a6.textContent=fmt(aplicado14a6);
     const psa=document.getElementById('provsa-'+cod); if(psa) psa.textContent=fmt(prov);
+    // "Costo aplicado del mes" = costo ya aplicado + lo que se lleva al costo ahora (inventario + bolsa +
+    // mano de obra). Sube en vivo con cada asignación (p. ej. $4M de MO lo suben $4M).
+    const cmEl=document.getElementById('costomes-'+cod); if(cmEl) cmEl.textContent=fmt((d.costoMes||0) + aplicado14a6 + moC);
 
     evaluarCerrable(cod);
 
@@ -1469,11 +1472,12 @@ function crearProvision(cod){
             const div = document.createElement('div');
             div.setAttribute('data-prov-id', p.id); div.dataset.cod = cod; div.dataset.monto = Math.round(p.monto);
             div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;margin-top:4px';
+            // Recién creada: "del mes · no enviada" → se puede ELIMINAR (borrado directo, sin reverso).
             div.innerHTML = '<span>🧾 <span style="font-family:monospace">'+p.cuenta_14+'</span> → <span style="font-family:monospace">'+p.cuenta_26+'</span>'
                 + (p.descripcion?(' · '+p.descripcion):'') + ' <span style="color:#9CA3AF">· activa desde '+p.desde+'</span>'
-                + ' <span style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">nueva</span></span>'
+                + ' <span title="Registrada este mes y aún no enviada a contabilidad: se puede eliminar sin generar reverso." style="font-size:9px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#15803D;margin-left:4px">del mes · no enviada</span></span>'
                 + '<span style="display:flex;align-items:center;gap:10px"><b>'+fmt(p.monto)+'</b>'
-                + '<a href="#" onclick="reversarProvision('+p.id+');return false" style="color:#DC2626;text-decoration:none;font-weight:600">Reversar</a></span>';
+                + '<a href="#" onclick="eliminarProvision('+p.id+');return false" title="Borrado directo: no se ha enviado a contabilidad, no genera reverso" style="color:#DC2626;text-decoration:none;font-weight:600">Eliminar</a></span>';
             cont.insertBefore(div, cont.querySelector('.prov-vacio-'+cod));
             if(DATOS[cod]) DATOS[cod].prov = Number(DATOS[cod].prov||0) + Number(p.monto||0);
             recalc(cod);
@@ -1483,7 +1487,7 @@ function crearProvision(cod){
 }
 
 function reversarProvision(id){
-    if(!confirm('¿Reversar esta provisión? Se generará el asiento inverso (26 → 14) en el mes en curso y dejará de arrastrarse.')) return;
+    if(!confirm('¿Reversar esta provisión? Se generará el asiento inverso (26 → 61) en el mes en curso y dejará de arrastrarse.')) return;
     const row = document.querySelector('[data-prov-id="'+id+'"]');
     const cod = row ? row.dataset.cod : null;
     const monto = row ? Number(row.dataset.monto||0) : 0;
@@ -1492,12 +1496,32 @@ function reversarProvision(id){
         .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
         .then(j => {
             if(!j.ok) throw j;
-            if(row) row.remove();
-            if(cod && DATOS[cod]){ DATOS[cod].prov = Math.max(0, Number(DATOS[cod].prov||0) - monto); recalc(cod); }
-            if(cod){ const c=document.getElementById('provs-'+cod); const vac=c && c.querySelector('.prov-vacio-'+cod);
-                     if(vac && !c.querySelector('[data-prov-id]')) vac.style.display=''; }
+            quitarFilaProvision(row, cod, monto);
         })
         .catch(e => alert(e && e.error ? e.error : 'No se pudo reversar la provisión.'));
+}
+
+/* Eliminar una provisión del mes aún NO enviada a contabilidad: borrado directo, sin reverso. */
+function eliminarProvision(id){
+    if(!confirm('¿Eliminar esta provisión? Aún no se ha enviado a contabilidad, así que se borra directamente (no genera reverso).')) return;
+    const row = document.querySelector('[data-prov-id="'+id+'"]');
+    const cod = row ? row.dataset.cod : null;
+    const monto = row ? Number(row.dataset.monto||0) : 0;
+    fetch(@json(url('operativo/provisiones'))+'/'+id, { method:'DELETE', headers: PROV_HEADERS, credentials:'same-origin' })
+        .then(r => r.ok ? r.json() : r.json().then(j=>Promise.reject(j)))
+        .then(j => {
+            if(!j.ok) throw j;
+            quitarFilaProvision(row, cod, monto);
+        })
+        .catch(e => alert(e && e.error ? e.error : 'No se pudo eliminar la provisión.'));
+}
+
+/* Quita la fila de una provisión del DOM, baja el acumulado de provisión y recalcula los KPIs. */
+function quitarFilaProvision(row, cod, monto){
+    if(row) row.remove();
+    if(cod && DATOS[cod]){ DATOS[cod].prov = Math.max(0, Number(DATOS[cod].prov||0) - monto); recalc(cod); }
+    if(cod){ const c=document.getElementById('provs-'+cod); const vac=c && c.querySelector('.prov-vacio-'+cod);
+             if(vac && !c.querySelector('[data-prov-id]')) vac.style.display=''; }
 }
 
 /* ===== Asignación desde bolsas de área ===== */

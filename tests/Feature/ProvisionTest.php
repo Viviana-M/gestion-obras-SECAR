@@ -95,6 +95,42 @@ class ProvisionTest extends TestCase
     }
 
     #[Test]
+    public function una_provision_no_enviada_se_elimina_directamente_sin_reverso(): void
+    {
+        // Provisión del mes abierto (7/2026) sin plano enviado → se borra directamente, no genera reverso.
+        $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',
+            'cuenta_14' => '14200530', 'cuenta_26' => '26050604', 'monto' => 800000,
+            'mes' => 7, 'anio' => 2026, 'estado' => 'activa']);
+
+        $this->assertFalse($prov->fueEnviada());
+
+        $this->actingAs($this->operador())
+            ->delete(route('operativo.provisiones.eliminar', $prov->id))
+            ->assertRedirect()->assertSessionHas('success');
+
+        $this->assertDatabaseMissing('provisiones', ['id' => $prov->id]); // borrada, no reversada
+    }
+
+    #[Test]
+    public function una_provision_enviada_a_contabilidad_no_se_puede_eliminar(): void
+    {
+        // Hay un plano ENVIADO del período/departamento → la provisión ya fue a contabilidad: no se borra.
+        \App\Models\Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'tipo' => 'otros_costos', 'estado' => 'enviado']);
+        $prov = Provision::create(['codigo_proyecto' => 'MO4501', 'departamento' => 'mantenimiento',
+            'cuenta_14' => '14200530', 'cuenta_26' => '26050604', 'monto' => 800000,
+            'mes' => 7, 'anio' => 2026, 'estado' => 'activa']);
+
+        $this->assertTrue($prov->fueEnviada());
+
+        $this->actingAs($this->operador())
+            ->deleteJson(route('operativo.provisiones.eliminar', $prov->id))
+            ->assertStatus(422);
+
+        $this->assertDatabaseHas('provisiones', ['id' => $prov->id, 'estado' => 'activa']); // sigue viva
+    }
+
+    #[Test]
     public function la_provision_es_costo_sin_aplicar_y_baja_el_margen(): void
     {
         $svc = new \App\Services\DistribucionService();

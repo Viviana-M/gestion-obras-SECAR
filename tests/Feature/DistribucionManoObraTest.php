@@ -195,6 +195,8 @@ class DistribucionManoObraTest extends TestCase
             strpos($html, 'mo-obra-sec" data-cod="C-500"'),
             strpos($html, 'Asignar desde bolsa de área')
         );
+        // "Costo aplicado del mes" tiene id para recalcularse en vivo al asignar (ya no queda estático).
+        $this->assertStringContainsString('id="costomes-C-500"', $html);
     }
 
     #[Test]

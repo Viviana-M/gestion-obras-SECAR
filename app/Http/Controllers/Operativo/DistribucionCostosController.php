@@ -278,6 +278,13 @@ class DistribucionCostosController extends Controller
 
         // Provisiones ACTIVAS al período (se arrastran cada mes hasta reversarlas).
         $provisionesPorObra = \App\Models\Provision::activasEn($mes, $anio)->get()->groupBy('codigo_proyecto');
+        // Períodos con plano ENVIADO a contabilidad: una provisión de un período ya enviado solo se
+        // puede REVERSAR; si su período aún no se ha enviado es "del mes · no enviada" y se ELIMINA.
+        $periodosEnviados = \App\Models\Distribucion::where('estado', 'enviado')
+            ->get(['mes', 'anio', 'departamento'])
+            ->mapWithKeys(fn ($d) => [$d->mes.'|'.$d->anio.'|'.$d->departamento => true])->all();
+        $periodosEnviadosAny = \App\Models\Distribucion::where('estado', 'enviado')
+            ->get(['mes', 'anio'])->mapWithKeys(fn ($d) => [$d->mes.'|'.$d->anio => true])->all();
 
         foreach ($obras as $cod => &$o) {
             $o['provisiones'] = [];
@@ -311,6 +318,8 @@ class DistribucionCostosController extends Controller
             unset($c);
 
             foreach ($provisionesPorObra[$cod] ?? [] as $p) {
+                $enviada = isset($periodosEnviados[$p->mes.'|'.$p->anio.'|'.$p->departamento])
+                    || (empty($p->departamento) && isset($periodosEnviadosAny[$p->mes.'|'.$p->anio]));
                 $o['provisiones'][] = [
                     'id'          => $p->id,
                     'cuenta_14'   => $p->cuenta_14,
@@ -319,6 +328,7 @@ class DistribucionCostosController extends Controller
                     'descripcion' => $p->descripcion,
                     'desde'       => sprintf('%02d/%d', $p->mes, $p->anio),
                     'nueva'       => ($p->mes === $mes && $p->anio === $anio), // registrada este mes
+                    'enviada'     => $enviada, // ya entró en un plano enviado → solo reversable (no eliminable)
                 ];
             }
 
@@ -1131,6 +1141,34 @@ class DistribucionCostosController extends Controller
             return response()->json(['ok' => true]);
         }
         return back()->with('success', 'Provisión reversada. Se generó el asiento inverso (26 → 61) en '.$mes.'/'.$anio.'.');
+    }
+
+    /**
+     * Eliminar una provisión "del mes · no enviada": borrado directo, SIN generar reverso. Solo se
+     * permite si la provisión NO ha entrado todavía en un plano enviado a contabilidad (si ya se envió,
+     * debe reversarse). Requiere el cierre de su período abierto.
+     */
+    public function eliminarProvision(Request $request, \App\Models\Provision $provision)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $mes = (int) $provision->mes; $anio = (int) $provision->anio;
+        if (! CierrePeriodo::estaAbierto($mes, $anio)) {
+            $m = 'El cierre de '.$mes.'/'.$anio.' no está abierto: no puedes eliminar esta provisión.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+        if ($provision->fueEnviada()) {
+            $m = 'Esa provisión ya fue enviada a contabilidad: no se puede eliminar, debe reversarse.';
+            return $request->wantsJson() ? response()->json(['ok' => false, 'error' => $m], 422) : back()->with('error', $m);
+        }
+
+        $provision->delete(); // borrado directo: no estaba en ningún plano, no hay nada que reversar
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true]);
+        }
+        return back()->with('success', 'Provisión eliminada (no había sido enviada a contabilidad).');
     }
 
     public function guardar(Request $request)
