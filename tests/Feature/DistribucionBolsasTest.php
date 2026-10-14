@@ -224,9 +224,9 @@ class DistribucionBolsasTest extends TestCase
         $resp->assertSee('Solo parte este mes', false);
         $resp->assertSee('$12.000.000', false);
 
-        // En "Mis distribuciones" la fila de otros costos ofrece "Editar montos".
+        // En "Mis distribuciones" (lista unificada) la fila trae la etiqueta/enlace "Otros costos".
         $this->actingAs($this->operador())->get(route('operativo.distribucion.consultas'))
-            ->assertOk()->assertSee('Editar montos', false);
+            ->assertOk()->assertSee('Otros costos', false);
     }
 
     #[Test]

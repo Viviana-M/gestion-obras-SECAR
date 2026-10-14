@@ -45,16 +45,23 @@ class DistribucionConsultaFinalTest extends TestCase
     }
 
     #[Test]
-    public function mis_distribuciones_se_divide_en_obras_y_otros_costos(): void
+    public function mis_distribuciones_es_una_sola_lista_con_etiquetas_de_origen(): void
     {
+        // Mismo período + departamento con los dos orígenes: deben salir como UNA sola fila con ambas
+        // etiquetas (no en secciones separadas).
         Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
             'tipo' => 'obras', 'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false]);
+        Distribucion::create(['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'tipo' => 'areas', 'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false]);
 
         $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.consultas'));
 
         $resp->assertOk();
-        $resp->assertSee('Distribución de costos', false);  // sección 1 (inventario en tránsito)
-        $resp->assertSee('Otros costos', false);            // sección 2 (áreas / bolsas)
+        // Las dos secciones separadas desaparecen: ahora son etiquetas dentro de la misma fila.
+        $resp->assertSee('Distribución de costos', false);
+        $resp->assertSee('Otros costos', false);
+        // El período aparece una sola vez (una fila por período + departamento).
+        $this->assertSame(1, substr_count($resp->getContent(), 'Julio 2026'));
     }
 
     #[Test]

@@ -44,7 +44,12 @@ class DistribucionCostosController extends Controller
 
     public function consultas(Request $request)
     {
-        $dists = Distribucion::orderByDesc('created_at')->get();
+        // El guardado es global (un plano por período + departamento). Aquí se muestra UNA sola lista:
+        // un registro por (mes, año, departamento) que agrupa todo lo distribuido (inventario + bolsa +
+        // mano de obra + provisiones) y, si existe, el borrador de "otros costos" por cuenta. El origen
+        // se distingue con etiquetas dentro de la misma fila, no con secciones separadas. Esto es solo
+        // presentación: la trazabilidad (versiones, guardado_por, enviado_por, fechas) no se toca.
+        $dists = Distribucion::orderByDesc('version')->orderByDesc('created_at')->get();
 
         $totales = AplicacionCosto::selectRaw('distribucion_id,
                 SUM(CASE WHEN es_provision = 0 THEN monto_aplicar ELSE 0 END) as aplicado,
@@ -54,59 +59,66 @@ class DistribucionCostosController extends Controller
 
         $usuarios = User::pluck('name', 'id');
 
-        // Foto CONGELADA del envío: la última versión con evento enviado/reenviado por
-        // distribución. Es el registro oficial que no cambia aunque cambien los datos.
         $finales = DistribucionVersion::whereIn('evento', ['enviado', 'reenviado'])
             ->orderByDesc('id')->get(['id', 'distribucion_id'])
             ->unique('distribucion_id')->keyBy('distribucion_id');
 
-        $filas = $dists->map(function ($d) use ($totales, $usuarios, $finales) {
-            $t = $totales[$d->id] ?? null;
-            return [
-                'id'           => $d->id,
-                'mes'          => $d->mes,
-                'anio'         => $d->anio,
-                'departamento' => $d->departamento,
-                'tipo'         => $d->tipo ?? 'obras',
-                'version'      => $d->version,
-                'estado'       => $d->estado,
-                'habilitada'   => $d->edicion_habilitada,
-                'aplicado'     => (float) ($t->aplicado ?? 0),
-                'provision'    => (float) ($t->provision ?? 0),
-                'obras'        => (int) ($t->obras ?? 0),
-                'guardado_at'  => $d->updated_at,
-                'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
-                'enviado_at'   => $d->enviado_at,
-                'version_final_id' => $finales[$d->id]->id ?? null,
-            ];
-        });
-
-        // ── Otros costos (áreas / bolsas): sus totales salen de BolsaMonto (monto a
-        // distribuir por cuenta), no de AplicacionCosto. El detalle se consulta aparte. ──
         $depDeUn = \App\Models\UnBolsa::pluck('departamento', 'codigo'); // codigo UN => departamento
-        $filasAreas = $dists->where('tipo', 'areas')->map(function ($d) use ($usuarios, $depDeUn) {
-            $unsDep = $depDeUn->filter(fn ($dep) => $dep === $d->departamento)->keys();
-            $montos = \App\Models\BolsaMonto::where('mes', $d->mes)->where('anio', $d->anio)
-                ->whereIn('un_codigo', $unsDep);
-            return [
-                'id'           => $d->id,
-                'mes'          => $d->mes,
-                'anio'         => $d->anio,
-                'departamento' => $d->departamento,
-                'estado'       => $d->estado,
-                'cuentas'      => (clone $montos)->count(),
-                'a_distribuir' => (float) (clone $montos)->sum('monto_distribuir'),
-                'guardado_at'  => $d->updated_at,
-                'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
-            ];
-        })->values();
 
-        // Dos consultas separadas: distribución de costos (inventario en tránsito) y
-        // otros costos (áreas / bolsas).
-        return view('operativo.distribucion-consultas', [
-            'filasObras' => $filas->where('tipo', 'obras')->values(),
-            'filasAreas' => $filasAreas,
-        ]);
+        // Agrupar por período + departamento. Como viene ordenado por versión desc, el PRIMER registro
+        // de cada tipo (obras / áreas) en el grupo es el vigente (mayor versión) y es el representativo.
+        $grupos = [];
+        foreach ($dists as $d) {
+            $k = $d->mes.'|'.$d->anio.'|'.($d->departamento ?? '');
+            if (! isset($grupos[$k])) {
+                $grupos[$k] = ['mes' => (int) $d->mes, 'anio' => (int) $d->anio, 'departamento' => $d->departamento,
+                    'obras' => null, 'areas' => null];
+            }
+            $tipo = ($d->tipo ?? 'obras') === 'areas' ? 'areas' : 'obras';
+            if ($grupos[$k][$tipo] !== null) continue; // ya tomamos el vigente (mayor versión) de este tipo
+
+            if ($tipo === 'areas') {
+                $unsDep = $depDeUn->filter(fn ($dep) => $dep === $d->departamento)->keys();
+                $montos = \App\Models\BolsaMonto::where('mes', $d->mes)->where('anio', $d->anio)
+                    ->whereIn('un_codigo', $unsDep);
+                $grupos[$k]['areas'] = [
+                    'id' => $d->id, 'estado' => $d->estado,
+                    'cuentas' => (clone $montos)->count(),
+                    'a_distribuir' => (float) (clone $montos)->sum('monto_distribuir'),
+                    'guardado_at' => $d->updated_at, 'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
+                ];
+            } else {
+                $t = $totales[$d->id] ?? null;
+                $grupos[$k]['obras'] = [
+                    'id' => $d->id, 'version' => $d->version, 'estado' => $d->estado,
+                    'habilitada' => $d->edicion_habilitada,
+                    'aplicado' => (float) ($t->aplicado ?? 0), 'provision' => (float) ($t->provision ?? 0),
+                    'obras' => (int) ($t->obras ?? 0),
+                    'guardado_at' => $d->updated_at, 'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
+                    'enviado_at' => $d->enviado_at, 'version_final_id' => $finales[$d->id]->id ?? null,
+                ];
+            }
+        }
+
+        // Una fila unificada por (período, departamento), con los datos de ambos orígenes y sus etiquetas.
+        $filas = collect($grupos)->map(function ($g) {
+            $o = $g['obras']; $a = $g['areas'];
+            $guardadoAt  = $o['guardado_at'] ?? $a['guardado_at'] ?? null;
+            $guardadoPor = $o['guardado_por'] ?? $a['guardado_por'] ?? '—';
+            if ($o && $a && $a['guardado_at'] && (! $o['guardado_at'] || $a['guardado_at'] > $o['guardado_at'])) {
+                $guardadoAt = $a['guardado_at']; $guardadoPor = $a['guardado_por'];
+            }
+            return [
+                'mes' => $g['mes'], 'anio' => $g['anio'], 'departamento' => $g['departamento'],
+                'obras' => $o, 'areas' => $a,
+                'tiene_costos' => $o !== null,
+                'tiene_otros'  => $a !== null,
+                'guardado_at'  => $guardadoAt, 'guardado_por' => $guardadoPor,
+                'orden'        => $g['anio'] * 100 + $g['mes'],
+            ];
+        })->sortByDesc('orden')->values();
+
+        return view('operativo.distribucion-consultas', ['filas' => $filas]);
     }
 
     public function index(Request $request)
