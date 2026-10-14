@@ -39,7 +39,7 @@
 </div>
 <div class="card" style="margin-top:.75rem;padding:0;overflow:hidden">
     @if($filasAreas->count() == 0)
-        <div style="text-align:center;color:#9CA3AF;padding:2rem">Aún no hay distribuciones de otros costos. Se guardan al dar "Guardar montos" en una bolsa de área.</div>
+        <div style="text-align:center;color:#9CA3AF;padding:2rem">Aún no hay distribuciones de otros costos. Se guardan al dar "Guardar distribución · generar plano" en la pantalla de distribución.</div>
     @else
     <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>

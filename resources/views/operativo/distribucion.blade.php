@@ -652,11 +652,10 @@
                 <div style="padding:7px 12px;font-size:11px;color:#92400E;background:#FEF9C3;border-top:1px solid #FDE68A">
                     🔒 Para editar el "a distribuir" y las observaciones, Contabilidad debe <b>abrir el cierre</b> de este mes.
                 </div>
-                @else
-                <div style="display:flex;justify-content:flex-end;padding:9px 12px;border-top:1px solid #EEF1F6">
-                    <button type="submit" style="padding:7px 16px;background:#1B4C7A;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer">Guardar montos</button>
-                </div>
                 @endunless
+                {{-- El guardado por bolsa se retiró (duplicaba el guardado global). El único punto de
+                     guardado es "Guardar distribución · generar plano" de la barra inferior. La
+                     trazabilidad (versiones, guardado_por/enviado_por, autorizaciones) no cambia. --}}
             </form>
         </div>
         @endforeach
