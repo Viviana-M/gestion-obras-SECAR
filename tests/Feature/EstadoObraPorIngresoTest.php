@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ObraEstado;
 use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
@@ -99,5 +100,25 @@ class EstadoObraPorIngresoTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('name="estado_obra[MOB07003]" id="estado-inp-MOB07003" value="cerrada"', false);
         $resp->assertSee('data-estado="cerrada" class="on"', false);
+    }
+
+    #[Test]
+    public function el_cierre_contable_manda_sobre_el_estado_manual_y_el_saldo(): void
+    {
+        // Caso del bug: la obra tiene cierre contable, PERO un ObraEstado manual "abierta" y un
+        // residuo de saldo en 1420. El cierre debe mandar: se muestra "cerrada", no se reabre.
+        ProyectoCerrado::create([
+            'codigo_proyecto' => 'MOB07004', 'tipo_cierre' => 'total',
+            'user_id' => User::factory()->create()->id,
+        ]);
+        ObraEstado::create(['codigo_proyecto' => 'MOB07004', 'estado' => 'abierta']);
+        $this->rf('MOB07004', 'Ingreso', 5000, 7, 2026, '41350100');
+        $this->rf('MOB07004', 'Costos por aplicar', -100, 6, 2026, '14200105'); // residuo de saldo
+
+        $resp = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+
+        $resp->assertStatus(200);
+        $resp->assertSee('name="estado_obra[MOB07004]" id="estado-inp-MOB07004" value="cerrada"', false);
     }
 }

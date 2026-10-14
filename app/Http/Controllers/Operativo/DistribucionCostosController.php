@@ -360,31 +360,38 @@ class DistribucionCostosController extends Controller
                 ->values()->all();
             $o['sum_bolsa'] = array_sum(array_column($o['asignaciones_bolsa'], 'monto'));
 
-            if (isset($estadoManual[$cod])) {
-                $o['estado'] = $estadoManual[$cod];
-            }
-
-            // Estado según el ingreso del mes: las obras que tuvieron ingreso se muestran
-            // como "parcial" y las que no, como "abierta". Las obras cerradas (cierre total
-            // o cierre manual) conservan su estado y no se reabren.
-            if ($o['estado'] !== 'cerrada') {
-                $o['estado'] = abs((float) $o['ingreso_mes']) >= 0.5 ? 'parcial' : 'abierta';
-            }
-
             // Inventario en obra (cuenta 14 total) e inventario de almacén (0 por ahora)
             $saldoInv14 = (float) ($inventario14[$cod] ?? 0);
             $o['inventario_obra']    = $saldoInv14 < 0 ? abs($saldoInv14) : 0;
             $o['inventario_almacen'] = 0; // en actualización: pendiente módulo de almacén
 
-            // Cierre por ficha inactiva ("Activa" = No), cuidando el saldo de la cuenta 14:
-            //  - sin saldo pendiente en cuenta 14 → se puede cerrar (estado = cerrada);
-            //  - con saldo en cuenta 14 → NO se cierra; se marca para revisarla aparte.
-            if (! $o['activa'] && $o['estado'] !== 'cerrada') {
-                $tieneSaldo14 = ($o['inventario_obra'] > 0.5) || ((float) $o['total_pendiente'] > 0.5);
-                if ($tieneSaldo14) {
-                    $o['inactiva_con_saldo'] = true;   // queda abierta, para revisión
-                } else {
-                    $o['estado'] = 'cerrada';           // inactiva y sin saldo: cerrar
+            // Un cierre contable (registro en proyectos_cerrados) manda sobre todo: la obra queda
+            // Cerrada y NO se reabre aunque tenga un residuo de saldo o un ObraEstado distinto. Sin
+            // cierre contable, el estado se resuelve por estado manual → ingreso del mes → ficha.
+            if (isset($cerradas[$cod])) {
+                $o['estado'] = 'cerrada';
+            } else {
+                if (isset($estadoManual[$cod])) {
+                    $o['estado'] = $estadoManual[$cod];
+                }
+
+                // Estado según el ingreso del mes: las obras que tuvieron ingreso se muestran
+                // como "parcial" y las que no, como "abierta". Las obras cerradas (cierre total
+                // o cierre manual) conservan su estado y no se reabren.
+                if ($o['estado'] !== 'cerrada') {
+                    $o['estado'] = abs((float) $o['ingreso_mes']) >= 0.5 ? 'parcial' : 'abierta';
+                }
+
+                // Cierre por ficha inactiva ("Activa" = No), cuidando el saldo de la cuenta 14:
+                //  - sin saldo pendiente en cuenta 14 → se puede cerrar (estado = cerrada);
+                //  - con saldo en cuenta 14 → NO se cierra; se marca para revisarla aparte.
+                if (! $o['activa'] && $o['estado'] !== 'cerrada') {
+                    $tieneSaldo14 = ($o['inventario_obra'] > 0.5) || ((float) $o['total_pendiente'] > 0.5);
+                    if ($tieneSaldo14) {
+                        $o['inactiva_con_saldo'] = true;   // queda abierta, para revisión
+                    } else {
+                        $o['estado'] = 'cerrada';           // inactiva y sin saldo: cerrar
+                    }
                 }
             }
 
@@ -694,8 +701,12 @@ class DistribucionCostosController extends Controller
             ->get(['codigo_proyecto', 'nombre_obra', 'cliente'])
             ->keyBy('codigo_proyecto');
 
+        // Un cierre contable ya resuelve la obra: no debe reaparecer como pendiente por el residuo.
+        $cerradas = ProyectoCerrado::pluck('codigo_proyecto')->flip();
+
         $lista = [];
         foreach ($fichas as $cod => $f) {
+            if (isset($cerradas[$cod])) continue;
             $lista[] = [
                 'codigo'   => (string) $cod,
                 'nombre'   => (string) $f->nombre_obra,

@@ -114,6 +114,52 @@ class ObrasRevisionController extends Controller
         return $obras;
     }
 
+    /**
+     * Cierre masivo: envía a cierre, de una vez, TODAS las obras que hoy muestra esta pantalla
+     * (misma consulta del listado). Registra el cierre contable (proyectos_cerrados, tipo total,
+     * origen masivo) y marca el estado de la obra como 'cerrada'. No duplica las ya cerradas.
+     */
+    public function cerrarTodas(Request $request)
+    {
+        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
+            'No tienes permiso para editar en Operación.');
+
+        $obras = $this->datosObras(); // ya excluye las cerradas (cierre contable o manual)
+        $hoy   = now()->toDateString();
+        $uid   = $request->user()->id;
+        $cerradas = 0;
+
+        foreach ($obras as $o) {
+            $cod = $o['codigo'];
+
+            // Doble seguro contra duplicados: solo crea si no existe el cierre.
+            $registro = ProyectoCerrado::firstOrCreate(
+                ['codigo_proyecto' => $cod],
+                [
+                    'nombre_proyecto' => $o['nombre'] ?? $cod,
+                    'fecha_cierre'    => $hoy,
+                    'tipo_cierre'     => 'total',
+                    'origen'          => 'masivo',
+                    'user_id'         => $uid,
+                ]
+            );
+
+            if ($registro->wasRecentlyCreated) {
+                $cerradas++;
+            }
+
+            // El estado de la obra también queda cerrado, para que los listados lo respeten.
+            ObraEstado::updateOrCreate(
+                ['codigo_proyecto' => $cod],
+                ['estado' => 'cerrada', 'user_id' => $uid]
+            );
+        }
+
+        return back()->with('success', $cerradas > 0
+            ? "Se enviaron a cierre {$cerradas} obra(s)."
+            : 'No había obras pendientes por cerrar.');
+    }
+
     /** Guarda una observación/justificación para dejar la obra abierta. */
     public function observar(Request $request)
     {

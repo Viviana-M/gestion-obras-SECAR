@@ -205,6 +205,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/operativo/obras-revision', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'index'])->name('operativo.obras-revision.index');
         Route::get('/operativo/obras-revision/excel', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'exportarExcel'])->name('operativo.obras-revision.excel');
         Route::post('/operativo/obras-revision/observar', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'observar'])->name('operativo.obras-revision.observar');
+        // Cierre masivo: envía a cierre todas las obras que muestra la pantalla de revisión.
+        Route::post('/operativo/obras-revision/cerrar-todas', [\App\Http\Controllers\Operativo\ObrasRevisionController::class, 'cerrarTodas'])->name('operativo.obras-revision.cerrar-todas');
     });
 
     // ══════════════════════ AUTORIZACIONES (solo gerencia, verificado en el controlador) ══════════════════════

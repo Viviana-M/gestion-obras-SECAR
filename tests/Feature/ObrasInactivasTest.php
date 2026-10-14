@@ -88,6 +88,29 @@ class ObrasInactivasTest extends TestCase
     }
 
     #[Test]
+    public function una_inactiva_con_cierre_contable_no_reaparece_como_pendiente(): void
+    {
+        // Inactiva con saldo residual, PERO ya cerrada contablemente: el cierre manda, no debe
+        // reaparecer en el listado de pendientes ni en el aviso de la distribución.
+        FichaProyecto::create(['codigo_proyecto' => 'MOB09050', 'nombre_obra' => 'Cerrada con residuo', 'activa' => false]);
+        $this->rf('MOB09050', 'Costos por aplicar', -100000, 8, 2024, '14200105');
+        ProyectoCerrado::create([
+            'codigo_proyecto' => 'MOB09050', 'tipo_cierre' => 'total',
+            'origen' => 'masivo', 'user_id' => $this->operador()->id,
+        ]);
+
+        // Listado dedicado de "Proyectos inactivos con saldo".
+        $rep = $this->actingAs($this->operador())->get(route('operativo.obras-inactivas.index', ['mes' => 8, 'anio' => 2024]));
+        $rep->assertOk();
+        $this->assertNotContains('MOB09050', collect($rep->viewData('lista'))->pluck('codigo')->all());
+
+        // Aviso embebido en la distribución.
+        $dist = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=8&anio=2024&departamento=mantenimiento');
+        $this->assertNotContains('MOB09050', collect($dist->viewData('inactivasConSaldo'))->pluck('codigo')->all());
+    }
+
+    #[Test]
     public function el_reporte_es_visible_para_contabilidad(): void
     {
         $contable = User::factory()->create([

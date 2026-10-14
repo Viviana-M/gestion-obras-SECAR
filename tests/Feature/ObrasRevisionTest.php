@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\ObraEstado;
 use App\Models\ObservacionRevision;
+use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -151,6 +153,72 @@ class ObrasRevisionTest extends TestCase
         $this->actingAs($sinPermiso)->post(route('operativo.obras-revision.observar'), [
             'codigo_proyecto' => 'GM000045', 'observacion' => 'x',
         ])->assertForbidden();
+    }
+
+    #[Test]
+    public function una_obra_con_cierre_contable_no_aparece_en_revision(): void
+    {
+        // GM000045 cumple la condición de revisión (costo sin saldo 14), pero ya tiene cierre
+        // contable registrado: debe respetarse el cierre y no reaparecer.
+        $this->seedGM000045();
+        ProyectoCerrado::create([
+            'codigo_proyecto' => 'GM000045', 'fecha_cierre' => now(),
+            'tipo_cierre' => 'total', 'origen' => 'manual', 'user_id' => $this->operador()->id,
+        ]);
+
+        $this->actingAs($this->operador())->get(route('operativo.obras-revision.index'))
+            ->assertStatus(200)
+            ->assertDontSee('GM000045');
+    }
+
+    #[Test]
+    public function cierre_masivo_cierra_todas_las_obras_de_la_pantalla(): void
+    {
+        $this->seedGM000045();  // en revisión
+        $op = $this->operador();
+
+        $this->actingAs($op)->post(route('operativo.obras-revision.cerrar-todas'))
+            ->assertRedirect();
+
+        // Cierre contable: tipo total, origen masivo, usuario actual, fecha de hoy.
+        $this->assertDatabaseHas('proyectos_cerrados', [
+            'codigo_proyecto' => 'GM000045', 'tipo_cierre' => 'total',
+            'origen' => 'masivo', 'user_id' => $op->id,
+        ]);
+        $this->assertSame(now()->toDateString(),
+            ProyectoCerrado::where('codigo_proyecto', 'GM000045')->value('fecha_cierre')->toDateString());
+
+        // Estado de la obra marcado como cerrada.
+        $this->assertDatabaseHas('obras_estado', ['codigo_proyecto' => 'GM000045', 'estado' => 'cerrada']);
+
+        // Ya no aparece en la pantalla de revisión.
+        $this->actingAs($op)->get(route('operativo.obras-revision.index'))->assertDontSee('GM000045');
+    }
+
+    #[Test]
+    public function cierre_masivo_no_duplica_las_ya_cerradas(): void
+    {
+        $op = $this->operador();
+        $this->seedGM000045();
+        // Ya cerrada de antes (no debe duplicarse ni cambiar su origen).
+        ProyectoCerrado::create([
+            'codigo_proyecto' => 'GM000045', 'fecha_cierre' => now()->subMonth(),
+            'tipo_cierre' => 'total', 'origen' => 'manual', 'user_id' => $op->id,
+        ]);
+
+        $this->actingAs($op)->post(route('operativo.obras-revision.cerrar-todas'))->assertRedirect();
+
+        $this->assertSame(1, ProyectoCerrado::where('codigo_proyecto', 'GM000045')->count());
+        $this->assertSame('manual', ProyectoCerrado::where('codigo_proyecto', 'GM000045')->value('origen'));
+    }
+
+    #[Test]
+    public function cierre_masivo_requiere_permiso_de_operacion(): void
+    {
+        $sin = User::factory()->create([
+            'rol' => 'comercial', 'activo' => true, 'permisos_modulos' => ['comercial' => 'ver'],
+        ]);
+        $this->actingAs($sin)->post(route('operativo.obras-revision.cerrar-todas'))->assertForbidden();
     }
 
     #[Test]

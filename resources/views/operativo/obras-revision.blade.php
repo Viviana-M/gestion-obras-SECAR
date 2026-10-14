@@ -17,7 +17,15 @@
 @endif
 
 @if(count($obras) > 0)
-<div style="display:flex;justify-content:flex-end;margin-bottom:1rem">
+<div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:1rem">
+    @if($puedeEditar)
+    <form method="POST" action="{{ route('operativo.obras-revision.cerrar-todas') }}" style="margin:0"
+          onsubmit="return confirm('¿Enviar a cierre TODAS las {{ count($obras) }} obra(s) de esta pantalla? Quedarán marcadas como cerradas (cierre total) y no se podrá deshacer desde aquí.')">
+        @csrf
+        <button type="submit"
+            style="padding:9px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">✓ Enviar todas a cierre ({{ count($obras) }})</button>
+    </form>
+    @endif
     <a href="{{ route('operativo.obras-revision.excel') }}"
        style="padding:9px 16px;background:#15803D;color:white;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">⬇ Descargar Excel</a>
 </div>

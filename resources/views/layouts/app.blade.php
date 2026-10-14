@@ -177,7 +177,6 @@
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
                 <div class="submenu-group-label">Consultas</div>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Informe de costos</a>
-                <a href="{{ route('operativo.obras-revision.index') }}" class="{{ request()->is('operativo/obras-revision') ? 'active' : '' }}">Proyectos en revisión</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
