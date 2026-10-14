@@ -168,6 +168,36 @@ class DistribucionManoObraTest extends TestCase
     }
 
     #[Test]
+    public function la_tarjeta_del_proyecto_tiene_la_asignacion_de_mano_de_obra(): void
+    {
+        $this->base();
+        \App\Models\CierrePeriodo::create(['mes' => 5, 'anio' => 2026, 'abierto' => true]);
+        // Obra abierta de mantenimiento (con saldo en cuenta 1420) para que renderice como tarjeta.
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-500', 'nombre_proyecto' => 'Obra C', 'cuenta_contable' => '41350100',
+            'cuenta_mayor' => 'Ingreso', 'estado_er' => 1000000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 5, 'anio' => 2026,
+        ]);
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'C-500', 'nombre_proyecto' => 'Obra C', 'cuenta_contable' => '14200105',
+            'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -300000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 5, 'anio' => 2026,
+        ]);
+
+        $html = $this->actingAs($this->op('editar'))
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        // Dentro de la tarjeta del proyecto hay la asignación de MO: persona + monto + Asignar.
+        $this->assertStringContainsString('mo-obra-sec" data-cod="C-500"', $html);
+        $this->assertStringContainsString("asignarMo('C-500')", $html);
+        $this->assertStringContainsString('data-mo-sel', $html);
+        // Va DESPUÉS de "Asignar desde bolsa de área".
+        $this->assertLessThan(
+            strpos($html, 'mo-obra-sec" data-cod="C-500"'),
+            strpos($html, 'Asignar desde bolsa de área')
+        );
+    }
+
+    #[Test]
     public function una_persona_fuera_del_maestro_no_entra(): void
     {
         $this->base();
