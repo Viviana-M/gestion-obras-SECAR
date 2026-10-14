@@ -80,6 +80,30 @@ class ReporteSaldos14Test extends TestCase
     }
 
     #[Test]
+    public function solo_incluye_obras_con_saldo_en_1420_no_en_1455(): void
+    {
+        Excel::fake();
+
+        // Obra con saldo SOLO en 1455 (inventario/cruce): la pantalla la excluye → el Excel también.
+        RegistroFinanciero::create(['codigo_proyecto' => 'C-1455', 'nombre_proyecto' => 'Solo 1455',
+            'cuenta_contable' => '14550105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -900000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+        // Obra con saldo real en 1420: sí debe aparecer.
+        RegistroFinanciero::create(['codigo_proyecto' => 'C-1420', 'nombre_proyecto' => 'Con 1420',
+            'cuenta_contable' => '14200105', 'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -300000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026]);
+
+        $this->actingAs($this->operador())
+            ->get(route('operativo.distribucion.reporte-saldos', ['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento']))
+            ->assertOk();
+
+        Excel::assertDownloaded('Saldos_cuenta_14_Julio_2026_Mantenimiento.xlsx', function ($export) {
+            $plano = json_encode($export->array());
+            return str_contains($plano, 'C-1420') && ! str_contains($plano, 'C-1455');
+        });
+    }
+
+    #[Test]
     public function sin_departamento_incluye_ambas_areas(): void
     {
         Excel::fake();

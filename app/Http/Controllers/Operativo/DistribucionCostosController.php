@@ -2193,15 +2193,22 @@ class DistribucionCostosController extends Controller
             });
         };
 
-        // Obras con saldo NETO real en la cuenta 14 (acumulado al mes filtrado).
+        // MISMO filtro que el listado de pantalla: obras con saldo NETO real en cuentas 1420 ≠ 0
+        // (acumulado al mes), excluyendo 1455 (inventario) y las obras en $0. Así el conteo del Excel
+        // coincide siempre con el de la pantalla.
+        $pref1420 = \App\Services\DistribucionService::PREFIJO_BOLSA.'%';
         $neto = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', $pref1420)
             ->where($corteAcum)
             ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
             ->groupBy('codigo_proyecto')
             ->havingRaw('ABS(SUM(estado_er)) > 0.5')
             ->pluck('saldo', 'codigo_proyecto');
 
+        // Las bolsas de área (UN) son el ORIGEN del costo, no obras: nunca se listan (igual que en pantalla).
+        $bolsaCods = array_flip(\App\Models\UnBolsa::codigos());
         $codigos = collect($neto->keys())
+            ->filter(fn ($cod) => ! isset($bolsaCods[(string) $cod]))
             ->filter(fn ($cod) => ! $prefijos || $this->empiezaPorAlguno((string) $cod, $prefijos))
             ->values()->all();
         sort($codigos);
@@ -2252,11 +2259,12 @@ class DistribucionCostosController extends Controller
             $saldo14 = (float) ($neto[$cod] ?? 0);
             $pend    = $saldo14 < 0 ? abs($saldo14) : 0.0;
 
-            // Estado (igual que la tarjeta): cerrada si está cerrada; si no, por ingreso.
+            // Estado (igual que la tarjeta): cerrada si está cerrada; si no, por ingreso. NO se excluyen
+            // las cerradas: la pantalla (filtro de estado "todos") también las lista mientras tengan
+            // saldo real en 1420, así el conteo del Excel coincide con el de pantalla.
             $estado = (isset($cerradas[$cod]) || ($estadoManual[$cod] ?? null) === 'cerrada')
                 ? 'cerrada'
                 : (abs((float) ($ingMes[$cod] ?? 0)) >= 0.5 ? 'parcial' : 'abierta');
-            if ($estado === 'cerrada') continue; // solo abiertas/parciales
 
             $o = [
                 'ingreso_mes'    => (float) ($ingMes[$cod] ?? 0),
