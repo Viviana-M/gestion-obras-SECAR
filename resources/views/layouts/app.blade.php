@@ -177,9 +177,7 @@
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
                 <div class="submenu-group-label">Consultas</div>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Informe de costos</a>
-                <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
-                <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
             </div>
         </div>
         @endif
@@ -236,6 +234,7 @@
                 <div class="submenu-group-label">Herramientas</div>
                 <a href="{{ route('operativo.forecast') }}" class="{{ request()->is('operativo/forecast') ? 'active' : '' }}">Proyección de proyectos</a>
                 <div class="submenu-group-label">Maestros</div>
+                <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
                 <a href="{{ route('admin.llave-items.index') }}" class="{{ request()->is('admin/llave-items') ? 'active' : '' }}">Cuentas por ítem</a>
                 <div class="submenu-group-label">Contabilidad avanzada</div>

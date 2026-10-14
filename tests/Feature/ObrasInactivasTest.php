@@ -25,6 +25,12 @@ class ObrasInactivasTest extends TestCase
         ]);
     }
 
+    /** El maestro de proyectos es solo para administración. */
+    private function admin(): User
+    {
+        return User::factory()->create(['rol' => 'admin', 'activo' => true]);
+    }
+
     private function rf(string $codigo, string $cuentaMayor, float $er, int $mes, int $anio, string $cc): void
     {
         RegistroFinanciero::create([
@@ -130,7 +136,7 @@ class ObrasInactivasTest extends TestCase
             ['MOB09021', 'Obra Y', 'Si'],
         ]);
 
-        $this->actingAs($this->operador())
+        $this->actingAs($this->admin())
             ->post(route('operativo.maestro.importar'), ['archivo' => $con])
             ->assertRedirect();
 
@@ -142,7 +148,7 @@ class ObrasInactivasTest extends TestCase
             ['ORDEN DE TRABAJO', 'OBRA'],
             ['MOB09020', 'Obra X actualizada'],
         ]);
-        $this->actingAs($this->operador())
+        $this->actingAs($this->admin())
             ->post(route('operativo.maestro.importar'), ['archivo' => $sin])
             ->assertRedirect();
 
@@ -158,7 +164,7 @@ class ObrasInactivasTest extends TestCase
         // MOB09031: inactiva SIN saldo → se cierra (ProyectoCerrado origen excel).
         $this->rf('MOB09030', 'Costos por aplicar', -120000, 8, 2024, '14200105');
 
-        $resp = $this->actingAs($this->operador())->post(route('operativo.maestro.importar'), [
+        $resp = $this->actingAs($this->admin())->post(route('operativo.maestro.importar'), [
             'archivo' => $this->hoja([
                 ['ORDEN DE TRABAJO', 'OBRA', 'ACTIVA'],
                 ['MOB09030', 'Con saldo', 'No'],
@@ -185,7 +191,7 @@ class ObrasInactivasTest extends TestCase
         ProyectoCerrado::create(['codigo_proyecto' => 'MOB09040', 'tipo_cierre' => 'total', 'origen' => 'excel', 'user_id' => $uid]);
         ProyectoCerrado::create(['codigo_proyecto' => 'MOB09041', 'tipo_cierre' => 'total', 'origen' => 'manual', 'user_id' => $uid]);
 
-        $this->actingAs($this->operador())->post(route('operativo.maestro.importar'), [
+        $this->actingAs($this->admin())->post(route('operativo.maestro.importar'), [
             'archivo' => $this->hoja([
                 ['ORDEN DE TRABAJO', 'OBRA', 'ACTIVA'],
                 ['MOB09040', 'Reabrir', 'Si'],
@@ -199,13 +205,24 @@ class ObrasInactivasTest extends TestCase
     }
 
     #[Test]
+    public function el_maestro_de_proyectos_es_solo_para_administracion(): void
+    {
+        // Operaciones ya no debe usar el maestro: la ruta queda bloqueada para ese rol.
+        $this->actingAs($this->operador())->get(route('operativo.maestro.index'))->assertForbidden();
+        $this->actingAs($this->operador())->post(route('operativo.maestro.importar'))->assertForbidden();
+
+        // Administración sí entra.
+        $this->actingAs($this->admin())->get(route('operativo.maestro.index'))->assertOk();
+    }
+
+    #[Test]
     public function el_maestro_busca_y_pagina(): void
     {
         for ($i = 1; $i <= 60; $i++) {
             FichaProyecto::create(['codigo_proyecto' => sprintf('MOB%05d', $i), 'nombre_obra' => 'Obra '.$i, 'area' => 'Mantenimiento']);
         }
 
-        $resp = $this->actingAs($this->operador())->get(route('operativo.maestro.index'));
+        $resp = $this->actingAs($this->admin())->get(route('operativo.maestro.index'));
         $resp->assertOk();
         $fichas = $resp->viewData('fichas');
         $this->assertSame(60, $fichas->total());
@@ -213,7 +230,7 @@ class ObrasInactivasTest extends TestCase
         $this->assertTrue($fichas->hasPages());
 
         // Buscador por código.
-        $r2 = $this->actingAs($this->operador())->get(route('operativo.maestro.index', ['q' => 'MOB00007']));
+        $r2 = $this->actingAs($this->admin())->get(route('operativo.maestro.index', ['q' => 'MOB00007']));
         $this->assertSame(1, $r2->viewData('fichas')->total());
     }
 

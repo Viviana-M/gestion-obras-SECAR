@@ -12,8 +12,20 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class MaestroComercialController extends Controller
 {
+    /**
+     * El maestro de proyectos es una herramienta de administración (carga comercial), no de
+     * operaciones: aunque la ruta vive bajo el módulo de operación, solo administración puede usarla.
+     */
+    private function soloAdmin(): void
+    {
+        abort_unless(auth()->user()?->esAdmin(), 403,
+            'El maestro de proyectos es solo para administración.');
+    }
+
     public function index(Request $request)
     {
+        $this->soloAdmin();
+
         // Con ~2.000 obras: buscador (código/nombre/cliente) + paginación.
         $q = trim((string) $request->get('q', ''));
 
@@ -34,8 +46,7 @@ class MaestroComercialController extends Controller
 
     public function importar(Request $request)
     {
-        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
-            'No tienes permiso para editar en Operación.');
+        $this->soloAdmin();
 
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,xls|max:51200',
@@ -221,8 +232,7 @@ class MaestroComercialController extends Controller
 
     public function guardar(Request $request)
     {
-        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
-            'No tienes permiso para editar en Operación.');
+        $this->soloAdmin();
 
         $data = $request->validate([
             'codigo_proyecto'       => 'required|string|max:255',
@@ -250,8 +260,7 @@ class MaestroComercialController extends Controller
 
     public function actualizar(Request $request, FichaProyecto $ficha)
     {
-        abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
-            'No tienes permiso para editar en Operación.');
+        $this->soloAdmin();
 
         $data = $request->validate([
             'codigo_proyecto'       => 'required|string|max:255',
@@ -273,8 +282,7 @@ class MaestroComercialController extends Controller
 
     public function eliminar(FichaProyecto $ficha)
     {
-        abort_unless(auth()->user()->puedeEditarModulo('operacion'), 403,
-            'No tienes permiso para editar en Operación.');
+        $this->soloAdmin();
 
         $ficha->delete();
         return back()->with('success', 'Proyecto eliminado.');
