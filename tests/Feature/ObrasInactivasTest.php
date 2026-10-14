@@ -400,7 +400,11 @@ class ObrasInactivasTest extends TestCase
         $this->rf('MOB09061', 'Costos por aplicar', -50000, 8, 2024, '14200105');
         $this->rf('GIX09061', 'Costos por aplicar', -70000, 8, 2024, '14200105');
 
-        $mant = $this->supervisor('dep_mantenimiento');
+        // La distribución editable exige operación:editar; usamos un distribuidor de mantenimiento.
+        $mant = User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true,
+            'permisos_modulos' => ['operacion' => 'editar', 'dep_mantenimiento' => 'ver'],
+        ]);
         $inact = collect($this->actingAs($mant)
             ->get('/operativo/distribucion?mes=8&anio=2024')
             ->viewData('inactivasConSaldo'))->pluck('codigo')->all();

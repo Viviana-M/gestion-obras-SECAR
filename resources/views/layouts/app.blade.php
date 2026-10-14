@@ -174,8 +174,11 @@
             </button>
             <div class="submenu">
                 <div class="submenu-group-label">Distribución</div>
+                @if($usuario->puedeEditarModulo('operacion'))
                 <a href="/operativo/distribucion" class="{{ request()->is('operativo/distribucion') && !request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Distribución de costos</a>
+                @endif
                 <div class="submenu-group-label">Consultas</div>
+                <a href="{{ route('operativo.consulta-obras') }}" class="{{ request()->is('operativo/consulta-obras') ? 'active' : '' }}">Consulta de obras</a>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Informe de costos</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
             </div>

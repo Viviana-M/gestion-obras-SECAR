@@ -1,4 +1,6 @@
 @php
+    // Modo solo lectura: la MISMA tarjeta, pero sin acciones de distribución (consulta de ingenieros).
+    $readonly = $readonly ?? false;
     $ce = $colEstado[$o['estado']] ?? ['#F3F4F6','#6B7280'];
     // Semáforo de márgenes (mes y acumulado) según umbrales del departamento de la obra.
     $depMargen = $o['depto_margen'] ?? null;
@@ -11,7 +13,7 @@
          hace scroll por las cuentas/terceros de esta obra. Sin overflow:hidden en la tarjeta para
          no romper el sticky; las esquinas se redondean con border-radius. --}}
     <div class="obra-sticky" style="border-top-left-radius:12px;border-top-right-radius:12px;overflow-x:hidden">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;{{ $readonly ? '' : 'cursor:pointer;' }}flex-wrap:wrap" @unless($readonly)data-toggle-obra="{{ $cod }}"@endunless>
         <div style="min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span id="dot-{{ $cod }}" style="width:9px;height:9px;border-radius:50%;background:{{ $colSem[$o['semaforo']] }};display:inline-block"></span>
@@ -28,9 +30,12 @@
             </div>
         </div>
 
-        {{-- Estado del cierre: control segmentado (evidente dónde se cambia) + ayuda. --}}
+        {{-- Estado del cierre. En distribución: control segmentado editable. En consulta: etiqueta fija. --}}
         <div class="estado-wrap" onclick="event.stopPropagation()">
             <span class="lab">Estado del cierre</span>
+            @if($readonly)
+                <span style="font-size:11px;font-weight:700;padding:3px 12px;border-radius:9px;background:{{ $ce[0] }};color:{{ $ce[1] }}">{{ ucfirst($o['estado']) }}</span>
+            @else
             <div class="estado-seg" id="estado-seg-{{ $cod }}">
                 <button type="button" data-estado="abierta" class="{{ $o['estado']=='abierta'?'on':'' }}" onclick="estadoClick('{{ $cod }}','abierta')">Abierta</button>
                 <button type="button" data-estado="parcial" class="{{ $o['estado']=='parcial'?'on':'' }}" onclick="estadoClick('{{ $cod }}','parcial')">Parcial</button>
@@ -38,11 +43,12 @@
             </div>
             <span class="estado-tip">Marca <b>Cerrada</b> cuando quede en $0 por distribuir</span>
             <input type="hidden" name="estado_obra[{{ $cod }}]" id="estado-inp-{{ $cod }}" value="{{ $o['estado'] }}">
+            @endif
         </div>
     </div>
 
     {{-- Costos por llevar + "En esta distribución" (bloque destacado verde con número grande). --}}
-    <div style="display:flex;align-items:stretch;gap:12px;padding:0 16px 12px;flex-wrap:wrap" data-toggle-obra="{{ $cod }}">
+    <div style="display:flex;align-items:stretch;gap:12px;padding:0 16px 12px;flex-wrap:wrap" @unless($readonly)data-toggle-obra="{{ $cod }}"@endunless>
         <div class="porllevar-box">
             <div class="k">Costos por llevar a este proyecto</div>
             <div class="v" id="porllevar-{{ $cod }}">{{ $fmt(max(0, $o['total_pendiente'] - $o['sum_aplicar'])) }}</div>
@@ -52,12 +58,15 @@
             <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
         </div>
         {{-- Acción PRINCIPAL de la tarjeta: abre/despliega la zona de distribución (inventario, bolsa,
-             mano de obra, provisiones). Mientras está cerrada solo se ve el resumen. --}}
+             mano de obra, provisiones). Mientras está cerrada solo se ve el resumen.
+             En la consulta de ingenieros (solo lectura) no existe: no se distribuye desde ahí. --}}
+        @unless($readonly)
         <button type="button" id="distbtn-{{ $cod }}" onclick="event.stopPropagation(); toggleObra('{{ $cod }}')"
                 title="Abrir la distribución de este proyecto (inventario, bolsa, mano de obra, provisiones)"
                 style="flex:1 1 200px;min-width:190px;align-self:stretch;background:#1B3F6E;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 7px rgba(27,63,110,.28);padding:10px 16px">
             <span id="distbtn-ico-{{ $cod }}" style="font-size:18px">⊕</span> <span id="distbtn-txt-{{ $cod }}">Distribuir costos</span>
         </button>
+        @endunless
     </div>
 
     {{-- RENTABILIDAD DEL MES (primero: todo lo del mes; MC dinámico al aplicar inventario) --}}
@@ -201,12 +210,21 @@
     </div>
     </div>{{-- /obra-sticky (incluye cabecera, mes, acumulado y proyección) --}}
 
-    {{-- OBSERVACIONES DEL COORDINADOR --}}
+    {{-- OBSERVACIONES DEL COORDINADOR. En consulta: texto fijo (o nada si no hay), sin input. --}}
+    @if($readonly)
+        @if(trim((string) $o['observacion']) !== '')
+        <div style="padding:10px 16px;border-top:1px solid #E5E7EB">
+            <label style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;display:block;margin-bottom:5px">OBSERVACIONES DEL COORDINADOR</label>
+            <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.5">{{ $o['observacion'] }}</div>
+        </div>
+        @endif
+    @else
     <div style="padding:10px 16px;border-top:1px solid #E5E7EB">
         <label style="font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.4px;display:block;margin-bottom:5px">OBSERVACIONES DEL COORDINADOR</label>
         <textarea name="observacion[{{ $cod }}]" rows="2" placeholder="Escribe aquí cualquier observación sobre esta obra (opcional)..."
             style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical">{{ $o['observacion'] }}</textarea>
     </div>
+    @endif
 
     <div style="padding:12px 16px">
         <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:#F3F4F6">
@@ -219,6 +237,9 @@
         </div>
     </div>
 
+    {{-- ZONA DE DISTRIBUCIÓN (inventario, bolsa, mano de obra, provisiones): solo en la pantalla
+         editable. En la consulta de ingenieros (solo lectura) no se renderiza: sin inputs ni acciones. --}}
+    @unless($readonly)
     <div id="obra-{{ $cod }}" style="display:none;padding:0 16px 14px;border-top:1px solid #F3F4F6">
         @if($o['sin_ingreso'] ?? false)
         <div style="margin-top:12px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:10px 14px">
@@ -523,4 +544,5 @@
         </div>
         @endif
     </div>
+    @endunless
 </div>

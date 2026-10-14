@@ -84,7 +84,7 @@ class DistribucionManoObraTest extends TestCase
     {
         $this->base();
 
-        $b = $this->bolsaMto($this->actingAs($this->op('ver'))
+        $b = $this->bolsaMto($this->actingAs($this->op('editar'))
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento'));
 
         $this->assertNotNull($b);
@@ -125,7 +125,7 @@ class DistribucionManoObraTest extends TestCase
     {
         $this->base();
 
-        $resp = $this->actingAs($this->op('ver'))
+        $resp = $this->actingAs($this->op('editar'))
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')->assertOk();
         $html = $resp->getContent();
 
@@ -150,7 +150,7 @@ class DistribucionManoObraTest extends TestCase
     {
         $this->base();
 
-        $html = $this->actingAs($this->op('ver'))
+        $html = $this->actingAs($this->op('editar'))
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')
             ->assertOk()->getContent();
 
@@ -210,7 +210,7 @@ class DistribucionManoObraTest extends TestCase
         // Otro tercero con MO en la bolsa, pero NO está en el maestro: no debe aparecer.
         $this->rf('MTO00099', '14200530', '222', 'Pedro Ajeno', 300000);
 
-        $b = $this->bolsaMto($this->actingAs($this->op('ver'))
+        $b = $this->bolsaMto($this->actingAs($this->op('editar'))
             ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento'));
 
         $personas = collect($b['mo_personas'])->pluck('cedula')->all();

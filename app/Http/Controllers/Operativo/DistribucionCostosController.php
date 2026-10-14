@@ -121,6 +121,21 @@ class DistribucionCostosController extends Controller
         return view('operativo.distribucion-consultas', ['filas' => $filas]);
     }
 
+    /**
+     * Consulta de obras para ingenieros de operación: réplica EN VIVO de las tarjetas de proyecto de
+     * la distribución, en SOLO LECTURA. Reutiliza exactamente la misma fuente de datos que index()
+     * (de modo que si los valores cambian al distribuir, aquí también), y la misma tarjeta en modo
+     * readonly, pero sin acciones de distribución. El acceso editable queda en la pantalla de
+     * distribución (requiere operación:editar); esta consulta solo requiere operación:ver.
+     */
+    public function consultaObras(Request $request)
+    {
+        $data = $this->index($request)->getData();
+        $data['readonly'] = true;
+
+        return view('operativo.consulta-obras', $data);
+    }
+
     public function index(Request $request)
     {
         $distId       = $request->get('dist');

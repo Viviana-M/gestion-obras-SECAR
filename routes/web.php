@@ -173,7 +173,11 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/operativo/mano-obra/resumen/excel', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'resumenExcel'])->name('operativo.mano-obra.resumen.excel');
         Route::get('/operativo/mano-obra/plano', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'plano'])->name('operativo.mano-obra.plano');
         Route::post('/operativo/mano-obra/aplicar', [\App\Http\Controllers\Operativo\DistribucionManoObraController::class, 'aplicar'])->name('operativo.mano-obra.aplicar');
-        Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->name('operativo.distribucion');
+        // Consulta de obras (solo lectura) para ingenieros: réplica en vivo de las tarjetas de la
+        // distribución. Requiere solo operación:ver (la pantalla editable exige operación:editar).
+        Route::get('/operativo/consulta-obras', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultaObras'])->name('operativo.consulta-obras');
+        // La distribución editable queda para quien distribuye: exige operación:editar.
+        Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->middleware('modulo:operacion,editar')->name('operativo.distribucion');
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
         Route::post('/operativo/distribucion/resumen', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'resumen'])->name('operativo.distribucion.resumen');
         Route::post('/operativo/distribucion/bolsa-montos', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardarBolsaMontos'])->name('operativo.distribucion.bolsa-montos');
