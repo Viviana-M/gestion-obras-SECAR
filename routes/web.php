@@ -148,6 +148,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/financiero/historicos/detalle', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalle'])->name('financiero.historicos.detalle');
         Route::get('/financiero/historicos/detalle-cuenta', [\App\Http\Controllers\Financiero\HistoricosController::class, 'detalleCuenta'])->name('financiero.historicos.detalle.cuenta');
         Route::get('/financiero/estados-financieros', [\App\Http\Controllers\Financiero\EstadosFinancierosController::class, 'index'])->name('financiero.estados');
+        // Consulta de proyectos para gerencia (solo lectura): margen y esquema de costos por obra.
+        Route::get('/financiero/proyectos', [\App\Http\Controllers\Financiero\ConsultaProyectosController::class, 'index'])->name('financiero.proyectos');
+        Route::get('/financiero/proyectos/excel', [\App\Http\Controllers\Financiero\ConsultaProyectosController::class, 'excel'])->name('financiero.proyectos.excel');
         Route::get('/financiero/comparativo', [\App\Http\Controllers\Financiero\DashboardController::class, 'comparativo'])->name('financiero.comparativo');
     });
 

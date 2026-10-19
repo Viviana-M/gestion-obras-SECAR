@@ -731,6 +731,74 @@ class DistribucionService
     }
 
     /**
+     * ESQUEMA DE COSTOS POR OBRA (P&L para gerencia), ACUMULADO al corte (mes/año). Por cada obra con
+     * ingreso o costo reconocido devuelve: ingreso (cuenta 41), el costo reconocido (cuenta 61) abierto
+     * por categoría/estructura (MOI, EQU-MAT-SUM, MOE, MOFIJAOPER, OTROS COSTO), el total costo, el
+     * margen de contribución y el MC%. Clasifica cada línea de la 61 triangulando su cuenta 14 (en la
+     * descripción) con la homologación vigente al corte — el mismo criterio del resumen por tipo.
+     *
+     * @return array<string, array{ingreso:float,cat:array<string,float>,total_costo:float,mc:float,mc_pct:?float}>
+     */
+    public function esquemaPorObra(int $anio, int $mes): array
+    {
+        $periodoContable = Homologacion::periodo($anio, $mes);
+        $mapa14 = Homologacion::vigentesEn($periodoContable)
+            ->get(['cuenta_14', 'cuenta_61', 'estructura'])
+            ->keyBy(fn ($h) => (string) $h->cuenta_14);
+
+        $extraer14 = function ($desc) {
+            if (! $desc) return null;
+            return preg_match('/(\d{6,})\s*$/', trim((string) $desc), $m) ? $m[1] : null;
+        };
+
+        $corte = function ($q) use ($anio, $mes) {
+            $q->where('anio', '<', $anio)
+              ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+        };
+
+        // Ingreso acumulado (cuenta 41) por obra.
+        $ingreso = RegistroFinanciero::where('cuenta_mayor', 'Ingreso')->where($corte)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as t')
+            ->groupBy('codigo_proyecto')->pluck('t', 'codigo_proyecto');
+
+        // Costo reconocido acumulado (cuenta 61) por obra + cuenta + descripción (para triangular la 14).
+        $costo = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')->where($corte)
+            ->selectRaw('codigo_proyecto, descripcion, SUM(estado_er) as t')
+            ->groupBy('codigo_proyecto', 'descripcion')->get();
+
+        $out = [];
+        $nueva = function () {
+            $cat = [];
+            foreach (self::CATEGORIAS as $ck => $cl) $cat[$ck] = 0.0;
+            return ['ingreso' => 0.0, 'cat' => $cat, 'total_costo' => 0.0, 'mc' => 0.0, 'mc_pct' => null];
+        };
+
+        foreach ($ingreso as $cod => $val) {
+            $cod = (string) $cod;
+            $out[$cod] ??= $nueva();
+            $out[$cod]['ingreso'] += (float) $val;
+        }
+
+        foreach ($costo as $r) {
+            $cod = (string) $r->codigo_proyecto;
+            $out[$cod] ??= $nueva();
+            $c14 = $extraer14($r->descripcion);
+            $ck  = ($c14 && isset($mapa14[$c14])) ? (string) $mapa14[$c14]->estructura : 'OTROS COSTO';
+            if (! isset(self::CATEGORIAS[$ck])) $ck = 'OTROS COSTO';
+            $out[$cod]['cat'][$ck] += abs((float) $r->t);
+        }
+
+        foreach ($out as $cod => &$o) {
+            $o['total_costo'] = array_sum($o['cat']);
+            $o['mc']          = $o['ingreso'] - $o['total_costo'];
+            $o['mc_pct']      = abs($o['ingreso']) > 0.5 ? round($o['mc'] / $o['ingreso'] * 100, 1) : null;
+        }
+        unset($o);
+
+        return $out;
+    }
+
+    /**
      * PROVISIONES (cuenta 26) por tercero, tras el MISMO cruce FIFO que la cuenta 14. Dentro de cada
      * llave (U.N., cuenta) el crédito de SECAR y todos los negativos forman un pool que consume los
      * débitos de cada tercero y de la mano de obra (directa + apoyo) en FIFO: primero fecha_docto NULL
