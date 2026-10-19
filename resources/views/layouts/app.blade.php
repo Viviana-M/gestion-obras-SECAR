@@ -179,6 +179,7 @@
                 @endif
                 <div class="submenu-group-label">Consultas</div>
                 <a href="{{ route('operativo.consulta-obras') }}" class="{{ request()->is('operativo/consulta-obras') ? 'active' : '' }}">Consulta de obras</a>
+                <a href="{{ route('operativo.consulta-provisiones') }}" class="{{ request()->is('operativo/consulta-provisiones') ? 'active' : '' }}">Provisiones</a>
                 <a href="/operativo/distribucion/consultas" class="{{ request()->is('operativo/distribucion/consultas') ? 'active' : '' }}">Informe de costos</a>
                 <a href="{{ route('operativo.facturado') }}" class="{{ request()->is('operativo/facturado') ? 'active' : '' }}">Facturación por tipo</a>
             </div>

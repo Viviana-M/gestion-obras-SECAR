@@ -136,6 +136,119 @@ class DistribucionCostosController extends Controller
         return view('operativo.consulta-obras', $data);
     }
 
+    /**
+     * Consulta de PROVISIONES (cuenta 26) por tercero, en solo lectura. Muestra el saldo de provisión
+     * de cada tercero (Libro 1 = débito − crédito), acumulado al corte del período, con filtros por
+     * departamento, período y buscador, y opción de desglose por proyecto/U.N. Depende de que la
+     * cuenta 26 venga cargada por el importador (se clasifica como cuenta_mayor = 'Provisiones').
+     */
+    public function consultaProvisiones(Request $request)
+    {
+        $u = $request->user();
+        [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $mesDef);
+        $anio = (int) $request->get('anio', $anioDef);
+        $departamento = $request->get('departamento');
+        $q = trim((string) $request->get('q', ''));
+
+        $d = $this->provisionesData($mes, $anio, $u, $departamento, $q);
+
+        return view('operativo.consulta-provisiones', [
+            'filas'        => $d['filas'],
+            'total'        => $d['total'],
+            'mes'          => $mes,
+            'anio'         => $anio,
+            'departamento' => $departamento,
+            'depUsuario'   => $u?->departamentoUnico(),
+            'q'            => $q,
+        ]);
+    }
+
+    /** Descarga a Excel de la consulta de provisiones (mismas columnas y filtros que la pantalla). */
+    public function consultaProvisionesExcel(Request $request)
+    {
+        $u = $request->user();
+        [$mesDef, $anioDef] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $mesDef);
+        $anio = (int) $request->get('anio', $anioDef);
+        $departamento = $request->get('departamento');
+        $q = trim((string) $request->get('q', ''));
+
+        $d = $this->provisionesData($mes, $anio, $u, $departamento, $q);
+
+        $head  = ['Nit', 'Razón social', 'Saldo provisión'];
+        $filas = [$head];
+        foreach ($d['filas'] as $f) {
+            $filas[] = [$f['nit'] ?: '—', $f['razon'] ?: '—', round($f['saldo'])];
+        }
+        $filas[] = ['TOTAL', '', round($d['total'])];
+
+        $depTag = $departamento ?: ($u?->departamentoUnico() ?: 'todos');
+
+        return Excel::download(
+            new \App\Exports\ProvisionesTerceroExport($filas),
+            'Provisiones_'.$depTag.'_'.$anio.sprintf('%02d', $mes).'.xlsx'
+        );
+    }
+
+    /**
+     * Saldo de provisión (cuenta 26) por tercero, acumulado al corte (mes/año), respetando el
+     * departamento del usuario/filtro y el buscador de tercero. Devuelve filas por tercero con su
+     * desglose por proyecto/U.N. y el total general.
+     *
+     * @return array{filas: array<int, array{nit:?string,razon:?string,saldo:float,proyectos:array}>, total: float}
+     */
+    private function provisionesData(int $mes, int $anio, ?\App\Models\User $u, ?string $departamento, string $q): array
+    {
+        $rows = RegistroFinanciero::where('cuenta_mayor', 'Provisiones')
+            ->where(function ($x) use ($anio, $mes) {
+                $x->where('anio', '<', $anio)
+                  ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->when($q !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('razon_social', 'like', "%{$q}%")
+                ->orWhere('tercero_dcto', 'like', "%{$q}%")))
+            ->selectRaw('tercero_dcto, razon_social, codigo_proyecto, nombre_proyecto, '
+                .'SUM(valor_debito) as deb, SUM(valor_credito) as cred')
+            ->groupBy('tercero_dcto', 'razon_social', 'codigo_proyecto', 'nombre_proyecto')
+            ->get();
+
+        // Filtro por departamento a nivel de proyecto/U.N. (mismo criterio de prefijos que el resto).
+        $proyRows = $rows->map(fn ($r) => [
+            'codigo' => (string) $r->codigo_proyecto,
+            'nombre' => (string) $r->nombre_proyecto,
+            'nit'    => $r->tercero_dcto,
+            'razon'  => $r->razon_social,
+            'saldo'  => (float) $r->deb - (float) $r->cred,   // Libro 1 = débito − crédito
+        ])->all();
+        $proyRows = $this->soloDepartamentoPermitido($proyRows, $u, $departamento);
+
+        // Agregación por tercero (Nit + razón social) con desglose por proyecto.
+        $porTercero = [];
+        foreach ($proyRows as $pr) {
+            $key = ($pr['nit'] ?: '—').'|'.($pr['razon'] ?? '');
+            $porTercero[$key] ??= ['nit' => $pr['nit'], 'razon' => $pr['razon'], 'saldo' => 0.0, 'proyectos' => []];
+            $porTercero[$key]['saldo'] += $pr['saldo'];
+            if (round($pr['saldo']) != 0) {
+                $porTercero[$key]['proyectos'][] = [
+                    'codigo' => $pr['codigo'], 'nombre' => $pr['nombre'], 'saldo' => $pr['saldo'],
+                ];
+            }
+        }
+
+        // Oculta terceros cuyo saldo redondeado es $0 (ya cruzados / sin provisión real).
+        $filas = array_values(array_filter($porTercero, fn ($t) => round($t['saldo']) != 0));
+        foreach ($filas as &$t) {
+            usort($t['proyectos'], fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
+        }
+        unset($t);
+        usort($filas, fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
+
+        $total = array_sum(array_column($filas, 'saldo'));
+
+        return ['filas' => $filas, 'total' => $total];
+    }
+
     public function index(Request $request)
     {
         $distId       = $request->get('dist');

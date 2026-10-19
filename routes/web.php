@@ -176,6 +176,9 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Consulta de obras (solo lectura) para ingenieros: réplica en vivo de las tarjetas de la
         // distribución. Requiere solo operación:ver (la pantalla editable exige operación:editar).
         Route::get('/operativo/consulta-obras', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultaObras'])->name('operativo.consulta-obras');
+        // Consulta de provisiones (cuenta 26) por tercero, solo lectura.
+        Route::get('/operativo/consulta-provisiones', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultaProvisiones'])->name('operativo.consulta-provisiones');
+        Route::get('/operativo/consulta-provisiones/excel', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'consultaProvisionesExcel'])->name('operativo.consulta-provisiones.excel');
         // La distribución editable queda para quien distribuye: exige operación:editar.
         Route::get('/operativo/distribucion', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'index'])->middleware('modulo:operacion,editar')->name('operativo.distribucion');
         Route::post('/operativo/distribucion/guardar', [\App\Http\Controllers\Operativo\DistribucionCostosController::class, 'guardar'])->name('operativo.distribucion.guardar');
