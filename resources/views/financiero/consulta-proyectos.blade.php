@@ -16,6 +16,7 @@
 <x-page-banner title="Margen por proyecto" icon="📊" :badge="$departamento ? ucfirst($departamento) : null">
     Consulta de gerencia (<b>solo lectura</b>): margen real por obra y su esquema de costos acumulado al
     corte del período. Responsable tomado de la ficha del proyecto; compara el margen ofertado vs el real.
+    Muestra solo obras <b>Abiertas y Parciales</b> con responsable asignado (las Cerradas y sin responsable no aparecen).
 </x-page-banner>
 
 <x-filtros-panel>

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Financiero;
 
 use App\Http\Controllers\Controller;
 use App\Models\FichaProyecto;
+use App\Models\ObraEstado;
+use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use App\Services\DistribucionService;
@@ -117,12 +119,20 @@ class ConsultaProyectosController extends Controller
         $responsables = $fichas->pluck('responsable_obra')->map(fn ($r) => trim((string) $r))
             ->filter()->unique()->sort()->values()->all();
 
+        // Una obra está CERRADA si tiene cierre contable (proyectos_cerrados) o su estado manual es
+        // 'cerrada'. Gerencia solo ve Abiertas y Parciales (se excluyen las Cerradas).
+        $cerradas     = ProyectoCerrado::pluck('codigo_proyecto')->flip();
+        $estadoManual = ObraEstado::pluck('estado', 'codigo_proyecto');
+
         $obras = [];
         $tot = ['ingreso' => 0.0, 'cat' => array_fill_keys(self::CATS, 0.0), 'total_costo' => 0.0, 'mc' => 0.0];
 
         foreach ($esquema as $cod => $pnl) {
             // Solo obras con actividad real en el corte (ingreso o costo).
             if (round($pnl['ingreso']) == 0 && round($pnl['total_costo']) == 0) continue;
+
+            // Excluir las Cerradas: solo se muestran Abiertas y Parciales.
+            if (isset($cerradas[$cod]) || ($estadoManual[$cod] ?? null) === 'cerrada') continue;
 
             $dep = User::departamentoDeCodigo($cod);
             if ($departamento && $dep !== $departamento) continue;
@@ -132,6 +142,7 @@ class ConsultaProyectosController extends Controller
 
             $ficha = $fichas[$cod] ?? null;
             $resp  = trim((string) ($ficha->responsable_obra ?? ''));
+            if ($resp === '') continue;                           // sin responsable asignado → no aparece
             if ($responsable && $resp !== $responsable) continue;
 
             $nombre = ($ficha->nombre_obra ?? null) ?: ($nombres[$cod] ?? '');

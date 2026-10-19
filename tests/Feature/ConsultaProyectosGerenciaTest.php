@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\FichaProyecto;
 use App\Models\Homologacion;
+use App\Models\ObraEstado;
+use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -171,6 +173,40 @@ class ConsultaProyectosGerenciaTest extends TestCase
                 && str_contains($plano, 'Ana Ruiz')
                 && str_contains($plano, 'TOTAL');
         });
+    }
+
+    #[Test]
+    public function excluye_las_cerradas_y_las_sin_responsable(): void
+    {
+        $this->seedEsc(); // C-700 (Ana Ruiz) y O0001 (Beto Gómez), ambas abiertas con responsable
+
+        // Cerrada por cierre contable: no aparece aunque tenga responsable y actividad.
+        $this->ingreso('C-900', 2000000);
+        $this->costo('C-900', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-900', 'nombre_obra' => 'Obra Cerrada', 'responsable_obra' => 'Ana Ruiz']);
+        ProyectoCerrado::create(['codigo_proyecto' => 'C-900', 'tipo_cierre' => 'total', 'user_id' => $this->gerente()->id]);
+
+        // Cerrada por estado manual: tampoco aparece.
+        $this->ingreso('C-901', 2000000);
+        $this->costo('C-901', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-901', 'nombre_obra' => 'Obra Manual', 'responsable_obra' => 'Ana Ruiz']);
+        ObraEstado::create(['codigo_proyecto' => 'C-901', 'estado' => 'cerrada']);
+
+        // Con actividad pero SIN responsable en la ficha: no aparece.
+        $this->ingreso('C-902', 2000000);
+        $this->costo('C-902', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable', 'responsable_obra' => '']);
+
+        // Con actividad y sin ficha (por tanto sin responsable): no aparece.
+        $this->ingreso('C-903', 2000000);
+        $this->costo('C-903', '14200105', 500000);
+
+        $codigos = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->viewData('obras'))->pluck('codigo')->all();
+
+        sort($codigos);
+        $this->assertSame(['C-700', 'O0001'], $codigos); // solo abiertas/parciales con responsable
     }
 
     #[Test]
