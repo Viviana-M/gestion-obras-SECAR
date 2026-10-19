@@ -16,7 +16,7 @@
 <x-page-banner title="Margen por proyecto" icon="📊" :badge="$departamento ? ucfirst($departamento) : null">
     Consulta de gerencia (<b>solo lectura</b>): margen real por obra y su esquema de costos acumulado al
     corte del período. Responsable tomado de la ficha del proyecto; compara el margen ofertado vs el real.
-    Muestra solo obras <b>Abiertas y Parciales</b> con responsable asignado (las Cerradas y sin responsable no aparecen).
+    Muestra solo obras <b>Abiertas y Parciales</b> (las Cerradas no aparecen), tengan o no responsable.
 </x-page-banner>
 
 <x-filtros-panel>
@@ -104,7 +104,7 @@
                     <span style="font-family:ui-monospace,monospace;font-weight:600;color:#1B3F6E">{{ $o['codigo'] }}</span>
                     <div style="font-size:11px;color:#6B7280;margin-left:12px">{{ \Illuminate\Support\Str::limit($o['nombre'] ?: '—', 46) }}@if($o['cliente']) · {{ \Illuminate\Support\Str::limit($o['cliente'], 28) }}@endif</div>
                 </td>
-                <td style="padding:9px 14px;color:#374151">{{ $o['responsable'] ?: '—' }}</td>
+                <td style="padding:9px 14px;color:{{ $o['responsable'] ? '#374151' : '#9CA3AF' }}">{{ $o['responsable'] ?: '— Sin asignar —' }}</td>
                 <td style="padding:9px 14px;color:#6B7280">{{ ucfirst($o['tipo']) }}</td>
                 <td style="padding:9px 14px;text-align:right;color:#1B3F6E">{{ $fmt($ing) }}</td>
                 <td style="padding:9px 14px;text-align:right;color:#374151">{{ $fmt($o['total_costo']) }}</td>

@@ -176,7 +176,7 @@ class ConsultaProyectosGerenciaTest extends TestCase
     }
 
     #[Test]
-    public function excluye_las_cerradas_y_las_sin_responsable(): void
+    public function excluye_solo_las_cerradas_e_incluye_las_sin_responsable(): void
     {
         $this->seedEsc(); // C-700 (Ana Ruiz) y O0001 (Beto Gómez), ambas abiertas con responsable
 
@@ -192,21 +192,36 @@ class ConsultaProyectosGerenciaTest extends TestCase
         FichaProyecto::create(['codigo_proyecto' => 'C-901', 'nombre_obra' => 'Obra Manual', 'responsable_obra' => 'Ana Ruiz']);
         ObraEstado::create(['codigo_proyecto' => 'C-901', 'estado' => 'cerrada']);
 
-        // Con actividad pero SIN responsable en la ficha: no aparece.
+        // Con actividad pero SIN responsable en la ficha: SÍ aparece (— Sin asignar —).
         $this->ingreso('C-902', 2000000);
         $this->costo('C-902', '14200105', 500000);
         FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable', 'responsable_obra' => '']);
 
-        // Con actividad y sin ficha (por tanto sin responsable): no aparece.
+        // Con actividad y sin ficha (por tanto sin responsable): SÍ aparece.
         $this->ingreso('C-903', 2000000);
         $this->costo('C-903', '14200105', 500000);
 
-        $codigos = collect($this->actingAs($this->gerente())
+        $obras = collect($this->actingAs($this->gerente())
             ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
-            ->viewData('obras'))->pluck('codigo')->all();
+            ->viewData('obras'))->keyBy('codigo');
 
-        sort($codigos);
-        $this->assertSame(['C-700', 'O0001'], $codigos); // solo abiertas/parciales con responsable
+        $codigos = $obras->keys()->sort()->values()->all();
+        $this->assertSame(['C-700', 'C-902', 'C-903', 'O0001'], $codigos); // cerradas fuera; sin responsable dentro
+        $this->assertNull($obras['C-902']['responsable']);                 // se mostrará como "— Sin asignar —"
+        $this->assertNull($obras['C-903']['responsable']);
+    }
+
+    #[Test]
+    public function las_obras_sin_responsable_se_muestran_como_sin_asignar(): void
+    {
+        $this->ingreso('C-902', 2000000);
+        $this->costo('C-902', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable']);
+
+        $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->assertOk()
+            ->assertSee('Sin asignar', false);
     }
 
     #[Test]

@@ -66,7 +66,7 @@ class ConsultaProyectosController extends Controller
 
         $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
         foreach ($d['obras'] as $o) {
-            $fila = [$o['codigo'], $o['nombre'], $o['cliente'], $o['responsable'] ?: '—',
+            $fila = [$o['codigo'], $o['nombre'], $o['cliente'], $o['responsable'] ?: '— Sin asignar —',
                 ucfirst($o['tipo']), round($o['ingreso'])];
             foreach (self::CATS as $ck) $fila[] = round($o['cat'][$ck] ?? 0);
             $fila[] = round($o['total_costo']);
@@ -142,7 +142,6 @@ class ConsultaProyectosController extends Controller
 
             $ficha = $fichas[$cod] ?? null;
             $resp  = trim((string) ($ficha->responsable_obra ?? ''));
-            if ($resp === '') continue;                           // sin responsable asignado → no aparece
             if ($responsable && $resp !== $responsable) continue;
 
             $nombre = ($ficha->nombre_obra ?? null) ?: ($nombres[$cod] ?? '');
