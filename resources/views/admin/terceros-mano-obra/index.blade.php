@@ -3,15 +3,15 @@
 @section('title', 'Terceros de mano de obra')
 
 @section('content')
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <h1 class="page-title" style="margin:0">Terceros de mano de obra · reparto por porcentaje</h1>
-    <button type="button" onclick="document.getElementById('form-nueva').style.display='block'"
-        style="font-size:13px;padding:8px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;cursor:pointer">+ Nueva persona</button>
-</div>
-
-<p style="font-size:12px;color:#6B7280;margin:8px 0 1rem">
-    Personas de mantenimiento cuya mano de obra se reparte por porcentajes entre proyectos. Aquí solo se administran las cédulas y nombres; los porcentajes los define operaciones al distribuir.
-</p>
+<x-page-banner title="Terceros de mano de obra">
+    <x-slot:iconSvg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </x-slot:iconSvg>
+    Lista de personas cuyo costo de mano de obra se reparte entre los proyectos. El sistema las identifica por su <b>cédula</b> o <b>nombre</b>. El reparto entre proyectos lo define el área de operaciones al distribuir; aquí solo agregas o quitas personas de la lista.
+    <x-slot:actions>
+        <button type="button" class="btn-banner" onclick="document.getElementById('form-nueva').style.display='block'">+ Nueva persona</button>
+    </x-slot:actions>
+</x-page-banner>
 
 @if(session('success'))
 <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem">{{ session('success') }}</div>
@@ -24,7 +24,7 @@
 
 {{-- Formulario nueva persona (oculto por defecto) --}}
 <div id="form-nueva" style="display:none;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:1rem">
-    <form method="POST" action="{{ route('admin.terceros-mano-obra.store') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <form method="POST" action="{{ route('contable.terceros-mano-obra.store') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         @csrf
         <div>
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Cédula</label>
@@ -49,8 +49,30 @@
     </form>
 </div>
 
-<div class="card" style="padding:0;overflow:hidden">
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
+{{-- Buscador y filtro de estado --}}
+<form method="GET" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+    <div style="flex:1;min-width:220px">
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Buscar</label>
+        <input type="text" name="q" value="{{ $q }}" placeholder="Cédula o nombre…"
+            style="width:100%;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:3px">Estado</label>
+        <select name="estado" onchange="this.form.submit()"
+            style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+            <option value="activos" {{ $estado === 'activos' ? 'selected' : '' }}>Activos</option>
+            <option value="inactivos" {{ $estado === 'inactivos' ? 'selected' : '' }}>Inactivos</option>
+            <option value="todos" {{ $estado === 'todos' ? 'selected' : '' }}>Todos</option>
+        </select>
+    </div>
+    <button type="submit" style="padding:7px 18px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;height:36px">Buscar</button>
+    @if($q !== '' || $estado !== 'activos')
+    <a href="{{ route('contable.terceros-mano-obra.index') }}" style="padding:7px 14px;background:white;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#6B7280;text-decoration:none;height:36px;display:inline-flex;align-items:center">Limpiar</a>
+    @endif
+</form>
+
+<div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px">
         <thead>
             <tr style="background:#1B3F6E;color:white">
                 <th style="padding:10px 14px;text-align:left">Cédula</th>
@@ -61,11 +83,11 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($terceros as $t)
+            @forelse($terceros as $t)
             <tr style="border-bottom:1px solid #E5E7EB;{{ $t->activo ? '' : 'opacity:.5' }}">
                 <td style="padding:10px 14px;font-family:monospace;font-weight:600;color:#1B3F6E">{{ $t->cedula }}</td>
                 <td style="padding:10px 14px">
-                    <form method="POST" action="{{ route('admin.terceros-mano-obra.update', $t->id) }}" style="display:flex;gap:6px;align-items:center">
+                    <form method="POST" action="{{ route('contable.terceros-mano-obra.update', $t->id) }}" style="display:flex;gap:6px;align-items:center">
                         @csrf @method('PUT')
                         <input type="text" name="nombre" value="{{ $t->nombre }}" style="flex:1;min-width:200px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px;text-transform:uppercase">
                         <select name="departamento" style="padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:12px">
@@ -83,7 +105,7 @@
                     <span style="font-size:11px;color:{{ $t->activo ? '#15803D' : '#9CA3AF' }}">{{ $t->activo ? 'Activo' : 'Inactivo' }}</span>
                 </td>
                 <td style="padding:10px 14px;text-align:center">
-                    <form method="POST" action="{{ route('admin.terceros-mano-obra.toggle', $t->id) }}" style="display:inline">
+                    <form method="POST" action="{{ route('contable.terceros-mano-obra.toggle', $t->id) }}" style="display:inline">
                         @csrf @method('PUT')
                         <button type="submit" style="font-size:11px;padding:5px 12px;border:1px solid {{ $t->activo ? '#DC2626' : '#15803D' }};border-radius:6px;color:{{ $t->activo ? '#DC2626' : '#15803D' }};background:white;cursor:pointer">
                             {{ $t->activo ? 'Desactivar' : 'Activar' }}
@@ -91,7 +113,11 @@
                     </form>
                 </td>
             </tr>
-            @endforeach
+            @empty
+            <tr><td colspan="5" style="padding:1.5rem;text-align:center;color:#9CA3AF">
+                {{ ($q !== '' || $estado !== 'activos') ? 'No hay personas que coincidan con la búsqueda.' : 'Aún no hay personas en la lista.' }}
+            </td></tr>
+            @endforelse
         </tbody>
     </table>
 </div>

@@ -13,8 +13,6 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
     protected $mes;
     protected $anio;
 
-    private $prefijosValidos = ['O', 'GI', 'MOA', 'MOB', 'MOC', 'MO', 'C', 'R', 'GM', 'MTO', 'INS'];
-
     public function __construct($mes, $anio)
     {
         $this->mes  = $mes;
@@ -33,7 +31,7 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
 
     public function model(array $row)
     {
-       $movto = $this->limpiarNumero($row['movto_libro2'] ?? 0);
+       $movto = $this->limpiarNumero($row['movimiento_libro_1'] ?? $row['movto_libro_1'] ?? $row['movto_libro1'] ?? 0);
         if ($movto == 0) {
             $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
             $credito = $this->limpiarNumero($row['creditos'] ?? 0);
@@ -44,14 +42,15 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $periodo = trim($row['periodo'] ?? '');
         if (str_ends_with((string)$periodo, '13')) return null;
 
+        // Cualquier obra con código no vacío (sin lista blanca de prefijos, que botaba obras
+        // reales). Solo se descartan filas sin código o de totales/encabezado.
         $unidad = trim($row['unidad_de_negocio'] ?? '');
-        if (!$this->tienePrefijosValido($unidad)) return null;
+        if ($unidad === '' || str_contains(strtoupper($unidad), 'TOTAL')) return null;
 
         $nombreUnidad = trim($row['nombre_unidad_de_negocio'] ?? '');
         $unidadUnificada = $unidad && $nombreUnidad
             ? $unidad . ' - ' . $nombreUnidad
             : ($unidad ?: $nombreUnidad);
-        if (str_contains($unidadUnificada, 'COM00099')) return null;
 
         $cuenta = trim($row['cuenta'] ?? '');
         $cuentaMayor = $this->clasificarCuenta($cuenta);
@@ -68,16 +67,27 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
             ? $movto * -1
             : $movto;
 
+        $tercero   = (trim($row['tercero'] ?? '') ?: trim($row['tercero_docto'] ?? '')) ?: null;
+        $documento = (trim((string) ($row['docto'] ?? $row['documento'] ?? $row['numero_documento'] ?? '')) ?: null);
+        $debito    = $this->limpiarNumero($row['debitos']  ?? 0);
+        $credito   = $this->limpiarNumero($row['creditos'] ?? 0);
+
         return new RegistroFinanciero([
             'codigo_proyecto'  => $unidad,
             'nombre_proyecto'  => $nombreUnidad,
             'cuenta_contable'  => $cuenta,
             'descripcion'      => trim($row['nombre_auxiliar'] ?? ''),
-            'tercero_dcto'     => trim($row['tercero_docto'] ?? '') ?: null,
-            'razon_social'     => trim($row['razon_social_docto'] ?? '') ?: null,
-            'valor_debito'     => $this->limpiarNumero($row['debitos']  ?? 0),
-            'valor_credito'    => $this->limpiarNumero($row['creditos'] ?? 0),
-            'movto_libro2'     => $movto,
+            // Tercero del MOVIMIENTO (el empleado en nómina), no el del documento (SECAR).
+            'tercero_dcto'     => $tercero,
+            'razon_social'     => (trim($row['nombre_tercero'] ?? '') ?: trim($row['razon_social_docto'] ?? '')) ?: null,
+            // Número de documento ("Docto." → llave slug 'docto'); null si viene vacío.
+            'documento'        => $documento,
+            'tipo_documento'   => (trim((string) ($row['tipo_docto'] ?? $row['tipo_documento'] ?? $row['tipo_de_documento'] ?? $row['tipo_doc'] ?? $row['tipo'] ?? '')) ?: null),
+            'fecha_docto'      => $this->fechaDocto($row['fecha_docto'] ?? $row['fecha_dcto'] ?? $row['fecha_documento'] ?? $row['fecha_del_documento'] ?? $row['fecha_doc'] ?? $row['fecha'] ?? null),
+            'dedup_hash'       => MovimientoBiableImport::dedupHash($unidad, $cuenta, $tercero, $documento, $debito, $credito, (string) $periodo),
+            'valor_debito'     => $debito,
+            'valor_credito'    => $credito,
+            'movto_libro1'     => $movto,
             'cuenta_mayor'     => $cuentaMayor,
             'signo_contable'   => $signo,
             'estado_er'        => $estadoER,
@@ -89,18 +99,16 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         ]);
     }
 
-    private function tienePrefijosValido($unidad): bool
-    {
-        foreach ($this->prefijosValidos as $prefijo) {
-            if (str_starts_with($unidad, $prefijo)) return true;
-        }
-        return false;
-    }
 
     private function clasificarCuenta($cuenta): string
     {
-        if (str_starts_with($cuenta, '1420')) return 'Costos por aplicar';
+        // TODA la cuenta 14 (no solo 1420): incluye los créditos de reverso del ERP en subcuentas
+        // como 14552505, para que el neto (débito − crédito) de la bolsa cuadre con el Libro 1.
+        if (str_starts_with($cuenta, '14')) return 'Costos por aplicar';
         if (str_starts_with($cuenta, '6'))    return 'Costos aplicados';
+        // 26 (provisiones) y 28 (facturación anticipada): se cargan como datos, fuera de costos.
+        if (str_starts_with($cuenta, '26'))   return 'Provisiones';
+        if (str_starts_with($cuenta, '28'))   return 'Facturación anticipada';
         if (str_starts_with($cuenta, '1'))    return 'Activo';
         if (str_starts_with($cuenta, '2'))    return 'Pasivo';
         if (str_starts_with($cuenta, '3'))    return 'Patrimonio';
@@ -116,5 +124,15 @@ class RegistroFinancieroImport implements ToModel, WithHeadingRow, WithChunkRead
         $valor = str_replace(['$', '.', ' '], '', (string)$valor);
         $valor = str_replace(',', '.', $valor);
         return is_numeric($valor) ? floatval($valor) : 0;
+    }
+
+    /** "Fecha_docto" (AAAAMMDD o AAAA-MM-DD) → 'Y-m-d', o null si no es una fecha válida. */
+    private function fechaDocto($valor): ?string
+    {
+        $d = preg_replace('/\D/', '', (string) $valor);
+        if (strlen($d) !== 8) return null;
+        $y = (int) substr($d, 0, 4); $m = (int) substr($d, 4, 2); $day = (int) substr($d, 6, 2);
+        if (! checkdate($m, $day, $y)) return null;
+        return sprintf('%04d-%02d-%02d', $y, $m, $day);
     }
 }

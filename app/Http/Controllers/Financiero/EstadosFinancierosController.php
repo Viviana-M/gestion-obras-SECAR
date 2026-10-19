@@ -122,15 +122,21 @@ class EstadosFinancierosController extends Controller
             $code  = (string) $l->cuenta_contable;
             $monto = (float) $l->total * $mult; // queda positivo
 
+            // Para cuentas de menos de 8 dígitos, substr(code,0,6) y substr(code,0,8)
+            // devuelven el mismo prefijo; sin deduplicar, el nodo hoja recibía el monto
+            // dos veces. $vistos evita el doble conteo por cada código.
+            $vistos = [];
             foreach ($cortes as $len => $nivel) {
                 $pref = substr($code, 0, $len);
-                if ($pref === '') continue;
+                if ($pref === '' || isset($vistos[$pref])) continue;
+                $vistos[$pref] = true;
 
                 if (!isset($nodos[$pref])) {
                     $nodos[$pref] = ['code' => $pref, 'len' => $len, 'nivel' => $nivel, 'nombre' => '', 'monto' => 0];
                 }
                 $nodos[$pref]['monto'] += $monto;
-                if ($len === 8) $nodos[$pref]['nombre'] = $l->descripcion;
+                // El nombre se pone en el nodo hoja (el prefijo que es el código completo).
+                if ($pref === $code) $nodos[$pref]['nombre'] = $l->descripcion;
             }
         }
 

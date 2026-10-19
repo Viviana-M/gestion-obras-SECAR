@@ -21,15 +21,10 @@ class AuthenticatedSessionController extends Controller
         $request->authenticate();
         $request->session()->regenerate();
 
-        $rol = auth()->user()->rol;
-
-        return match($rol) {
-            'financiero' => redirect('/financiero/dashboard'),
-            'operativo'  => redirect('/operativo/dashboard'),
-            'comercial'  => redirect('/comercial/cotizaciones'),
-            'contable'   => redirect('/contable/dashboard'),
-            default      => redirect('/dashboard'),
-        };
+        // El usuario aterriza en el primer módulo que puede ver (según sus permisos),
+        // no en un destino fijo por rol: los roles son cargos y todos terminaban en el
+        // dashboard financiero.
+        return redirect(auth()->user()->paginaInicio());
     }
 
     public function destroy(Request $request): RedirectResponse
