@@ -153,10 +153,6 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
 
     // ══════════════════════ OPERATIVO ══════════════════════
     Route::middleware('modulo:operacion')->group(function () {
-        // Forecast (respaldo)
-        Route::get('/operativo/forecast', [\App\Http\Controllers\Operativo\ForecastController::class, 'index'])->name('operativo.forecast');
-        Route::post('/operativo/forecast/guardar', [\App\Http\Controllers\Operativo\ForecastController::class, 'guardar'])->name('operativo.forecast.guardar');
-        Route::post('/operativo/forecast/enviar', [\App\Http\Controllers\Operativo\ForecastController::class, 'enviar'])->name('operativo.forecast.enviar');
         Route::get('/operativo/dashboard', function () {
             return view('operativo.dashboard');
         });

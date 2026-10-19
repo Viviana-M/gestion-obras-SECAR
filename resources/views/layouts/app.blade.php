@@ -235,8 +235,6 @@
             <div class="submenu">
                 <div class="submenu-group-label">Accesos</div>
                 <a href="{{ route('admin.usuarios.index') }}" class="{{ request()->is('admin/usuarios*') ? 'active' : '' }}">Usuarios</a>
-                <div class="submenu-group-label">Herramientas</div>
-                <a href="{{ route('operativo.forecast') }}" class="{{ request()->is('operativo/forecast') ? 'active' : '' }}">Proyección de proyectos</a>
                 <div class="submenu-group-label">Maestros</div>
                 <a href="{{ route('operativo.maestro.index') }}" class="{{ request()->is('operativo/maestro-comercial') ? 'active' : '' }}">Maestro de proyectos</a>
                 <a href="{{ route('admin.un-bolsas.index') }}">Unidades de negocio</a>
