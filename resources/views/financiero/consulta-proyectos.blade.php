@@ -10,7 +10,13 @@
     // Esquema (orden pedido por gerencia) y su etiqueta.
     $orden = ['MOI','EQU-MAT-SUM','MOE','MOFIJAOPER','OTROS COSTO'];
     $part = fn($v, $ing) => abs($ing) > 0.5 ? number_format($v / $ing * 100, 1, ',', '.').'%' : '—';
-    $colMc = fn($v) => $v === null ? '#6B7280' : ($v < 0 ? '#DC2626' : ($v >= 20 ? '#15803D' : '#B45309'));
+    // Semáforo financiero por departamento (Mant: verde≥30/ámbar≥27/rojo<27 · Inst: ≥23/≥20/<20,
+    // negativos en rojo). Devuelve [fondo, texto] de COLORES_SEMAFORO según nivelMargenCalor.
+    $sem = fn($v, $dep) => \App\Services\DistribucionService::COLORES_SEMAFORO[
+        \App\Services\DistribucionService::nivelMargenCalor($v, $dep)
+    ];
+    // Color de monto $ por signo (independiente del semáforo).
+    $colSigno = fn($v) => $v === null ? '#6B7280' : ($v < 0 ? '#DC2626' : '#15803D');
 @endphp
 
 <x-page-banner title="Margen por proyecto" icon="📊" :badge="$departamento ? ucfirst($departamento) : null">
@@ -109,7 +115,8 @@
                 <td style="padding:9px 14px;text-align:right;color:#1B3F6E">{{ $fmt($ing) }}</td>
                 <td style="padding:9px 14px;text-align:right;color:#374151">{{ $fmt($o['total_costo']) }}</td>
                 <td style="padding:9px 14px;text-align:right">
-                    <span style="font-weight:700;padding:2px 9px;border-radius:9px;color:#fff;background:{{ $colMc($o['mc_pct']) }}">{{ $pct($o['mc_pct']) }}</span>
+                    @php $s = $sem($o['mc_pct'], $o['departamento']); @endphp
+                    <span style="font-weight:700;padding:2px 9px;border-radius:9px;background:{{ $s[0] }};color:{{ $s[1] }}">{{ $pct($o['mc_pct']) }}</span>
                 </td>
                 <td style="padding:9px 14px;text-align:right;color:#6B7280">{{ $pct($o['ofertado']) }}</td>
             </tr>
@@ -141,10 +148,13 @@
                                 <td style="padding:5px 8px;text-align:right;font-weight:700">{{ $fmt($o['total_costo']) }}</td>
                                 <td style="padding:5px 8px;text-align:right;color:#9CA3AF">{{ $part($o['total_costo'], $ing) }}</td>
                             </tr>
+                            @php $sd = $sem($o['mc_pct'], $o['departamento']); @endphp
                             <tr style="border-top:2px solid #BEE3C9;background:#F3F8F4">
-                                <td style="padding:6px 8px;font-weight:800;color:{{ $colMc($o['mc_pct']) }}">Margen de contribución</td>
-                                <td style="padding:6px 8px;text-align:right;font-weight:800;color:{{ $colMc($o['mc_pct']) }}">{{ $fmt($o['mc']) }}</td>
-                                <td style="padding:6px 8px;text-align:right;font-weight:800;color:{{ $colMc($o['mc_pct']) }}">{{ $pct($o['mc_pct']) }}</td>
+                                <td style="padding:6px 8px;font-weight:800;color:{{ $colSigno($o['mc']) }}">Margen de contribución</td>
+                                <td style="padding:6px 8px;text-align:right;font-weight:800;color:{{ $colSigno($o['mc']) }}">{{ $fmt($o['mc']) }}</td>
+                                <td style="padding:6px 8px;text-align:right;font-weight:800">
+                                    <span style="padding:2px 9px;border-radius:9px;background:{{ $sd[0] }};color:{{ $sd[1] }}">{{ $pct($o['mc_pct']) }}</span>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -158,7 +168,7 @@
                 <td style="padding:10px 14px;color:#1B3F6E" colspan="3">Total</td>
                 <td style="padding:10px 14px;text-align:right;color:#1B3F6E">{{ $fmt($totales['ingreso']) }}</td>
                 <td style="padding:10px 14px;text-align:right;color:#1B3F6E">{{ $fmt($totales['total_costo']) }}</td>
-                <td style="padding:10px 14px;text-align:right;color:{{ $colMc($totales['mc_pct']) }}">{{ $pct($totales['mc_pct']) }}</td>
+                <td style="padding:10px 14px;text-align:right;color:{{ $colSigno($totales['mc']) }}">{{ $pct($totales['mc_pct']) }}</td>
                 <td></td>
             </tr>
         </tfoot>

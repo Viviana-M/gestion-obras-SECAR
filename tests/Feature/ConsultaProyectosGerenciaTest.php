@@ -254,6 +254,24 @@ class ConsultaProyectosGerenciaTest extends TestCase
     }
 
     #[Test]
+    public function colorea_el_mc_con_el_semaforo_segun_el_departamento(): void
+    {
+        // Mant C-700 @ 20% → rojo (mant <27). Inst O0001 @ 20% → ámbar (inst ≥20 y <23): mismo %,
+        // distinto color por departamento. Mant C-701 @ 35% → verde (mant ≥30).
+        $this->ingreso('C-700', 1000000); $this->costo('C-700', '14200105', 800000); $this->saldo14('C-700');
+        $this->ingreso('O0001', 1000000); $this->costo('O0001', '14200105', 800000); $this->saldo14('O0001');
+        $this->ingreso('C-701', 1000000); $this->costo('C-701', '14200105', 650000); $this->saldo14('C-701');
+
+        $html = $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('background:#DC2626', $html); // rojo (C-700, mant 20%)
+        $this->assertStringContainsString('background:#FDE047', $html); // ámbar (O0001, inst 20%)
+        $this->assertStringContainsString('background:#16A34A', $html); // verde (C-701, mant 35%)
+    }
+
+    #[Test]
     public function requiere_el_modulo_de_gestion_financiera(): void
     {
         $sin = User::factory()->create([
