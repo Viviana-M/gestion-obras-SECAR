@@ -106,9 +106,13 @@ class ConsultaProyectosController extends Controller
      */
     private function datos(int $mes, int $anio, ?string $departamento, string $tipo, ?string $responsable, string $q): array
     {
-        $esquema = $this->svc->esquemaPorObra($anio, $mes);
+        // Mismas obras que ve Operaciones en Distribución de costos: proyectos con saldo por distribuir
+        // (cuenta 1420 neto ≥ $1) al corte — no todo el portafolio.
+        $codigos = $this->svc->codigosConSaldoPorDistribuir($anio, $mes);
 
-        $codigos = array_keys($esquema);
+        $esquema = $this->svc->esquemaPorObra($anio, $mes);  // P&L (ingreso/costos) por obra
+        $vacio   = ['ingreso' => 0.0, 'cat' => array_fill_keys(self::CATS, 0.0), 'total_costo' => 0.0, 'mc' => 0.0, 'mc_pct' => null];
+
         $fichas  = FichaProyecto::whereIn('codigo_proyecto', $codigos)
             ->get(['codigo_proyecto', 'nombre_obra', 'cliente', 'responsable_obra', 'responsable_comercial', 'margen_ofertado'])
             ->keyBy('codigo_proyecto');
@@ -127,9 +131,8 @@ class ConsultaProyectosController extends Controller
         $obras = [];
         $tot = ['ingreso' => 0.0, 'cat' => array_fill_keys(self::CATS, 0.0), 'total_costo' => 0.0, 'mc' => 0.0];
 
-        foreach ($esquema as $cod => $pnl) {
-            // Solo obras con actividad real en el corte (ingreso o costo).
-            if (round($pnl['ingreso']) == 0 && round($pnl['total_costo']) == 0) continue;
+        foreach ($codigos as $cod) {
+            $pnl = $esquema[$cod] ?? $vacio;
 
             // Excluir las Cerradas: solo se muestran Abiertas y Parciales.
             if (isset($cerradas[$cod]) || ($estadoManual[$cod] ?? null) === 'cerrada') continue;

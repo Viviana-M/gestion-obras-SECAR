@@ -731,6 +731,35 @@ class DistribucionService
     }
 
     /**
+     * CÓDIGOS DE OBRA CON SALDO POR DISTRIBUIR (el mismo criterio del listado de Distribución de
+     * costos): obras con saldo NETO real en la cuenta 1420 (|SUM(débito − crédito)| redondeado ≥ $1)
+     * al corte (acumulado por defecto, o solo el mes con vista='mes'), excluyendo las U.N. de bolsa.
+     * Es la lista de proyectos "abiertos/parciales con saldo por distribuir" que ve Operaciones.
+     *
+     * @return array<int,string>
+     */
+    public function codigosConSaldoPorDistribuir(int $anio, int $mes, string $vista = 'todo'): array
+    {
+        $q = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+            ->where('cuenta_contable', 'like', self::PREFIJO_BOLSA.'%') // solo 1420 (lo que se distribuye)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
+            ->groupBy('codigo_proyecto')
+            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1');          // |neto| ≥ $1 (sin $0 ni centavos)
+        if ($vista === 'mes') {
+            $q->where('anio', $anio)->where('mes', $mes);
+        } else {
+            $q->where(fn ($x) => $x->where('anio', '<', $anio)
+                ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes)));
+        }
+
+        $bolsas = array_flip(UnBolsa::codigos()); // las bolsas de área no son obras
+        return array_values(array_filter(
+            $q->pluck('codigo_proyecto')->all(),
+            fn ($c) => ! isset($bolsas[(string) $c])
+        ));
+    }
+
+    /**
      * ESQUEMA DE COSTOS POR OBRA (P&L para gerencia), ACUMULADO al corte (mes/año). Por cada obra con
      * ingreso o costo reconocido devuelve: ingreso (cuenta 41), el costo reconocido (cuenta 61) abierto
      * por categoría/estructura (MOI, EQU-MAT-SUM, MOE, MOFIJAOPER, OTROS COSTO), el total costo, el

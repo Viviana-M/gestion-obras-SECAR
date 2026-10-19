@@ -157,9 +157,8 @@
             <div class="submenu">
                 <div class="submenu-group-label">Tableros</div>
                 <a href="/dashboard" class="{{ request()->is('dashboard') ? 'active' : '' }}">Panel gerencial</a>
-                <a href="/financiero/dashboard" class="{{ request()->is('financiero/dashboard') ? 'active' : '' }}">Proyectos en curso</a>
-                <div class="submenu-group-label">Consulta</div>
                 <a href="{{ route('financiero.proyectos') }}" class="{{ request()->is('financiero/proyectos') ? 'active' : '' }}">Margen por proyecto</a>
+                <div class="submenu-group-label">Consulta</div>
                 <a href="/financiero/historicos" class="{{ request()->is('financiero/historicos') ? 'active' : '' }}">Proyectos cerrados</a>
                 <a href="/financiero/estados-financieros" class="{{ request()->is('financiero/estados-financieros') ? 'active' : '' }}">Estados financieros</a>
             </div>

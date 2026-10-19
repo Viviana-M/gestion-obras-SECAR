@@ -53,6 +53,16 @@ class ConsultaProyectosGerenciaTest extends TestCase
         ]);
     }
 
+    /** Saldo por distribuir en cuenta 1420 (hace que la obra aparezca en Distribución y, por tanto, en gerencia). */
+    private function saldo14(string $cod, float $neto = -100000, int $mes = 6, int $anio = 2026): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod, 'cuenta_contable' => '14200105',
+            'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => $neto, 'valor_debito' => 0, 'valor_credito' => 0,
+            'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
     private function seedEsc(): void
     {
         $this->homolog('14200105', 'EQU-MAT-SUM');   // Equipos y materiales
@@ -62,12 +72,14 @@ class ConsultaProyectosGerenciaTest extends TestCase
         $this->ingreso('C-700', 1000000);
         $this->costo('C-700', '14200105', 300000);
         $this->costo('C-700', '14200530', 200000);
+        $this->saldo14('C-700'); // saldo por distribuir → aparece en Distribución
         FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra Contrato', 'cliente' => 'Clínica X',
             'responsable_obra' => 'Ana Ruiz', 'responsable_comercial' => 'Luis Paz', 'margen_ofertado' => 45]);
 
         // O0001 (instalaciones, obras): ingreso 500k, costo 400k materiales → MC 100k (20%).
         $this->ingreso('O0001', 500000);
         $this->costo('O0001', '14200105', 400000);
+        $this->saldo14('O0001');
         FichaProyecto::create(['codigo_proyecto' => 'O0001', 'nombre_obra' => 'Obra Inst', 'cliente' => 'Hotel Y',
             'responsable_obra' => 'Beto Gómez', 'margen_ofertado' => 25]);
     }
@@ -180,26 +192,22 @@ class ConsultaProyectosGerenciaTest extends TestCase
     {
         $this->seedEsc(); // C-700 (Ana Ruiz) y O0001 (Beto Gómez), ambas abiertas con responsable
 
-        // Cerrada por cierre contable: no aparece aunque tenga responsable y actividad.
-        $this->ingreso('C-900', 2000000);
-        $this->costo('C-900', '14200105', 500000);
+        // Cerrada por cierre contable: no aparece aunque tenga saldo por distribuir y responsable.
+        $this->saldo14('C-900');
         FichaProyecto::create(['codigo_proyecto' => 'C-900', 'nombre_obra' => 'Obra Cerrada', 'responsable_obra' => 'Ana Ruiz']);
         ProyectoCerrado::create(['codigo_proyecto' => 'C-900', 'tipo_cierre' => 'total', 'user_id' => $this->gerente()->id]);
 
         // Cerrada por estado manual: tampoco aparece.
-        $this->ingreso('C-901', 2000000);
-        $this->costo('C-901', '14200105', 500000);
+        $this->saldo14('C-901');
         FichaProyecto::create(['codigo_proyecto' => 'C-901', 'nombre_obra' => 'Obra Manual', 'responsable_obra' => 'Ana Ruiz']);
         ObraEstado::create(['codigo_proyecto' => 'C-901', 'estado' => 'cerrada']);
 
-        // Con actividad pero SIN responsable en la ficha: SÍ aparece (— Sin asignar —).
-        $this->ingreso('C-902', 2000000);
-        $this->costo('C-902', '14200105', 500000);
+        // Con saldo por distribuir pero SIN responsable en la ficha: SÍ aparece (— Sin asignar —).
+        $this->saldo14('C-902');
         FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable', 'responsable_obra' => '']);
 
-        // Con actividad y sin ficha (por tanto sin responsable): SÍ aparece.
-        $this->ingreso('C-903', 2000000);
-        $this->costo('C-903', '14200105', 500000);
+        // Con saldo por distribuir y sin ficha (por tanto sin responsable): SÍ aparece.
+        $this->saldo14('C-903');
 
         $obras = collect($this->actingAs($this->gerente())
             ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
@@ -214,14 +222,35 @@ class ConsultaProyectosGerenciaTest extends TestCase
     #[Test]
     public function las_obras_sin_responsable_se_muestran_como_sin_asignar(): void
     {
-        $this->ingreso('C-902', 2000000);
-        $this->costo('C-902', '14200105', 500000);
+        $this->saldo14('C-902');
         FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable']);
 
         $this->actingAs($this->gerente())
             ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
             ->assertOk()
             ->assertSee('Sin asignar', false);
+    }
+
+    #[Test]
+    public function solo_muestra_las_obras_que_estan_en_distribucion(): void
+    {
+        $this->homolog('14200105', 'EQU-MAT-SUM');
+
+        // C-700: con saldo por distribuir (1420) → aparece.
+        $this->ingreso('C-700', 1000000);
+        $this->saldo14('C-700');
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'En distribución', 'responsable_obra' => 'Ana Ruiz']);
+
+        // C-800: con ingreso y costo reconocido pero SIN saldo en 1420 (ya distribuida) → NO aparece.
+        $this->ingreso('C-800', 2000000);
+        $this->costo('C-800', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-800', 'nombre_obra' => 'Sin saldo 14', 'responsable_obra' => 'Ana Ruiz']);
+
+        $cods = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->viewData('obras'))->pluck('codigo')->all();
+
+        $this->assertSame(['C-700'], $cods); // solo la que está en Distribución de costos
     }
 
     #[Test]
