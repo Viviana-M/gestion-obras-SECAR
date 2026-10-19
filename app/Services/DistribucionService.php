@@ -731,6 +731,86 @@ class DistribucionService
     }
 
     /**
+     * PROVISIONES (cuenta 26) por tercero, tras el MISMO cruce FIFO que la cuenta 14. Dentro de cada
+     * llave (U.N., cuenta) el crédito de SECAR y todos los negativos forman un pool que consume los
+     * débitos de cada tercero y de la mano de obra (directa + apoyo) en FIFO: primero fecha_docto NULL
+     * (más antiguos), luego fecha_docto ASC, desempate período ASC e id ASC; la MO se consume primero.
+     * Lo que sobrevive es el saldo REAL de provisión por tercero. NUNCA se cruza entre distintas U.N.
+     *
+     * Devuelve una fila por (U.N., cuenta, tercero) con saldo superviviente (≠ 0); el llamador agrega
+     * por tercero y arma el desglose por proyecto/U.N.
+     *
+     * @param array<int,string> $codigos U.N. a incluir (ya filtradas por departamento si aplica).
+     * @return array<int, array{un:string,nombre_proyecto:string,tercero_dcto:string,razon_social:string,saldo:float}>
+     */
+    public function provisionesPorTercero(array $codigos, int $anio, int $mes): array
+    {
+        if (empty($codigos)) {
+            return [];
+        }
+
+        // Acumulado al corte (mismo criterio de ventana que los saldos de la 14).
+        $filas = RegistroFinanciero::where('cuenta_mayor', 'Provisiones')
+            ->whereIn('codigo_proyecto', $codigos)
+            ->where(function ($q) use ($anio, $mes) {
+                $q->where('anio', '<', $anio)
+                  ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+            })
+            ->selectRaw('codigo_proyecto, cuenta_contable, tercero_dcto, razon_social, tipo_documento, documento, fecha_docto, '
+                . 'MAX(nombre_proyecto) as nombre_proyecto, MIN(anio*100+mes) as periodo, MIN(id) as min_id, '
+                . 'SUM(valor_debito) as deb, SUM(valor_credito) as cred')
+            ->groupBy('codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social', 'tipo_documento', 'documento', 'fecha_docto')
+            ->havingRaw('ABS(SUM(valor_debito) - SUM(valor_credito)) > 0.5')
+            ->get();
+
+        // Mano de obra (directa + apoyo) por tercero: sus débitos entran al cruce y se consumen primero.
+        $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
+            ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
+            ->map(fn ($c) => trim((string) $c))->filter()->flip();
+        $cuentasMo = array_flip(\App\Services\RedistribucionMoEspecialService::CUENTAS_MO);
+
+        // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable).
+        $porCuenta = [];
+        foreach ($filas as $f) {
+            $un = (string) $f->codigo_proyecto; $cuenta = (string) $f->cuenta_contable;
+            $key = $un.'|'.$cuenta;
+            $fecha = $f->fecha_docto ? substr((string) $f->fecha_docto, 0, 10) : null;
+            $ord = $fecha ? (int) str_replace('-', '', $fecha) : ((int) $f->periodo) * 100; // FIFO: NULL (período) primero
+            $tercero = trim((string) $f->tercero_dcto);
+            $porCuenta[$key][] = [
+                'un'              => $un,
+                'cuenta'          => $cuenta,
+                'tercero_dcto'    => $tercero,
+                'razon_social'    => trim((string) $f->razon_social),
+                'nombre_proyecto' => (string) $f->nombre_proyecto,
+                'ord'             => $ord,
+                'min_id'          => (int) $f->min_id,
+                'mo'              => isset($cuentasMo[$cuenta]) || isset($terceroMo[$tercero]),
+                'saldo'           => round((float) $f->deb - (float) $f->cred, 2), // Libro 1 = débito − crédito
+            ];
+        }
+
+        $out = [];
+        foreach ($porCuenta as $terceros) {
+            $this->cruzarFifo($terceros); // mismo cruce que la 14: los negativos/SECAR consumen FIFO los débitos
+            foreach ($terceros as $t) {
+                if (round((float) $t['saldo'], 2) == 0.0 && empty($t['alerta'])) {
+                    continue; // consumido por el cruce
+                }
+                $out[] = [
+                    'un'              => $t['un'],
+                    'nombre_proyecto' => $t['nombre_proyecto'],
+                    'tercero_dcto'    => $t['tercero_dcto'],
+                    'razon_social'    => $t['razon_social'],
+                    'saldo'           => round((float) $t['saldo'], 2),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Cruce FIFO GENERAL dentro de una (U.N., cuenta) (modifica $terceros por referencia). El llamador
      * ya agrupa por esa llave, así que aquí nunca se mezclan terceros de distintas U.N.
      *

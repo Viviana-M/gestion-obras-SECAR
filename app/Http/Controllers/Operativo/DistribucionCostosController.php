@@ -200,41 +200,49 @@ class DistribucionCostosController extends Controller
      */
     private function provisionesData(int $mes, int $anio, ?\App\Models\User $u, ?string $departamento, string $q): array
     {
-        $rows = RegistroFinanciero::where('cuenta_mayor', 'Provisiones')
+        // U.N. con provisiones (cuenta 26) en el corte, filtradas por departamento ANTES del cruce
+        // (el cruce es dentro de cada U.N., así que acotar las U.N. no altera su resultado).
+        $codigos = RegistroFinanciero::where('cuenta_mayor', 'Provisiones')
             ->where(function ($x) use ($anio, $mes) {
                 $x->where('anio', '<', $anio)
                   ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
             })
-            ->when($q !== '', fn ($x) => $x->where(fn ($w) => $w
-                ->where('razon_social', 'like', "%{$q}%")
-                ->orWhere('tercero_dcto', 'like', "%{$q}%")))
-            ->selectRaw('tercero_dcto, razon_social, codigo_proyecto, nombre_proyecto, '
-                .'SUM(valor_debito) as deb, SUM(valor_credito) as cred')
-            ->groupBy('tercero_dcto', 'razon_social', 'codigo_proyecto', 'nombre_proyecto')
-            ->get();
+            ->distinct()->pluck('codigo_proyecto')->all();
 
-        // Filtro por departamento a nivel de proyecto/U.N. (mismo criterio de prefijos que el resto).
-        $proyRows = $rows->map(fn ($r) => [
-            'codigo' => (string) $r->codigo_proyecto,
-            'nombre' => (string) $r->nombre_proyecto,
-            'nit'    => $r->tercero_dcto,
-            'razon'  => $r->razon_social,
-            'saldo'  => (float) $r->deb - (float) $r->cred,   // Libro 1 = débito − crédito
-        ])->all();
-        $proyRows = $this->soloDepartamentoPermitido($proyRows, $u, $departamento);
+        $codLista = $this->soloDepartamentoPermitido(
+            array_map(fn ($c) => ['codigo' => (string) $c], $codigos), $u, $departamento
+        );
+        $codigos = array_column($codLista, 'codigo');
 
-        // Agregación por tercero (Nit + razón social) con desglose por proyecto.
+        // Mismo cruce FIFO que la cuenta 14: dentro de cada (U.N., cuenta), el crédito de SECAR y los
+        // negativos consumen los débitos (MO primero) y sobrevive el saldo real por tercero.
+        $rows = $this->svc->provisionesPorTercero($codigos, $anio, $mes);
+
+        // Agregación por tercero (Nit + razón social) con desglose por proyecto/U.N. El buscador se
+        // aplica DESPUÉS del cruce (el cruce reatribuye el saldo entre terceros).
         $porTercero = [];
-        foreach ($proyRows as $pr) {
-            $key = ($pr['nit'] ?: '—').'|'.($pr['razon'] ?? '');
-            $porTercero[$key] ??= ['nit' => $pr['nit'], 'razon' => $pr['razon'], 'saldo' => 0.0, 'proyectos' => []];
-            $porTercero[$key]['saldo'] += $pr['saldo'];
-            if (round($pr['saldo']) != 0) {
-                $porTercero[$key]['proyectos'][] = [
-                    'codigo' => $pr['codigo'], 'nombre' => $pr['nombre'], 'saldo' => $pr['saldo'],
-                ];
+        foreach ($rows as $r) {
+            if ($q !== '' && stripos($r['tercero_dcto'].' '.$r['razon_social'], $q) === false) {
+                continue;
             }
+            $key = ($r['tercero_dcto'] ?: '—').'|'.($r['razon_social'] ?? '');
+            $porTercero[$key] ??= ['nit' => $r['tercero_dcto'] ?: null, 'razon' => $r['razon_social'] ?: null, 'saldo' => 0.0, 'proyectos' => []];
+            $porTercero[$key]['saldo'] += $r['saldo'];
+            $porTercero[$key]['proyectos'][] = [
+                'codigo' => $r['un'], 'nombre' => $r['nombre_proyecto'], 'saldo' => $r['saldo'],
+            ];
         }
+
+        // Compacta el desglose por proyecto (varias cuentas/documentos de una U.N. se suman) y oculta $0.
+        foreach ($porTercero as &$t) {
+            $porProy = [];
+            foreach ($t['proyectos'] as $p) {
+                $porProy[$p['codigo']] ??= ['codigo' => $p['codigo'], 'nombre' => $p['nombre'], 'saldo' => 0.0];
+                $porProy[$p['codigo']]['saldo'] += $p['saldo'];
+            }
+            $t['proyectos'] = array_values(array_filter($porProy, fn ($p) => round($p['saldo']) != 0));
+        }
+        unset($t);
 
         // Oculta terceros cuyo saldo redondeado es $0 (ya cruzados / sin provisión real).
         $filas = array_values(array_filter($porTercero, fn ($t) => round($t['saldo']) != 0));

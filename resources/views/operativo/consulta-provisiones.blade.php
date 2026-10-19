@@ -11,8 +11,9 @@
 @endphp
 
 <x-page-banner title="Provisiones" icon="📑" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
-    Saldo de provisión por tercero (cuenta 26, Libro&nbsp;1 = débito − crédito), acumulado al corte del
-    período. Vista <b>solo lectura</b>.
+    Saldo <b>real</b> de provisión por tercero (cuenta 26, Libro&nbsp;1 = débito − crédito), acumulado al
+    corte del período. Aplica el mismo cruce que la cuenta 14: el crédito de SECAR y los negativos
+    consumen los débitos (mano de obra primero) en FIFO dentro de cada (U.N., cuenta). Vista <b>solo lectura</b>.
 </x-page-banner>
 
 <x-filtros-panel>

@@ -25,13 +25,13 @@ class ConsultaProvisionesTest extends TestCase
     }
 
     /** Fila de cuenta 26 (provisión) para un tercero en un proyecto/U.N. */
-    private function prov(string $cod, string $nit, string $razon, float $debito, float $credito, int $mes = 7, int $anio = 2026): void
+    private function prov(string $cod, string $nit, string $razon, float $debito, float $credito, int $mes = 7, int $anio = 2026, ?string $fechaDocto = null): void
     {
         RegistroFinanciero::create([
             'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod,
             'cuenta_contable' => '26050501', 'cuenta_mayor' => 'Provisiones',
             'tercero_dcto' => $nit, 'razon_social' => $razon,
-            'valor_debito' => $debito, 'valor_credito' => $credito,
+            'valor_debito' => $debito, 'valor_credito' => $credito, 'fecha_docto' => $fechaDocto,
             'estado_er' => $debito - $credito, 'mes' => $mes, 'anio' => $anio,
         ]);
     }
@@ -155,6 +155,47 @@ class ConsultaProvisionesTest extends TestCase
                 && str_contains($plano, 'Proveedor A')
                 && str_contains($plano, 'TOTAL');
         });
+    }
+
+    #[Test]
+    public function el_credito_de_secar_consume_los_debitos_en_fifo_dentro_de_la_llave(): void
+    {
+        // Misma (U.N., cuenta): P (más antiguo) 1.000.000, Q (más reciente) 500.000, y SECAR −800.000.
+        // El reverso de SECAR consume primero el débito más antiguo (P): P→200.000, Q intacto, SECAR→0.
+        $this->prov('C-900', '900111', 'Prov P', 1000000, 0, 7, 2026, '2026-05-10');
+        $this->prov('C-900', '900222', 'Prov Q', 500000, 0, 7, 2026, '2026-06-20');
+        $this->prov('C-900', '890319324', 'SECAR SAS', 0, 800000, 7, 2026, '2026-06-30');
+
+        $resp = $this->actingAs($this->operador())
+            ->get(route('operativo.consulta-provisiones', ['mes' => 7, 'anio' => 2026]));
+        $resp->assertOk();
+
+        $filas = collect($resp->viewData('filas'))->keyBy('nit');
+        $this->assertEqualsWithDelta(200000, $filas['900111']['saldo'], 0.5); // P consumido por SECAR
+        $this->assertEqualsWithDelta(500000, $filas['900222']['saldo'], 0.5); // Q intacto
+        $this->assertArrayNotHasKey('890319324', $filas->all());               // SECAR queda en $0
+        $this->assertEqualsWithDelta(700000, $resp->viewData('total'), 0.5);
+    }
+
+    #[Test]
+    public function la_mano_de_obra_se_consume_antes_que_los_otros_terceros(): void
+    {
+        // La MO (directa/apoyo) entra al cruce y se consume PRIMERO, aunque sea más reciente.
+        \App\Models\TerceroManoObra::create(['cedula' => '555', 'nombre' => 'Obrero', 'departamento' => 'mantenimiento', 'activo' => true]);
+
+        // No-MO más antiguo (300.000), MO más reciente (300.000) y SECAR −300.000 en la misma llave.
+        $this->prov('C-910', '900333', 'Otros Costos SAS', 300000, 0, 7, 2026, '2026-04-01');
+        $this->prov('C-910', '555', 'Obrero', 300000, 0, 7, 2026, '2026-05-01');
+        $this->prov('C-910', '890319324', 'SECAR SAS', 0, 300000, 7, 2026, '2026-06-01');
+
+        $resp = $this->actingAs($this->operador())
+            ->get(route('operativo.consulta-provisiones', ['mes' => 7, 'anio' => 2026]));
+        $resp->assertOk();
+
+        $filas = collect($resp->viewData('filas'))->keyBy('nit');
+        // La MO se consumió primero (queda en $0, no aparece); sobrevive el tercero de otros costos.
+        $this->assertArrayNotHasKey('555', $filas->all());
+        $this->assertEqualsWithDelta(300000, $filas['900333']['saldo'], 0.5);
     }
 
     #[Test]
