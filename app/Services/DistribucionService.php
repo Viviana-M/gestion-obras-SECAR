@@ -799,19 +799,19 @@ class DistribucionService
     }
 
     /**
-     * PROVISIONES (cuenta 26) por tercero, tras el MISMO cruce FIFO que la cuenta 14. Dentro de cada
-     * llave (U.N., cuenta) el crédito de SECAR y todos los negativos forman un pool que consume los
-     * débitos de cada tercero y de la mano de obra (directa + apoyo) en FIFO: primero fecha_docto NULL
-     * (más antiguos), luego fecha_docto ASC, desempate período ASC e id ASC; la MO se consume primero.
-     * Lo que sobrevive es el saldo REAL de provisión por tercero. NUNCA se cruza entre distintas U.N.
+     * PROVISIONES (cuenta 26) tras el MISMO cruce FIFO que la cuenta 14. Dentro de cada llave
+     * (U.N., cuenta) el crédito de SECAR y todos los negativos forman un pool que consume los débitos
+     * de cada tercero y de la mano de obra (directa + apoyo) en FIFO: primero fecha_docto NULL (más
+     * antiguos), luego fecha_docto ASC, desempate período ASC e id ASC; la MO se consume primero. Lo
+     * que sobrevive es el saldo REAL de provisión. NUNCA se cruza entre distintas U.N.
      *
      * Devuelve una fila por (U.N., cuenta, tercero) con saldo superviviente (≠ 0); el llamador agrega
-     * por tercero y arma el desglose por proyecto/U.N.
+     * por obra (U.N.) o por tercero y arma el desglose por cuenta/tercero.
      *
      * @param array<int,string> $codigos U.N. a incluir (ya filtradas por departamento si aplica).
-     * @return array<int, array{un:string,nombre_proyecto:string,tercero_dcto:string,razon_social:string,saldo:float}>
+     * @return array<int, array{un:string,nombre_proyecto:string,cuenta:string,tercero_dcto:string,razon_social:string,saldo:float}>
      */
-    public function provisionesPorTercero(array $codigos, int $anio, int $mes): array
+    public function provisionesCruzadas(array $codigos, int $anio, int $mes): array
     {
         if (empty($codigos)) {
             return [];
@@ -868,6 +868,7 @@ class DistribucionService
                 $out[] = [
                     'un'              => $t['un'],
                     'nombre_proyecto' => $t['nombre_proyecto'],
+                    'cuenta'          => $t['cuenta'],
                     'tercero_dcto'    => $t['tercero_dcto'],
                     'razon_social'    => $t['razon_social'],
                     'saldo'           => round((float) $t['saldo'], 2),

@@ -11,7 +11,7 @@
 @endphp
 
 <x-page-banner title="Provisiones" icon="📑" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
-    Saldo <b>real</b> de provisión por tercero (cuenta 26, Libro&nbsp;1 = débito − crédito), acumulado al
+    Saldo <b>real</b> de provisión por obra (cuenta 26, Libro&nbsp;1 = débito − crédito), acumulado al
     corte del período. Aplica el mismo cruce que la cuenta 14: el crédito de SECAR y los negativos
     consumen los débitos (mano de obra primero) en FIFO dentro de cada (U.N., cuenta). Vista <b>solo lectura</b>.
 </x-page-banner>
@@ -50,15 +50,15 @@
             </select>
         </div>
         <div class="filtro-field" style="flex:2 1 240px">
-            <label class="filtro-label">Buscar tercero</label>
-            <input type="text" id="buscador" autocomplete="off" placeholder="🔎 Nit o razón social…"
+            <label class="filtro-label">Buscar obra</label>
+            <input type="text" id="buscador" autocomplete="off" placeholder="🔎 Código o nombre de obra…"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('form-filtros').submit();}" class="filtro-input">
         </div>
     </form>
 </x-filtros-panel>
 
 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:1rem 0;flex-wrap:wrap">
-    <div style="font-size:12.5px;color:#6B7280">{{ $meses[$mes] ?? $mes }} {{ $anio }} · <b>{{ count($filas) }}</b> tercero(s)</div>
+    <div style="font-size:12.5px;color:#6B7280">{{ $meses[$mes] ?? $mes }} {{ $anio }} · <b>{{ count($filas) }}</b> obra(s)</div>
     @if(count($filas) > 0)
     <a href="{{ route('operativo.consulta-provisiones.excel', ['mes' => $mes, 'anio' => $anio, 'departamento' => $departamento, 'q' => $q]) }}"
        style="padding:9px 16px;background:#15803D;color:white;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">⬇ Descargar Excel</a>
@@ -75,19 +75,19 @@
     <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:620px">
         <thead>
             <tr style="background:#1B3F6E;color:white">
-                <th style="padding:10px 14px;text-align:left">Tercero</th>
+                <th style="padding:10px 14px;text-align:left">Obra</th>
                 <th style="padding:10px 14px;text-align:right">Saldo provisión</th>
             </tr>
         </thead>
         <tbody>
             @foreach($filas as $i => $f)
-            @php $neg = $f['saldo'] < 0; $tieneDesglose = count($f['proyectos']) > 0; @endphp
+            @php $neg = $f['saldo'] < 0; $tieneDesglose = count($f['detalle']) > 0; @endphp
             <tr style="border-bottom:1px solid #F3F4F6;{{ $tieneDesglose ? 'cursor:pointer' : '' }}"
-                @if($tieneDesglose) onclick="toggleProvDet({{ $i }})" title="Ver desglose por proyecto / U.N." @endif>
+                @if($tieneDesglose) onclick="toggleProvDet({{ $i }})" title="Ver detalle por cuenta / tercero" @endif>
                 <td style="padding:9px 14px">
                     @if($tieneDesglose)<span id="caret-prov-{{ $i }}" style="color:#6366F1;display:inline-block;width:12px">▸</span>@else<span style="display:inline-block;width:12px"></span>@endif
-                    <span style="font-family:ui-monospace,monospace;font-weight:600;color:#1B3F6E">{{ $f['nit'] ?: '—' }}</span>
-                    <span style="color:#374151"> · {{ $f['razon'] ?: 'Sin razón social' }}</span>
+                    <span style="font-family:ui-monospace,monospace;font-weight:600;color:#1B3F6E">{{ $f['codigo'] }}</span>
+                    @if($f['nombre'])<span style="color:#374151"> · {{ \Illuminate\Support\Str::limit($f['nombre'], 52) }}</span>@endif
                 </td>
                 <td style="padding:9px 14px;text-align:right;font-weight:700;color:{{ $neg ? '#DC2626' : '#1B3F6E' }}">{{ $fmt($f['saldo']) }}</td>
             </tr>
@@ -95,13 +95,19 @@
             <tr id="prov-det-{{ $i }}" style="display:none;background:#F9FAFB">
                 <td colspan="2" style="padding:0 14px 0 32px">
                     <table style="width:100%;border-collapse:collapse;font-size:11.5px">
-                        @foreach($f['proyectos'] as $p)
+                        <tr style="color:#9CA3AF">
+                            <th style="padding:4px 8px;text-align:left;font-weight:600">Cuenta</th>
+                            <th style="padding:4px 8px;text-align:left;font-weight:600">Tercero</th>
+                            <th style="padding:4px 8px;text-align:right;font-weight:600">Saldo</th>
+                        </tr>
+                        @foreach($f['detalle'] as $d)
                         <tr style="border-bottom:1px solid #F3F4F6">
-                            <td style="padding:6px 8px;color:#6B7280">
-                                <span style="font-family:ui-monospace,monospace;color:#1B3F6E">{{ $p['codigo'] }}</span>
-                                @if($p['nombre'])<span> · {{ \Illuminate\Support\Str::limit($p['nombre'], 48) }}</span>@endif
+                            <td style="padding:6px 8px;font-family:ui-monospace,monospace;color:#6B7280">{{ $d['cuenta'] }}</td>
+                            <td style="padding:6px 8px;color:#374151">
+                                <span style="font-family:ui-monospace,monospace;color:#1B3F6E">{{ $d['nit'] ?: '—' }}</span>
+                                @if($d['razon'])<span> · {{ \Illuminate\Support\Str::limit($d['razon'], 36) }}</span>@endif
                             </td>
-                            <td style="padding:6px 8px;text-align:right;color:{{ $p['saldo'] < 0 ? '#DC2626' : '#374151' }}">{{ $fmt($p['saldo']) }}</td>
+                            <td style="padding:6px 8px;text-align:right;color:{{ $d['saldo'] < 0 ? '#DC2626' : '#374151' }}">{{ $fmt($d['saldo']) }}</td>
                         </tr>
                         @endforeach
                     </table>

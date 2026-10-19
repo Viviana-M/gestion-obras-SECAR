@@ -10,8 +10,8 @@ use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 /**
- * Provisiones (cuenta 26) por tercero: Nit · Razón social · Saldo de provisión (Libro 1 =
- * débito − crédito). Recibe el arreglo (encabezado + filas + total) desde el controlador.
+ * Provisiones (cuenta 26) por obra: Código · Nombre · Saldo de provisión (Libro 1 = débito − crédito,
+ * tras el cruce FIFO). Recibe el arreglo (encabezado + filas + total) desde el controlador.
  */
 class ProvisionesTerceroExport implements FromArray, WithTitle, WithEvents, WithColumnFormatting
 {
@@ -19,7 +19,7 @@ class ProvisionesTerceroExport implements FromArray, WithTitle, WithEvents, With
 
     public function title(): string
     {
-        return 'Provisiones por tercero';
+        return 'Provisiones por obra';
     }
 
     public function array(): array

@@ -176,10 +176,10 @@ class DistribucionCostosController extends Controller
 
         $d = $this->provisionesData($mes, $anio, $u, $departamento, $q);
 
-        $head  = ['Nit', 'Razón social', 'Saldo provisión'];
+        $head  = ['Obra', 'Nombre', 'Saldo provisión'];
         $filas = [$head];
         foreach ($d['filas'] as $f) {
-            $filas[] = [$f['nit'] ?: '—', $f['razon'] ?: '—', round($f['saldo'])];
+            $filas[] = [$f['codigo'], $f['nombre'] ?: '—', round($f['saldo'])];
         }
         $filas[] = ['TOTAL', '', round($d['total'])];
 
@@ -215,41 +215,40 @@ class DistribucionCostosController extends Controller
         $codigos = array_column($codLista, 'codigo');
 
         // Mismo cruce FIFO que la cuenta 14: dentro de cada (U.N., cuenta), el crédito de SECAR y los
-        // negativos consumen los débitos (MO primero) y sobrevive el saldo real por tercero.
-        $rows = $this->svc->provisionesPorTercero($codigos, $anio, $mes);
+        // negativos consumen los débitos (MO primero) y sobrevive el saldo real. Filas por (U.N., cuenta, tercero).
+        $rows = $this->svc->provisionesCruzadas($codigos, $anio, $mes);
 
-        // Agregación por tercero (Nit + razón social) con desglose por proyecto/U.N. El buscador se
-        // aplica DESPUÉS del cruce (el cruce reatribuye el saldo entre terceros).
-        $porTercero = [];
+        // Nombres de U.N. (fallback al nombre_proyecto del movimiento).
+        $nombresFicha = \App\Models\FichaProyecto::whereIn('codigo_proyecto', $codigos)->pluck('nombre_obra', 'codigo_proyecto');
+
+        // Agregación POR OBRA (U.N.) con desglose por cuenta/tercero.
+        $porObra = [];
         foreach ($rows as $r) {
-            if ($q !== '' && stripos($r['tercero_dcto'].' '.$r['razon_social'], $q) === false) {
-                continue;
-            }
-            $key = ($r['tercero_dcto'] ?: '—').'|'.($r['razon_social'] ?? '');
-            $porTercero[$key] ??= ['nit' => $r['tercero_dcto'] ?: null, 'razon' => $r['razon_social'] ?: null, 'saldo' => 0.0, 'proyectos' => []];
-            $porTercero[$key]['saldo'] += $r['saldo'];
-            $porTercero[$key]['proyectos'][] = [
-                'codigo' => $r['un'], 'nombre' => $r['nombre_proyecto'], 'saldo' => $r['saldo'],
+            $cod = $r['un'];
+            $nombre = ($nombresFicha[$cod] ?? null) ?: $r['nombre_proyecto'];
+            $porObra[$cod] ??= ['codigo' => $cod, 'nombre' => (string) $nombre, 'saldo' => 0.0, 'detalle' => []];
+            $porObra[$cod]['saldo'] += $r['saldo'];
+            // Desglose por (cuenta, tercero): varios documentos del mismo tercero/cuenta se suman.
+            $dk = $r['cuenta'].'|'.($r['tercero_dcto'] ?: '—').'|'.($r['razon_social'] ?? '');
+            $porObra[$cod]['detalle'][$dk] ??= [
+                'cuenta' => $r['cuenta'], 'nit' => $r['tercero_dcto'] ?: null, 'razon' => $r['razon_social'] ?: null, 'saldo' => 0.0,
             ];
+            $porObra[$cod]['detalle'][$dk]['saldo'] += $r['saldo'];
         }
 
-        // Compacta el desglose por proyecto (varias cuentas/documentos de una U.N. se suman) y oculta $0.
-        foreach ($porTercero as &$t) {
-            $porProy = [];
-            foreach ($t['proyectos'] as $p) {
-                $porProy[$p['codigo']] ??= ['codigo' => $p['codigo'], 'nombre' => $p['nombre'], 'saldo' => 0.0];
-                $porProy[$p['codigo']]['saldo'] += $p['saldo'];
-            }
-            $t['proyectos'] = array_values(array_filter($porProy, fn ($p) => round($p['saldo']) != 0));
+        // Buscador de OBRA (código o nombre), aplicado tras el cruce.
+        if ($q !== '') {
+            $porObra = array_filter($porObra, fn ($o) => stripos($o['codigo'].' '.$o['nombre'], $q) !== false);
         }
-        unset($t);
 
-        // Oculta terceros cuyo saldo redondeado es $0 (ya cruzados / sin provisión real).
-        $filas = array_values(array_filter($porTercero, fn ($t) => round($t['saldo']) != 0));
-        foreach ($filas as &$t) {
-            usort($t['proyectos'], fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
+        // Oculta obras con saldo $0 y, dentro de cada obra, las líneas de detalle en $0.
+        $filas = [];
+        foreach ($porObra as $o) {
+            if (round($o['saldo']) == 0) continue;
+            $o['detalle'] = array_values(array_filter($o['detalle'], fn ($d) => round($d['saldo']) != 0));
+            usort($o['detalle'], fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
+            $filas[] = $o;
         }
-        unset($t);
         usort($filas, fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
 
         $total = array_sum(array_column($filas, 'saldo'));
