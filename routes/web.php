@@ -151,6 +151,8 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         // Consulta de proyectos para gerencia (solo lectura): margen y esquema de costos por obra.
         Route::get('/financiero/proyectos', [\App\Http\Controllers\Financiero\ConsultaProyectosController::class, 'index'])->name('financiero.proyectos');
         Route::get('/financiero/proyectos/excel', [\App\Http\Controllers\Financiero\ConsultaProyectosController::class, 'excel'])->name('financiero.proyectos.excel');
+        // Importar responsables (carga masiva del maestro de OTs): actualiza responsable_obra y comercial.
+        Route::post('/financiero/proyectos/importar-responsables', [\App\Http\Controllers\Financiero\ConsultaProyectosController::class, 'importarResponsables'])->name('financiero.proyectos.importar-responsables');
         Route::get('/financiero/comparativo', [\App\Http\Controllers\Financiero\DashboardController::class, 'comparativo'])->name('financiero.comparativo');
     });
 

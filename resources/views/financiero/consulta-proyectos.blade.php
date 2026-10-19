@@ -25,6 +25,32 @@
     Muestra solo obras <b>Abiertas y Parciales</b> (las Cerradas no aparecen), tengan o no responsable.
 </x-page-banner>
 
+@if(session('success'))
+<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin:1rem 0">{{ session('success') }}</div>
+@endif
+@if(session('error'))
+<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin:1rem 0">{{ session('error') }}</div>
+@endif
+
+@if(auth()->user()?->esGerencia())
+{{-- Carga masiva de responsables: sube el Excel maestro de OTs y actualiza responsable_obra
+     (Supervisor responsable) y responsable_comercial (Comercial), cruzando por OT. --}}
+<details class="card" style="margin:1rem 0;padding:14px 16px">
+    <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1B3F6E;list-style:none;display:inline-flex;align-items:center;gap:6px">⬆ Importar responsables</summary>
+    <form method="POST" action="{{ route('financiero.proyectos.importar-responsables') }}" enctype="multipart/form-data"
+          style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        @csrf
+        <input type="file" name="archivo" accept=".xlsx,.xls" required
+               style="font-size:13px;border:1px solid #E5E7EB;border-radius:8px;padding:6px 8px;background:#fff">
+        <button type="submit" style="padding:9px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Subir y actualizar</button>
+    </form>
+    <p style="font-size:11.5px;color:#6B7280;margin:8px 0 0">
+        Sube el Excel maestro de OTs. Debe traer la columna <b>OT</b> y <b>«Supervisor responsable»</b> y/o <b>«Comercial»</b>.
+        Se actualiza cada obra cruzando por OT (código del proyecto); el resto de la ficha no se toca.
+    </p>
+</details>
+@endif
+
 <x-filtros-panel>
     <form method="GET" action="{{ route('financiero.proyectos') }}" id="form-filtros"
           style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">

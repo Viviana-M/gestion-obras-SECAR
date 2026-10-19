@@ -9,7 +9,10 @@ use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -278,5 +281,95 @@ class ConsultaProyectosGerenciaTest extends TestCase
             'rol' => 'aux_costos', 'activo' => true, 'permisos_modulos' => ['operacion' => 'ver'],
         ]);
         $this->actingAs($sin)->get(route('financiero.proyectos'))->assertForbidden();
+    }
+
+    /** Genera un xlsx con las filas dadas (hoja "Maestro"). */
+    private function hojaResp(array $filas): UploadedFile
+    {
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Maestro');
+        $r = 1;
+        foreach ($filas as $f) {
+            $sheet->fromArray($f, null, 'A'.$r);
+            $r++;
+        }
+        $path = tempnam(sys_get_temp_dir(), 'resp').'.xlsx';
+        (new Xlsx($ss))->save($path);
+
+        return new UploadedFile($path, 'maestro.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    #[Test]
+    public function importar_responsables_actualiza_y_crea_cruzando_por_ot(): void
+    {
+        // C-700 ya existe con responsables viejos; C-900 no existe (se crea con responsables).
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra', 'responsable_obra' => 'Viejo', 'responsable_comercial' => 'Viejo Com']);
+
+        $archivo = $this->hojaResp([
+            ['OT', 'Supervisor responsable', 'Comercial'],
+            ['C-700', 'Ana Ruiz', 'Luis Paz'],
+            ['C-900', 'Beto Gómez', 'Marta Díaz'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('ficha_proyectos', [
+            'codigo_proyecto' => 'C-700', 'responsable_obra' => 'Ana Ruiz', 'responsable_comercial' => 'Luis Paz',
+        ]);
+        $this->assertDatabaseHas('ficha_proyectos', [
+            'codigo_proyecto' => 'C-900', 'responsable_obra' => 'Beto Gómez', 'responsable_comercial' => 'Marta Díaz',
+        ]);
+    }
+
+    #[Test]
+    public function importar_responsables_no_toca_el_resto_de_la_ficha(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra X', 'cliente' => 'Cliente X',
+            'margen_ofertado' => 30, 'responsable_obra' => 'Viejo']);
+
+        $archivo = $this->hojaResp([
+            ['OT', 'Supervisor responsable'],
+            ['C-700', 'Ana Ruiz'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])->assertRedirect();
+
+        $f = FichaProyecto::where('codigo_proyecto', 'C-700')->first();
+        $this->assertSame('Ana Ruiz', $f->responsable_obra);   // actualizado
+        $this->assertSame('Obra X', $f->nombre_obra);           // intacto
+        $this->assertSame('Cliente X', $f->cliente);            // intacto
+        $this->assertEqualsWithDelta(30, (float) $f->margen_ofertado, 0.1);
+    }
+
+    #[Test]
+    public function importar_responsables_avisa_si_faltan_columnas(): void
+    {
+        $archivo = $this->hojaResp([
+            ['OT', 'Otra cosa'],
+            ['C-700', 'x'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertSessionHas('error');
+    }
+
+    #[Test]
+    public function importar_responsables_solo_para_gerencia(): void
+    {
+        // Usuario con el módulo pero que NO es gerencia: pasa el middleware pero no puede importar.
+        $noGerencia = User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true, 'permisos_modulos' => ['gestion_financiera' => 'ver'],
+        ]);
+        $archivo = $this->hojaResp([['OT', 'Supervisor responsable'], ['C-700', 'Ana Ruiz']]);
+
+        $this->actingAs($noGerencia)
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertForbidden();
     }
 }

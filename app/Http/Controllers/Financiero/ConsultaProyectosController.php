@@ -10,7 +10,9 @@ use App\Models\RegistroFinanciero;
 use App\Models\User;
 use App\Services\DistribucionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**
  * Consulta de proyectos para GERENCIA (solo lectura). Lista de obras con su responsable (de la ficha)
@@ -87,6 +89,91 @@ class ConsultaProyectosController extends Controller
             new \App\Exports\ConsultaProyectosExport($filas),
             'Proyectos_gerencia_'.$depTag.'_'.$anio.sprintf('%02d', $mes).'.xlsx'
         );
+    }
+
+    /**
+     * Importar responsables (carga masiva): sube el Excel maestro de OTs y actualiza, cruzando por
+     * codigo_proyecto (columna OT), el Supervisor responsable (responsable_obra) y el Comercial
+     * (responsable_comercial) en ficha_proyectos. Así gerencia recarga los responsables sin tinker.
+     */
+    public function importarResponsables(Request $request)
+    {
+        abort_unless($request->user()?->esGerencia(), 403, 'Solo gerencia puede importar responsables.');
+
+        $request->validate(['archivo' => 'required|file|mimes:xlsx,xls|max:51200']);
+
+        @set_time_limit(0);
+        @ini_set('memory_limit', '1024M');
+
+        $dir = storage_path('app/responsables');
+        if (! is_dir($dir)) mkdir($dir, 0755, true);
+        $nombre = uniqid().'.'.$request->file('archivo')->getClientOriginalExtension();
+        $request->file('archivo')->move($dir, $nombre);
+        $full = $dir.'/'.$nombre;
+
+        $norm = fn ($s) => strtoupper(trim(preg_replace('/\s+/', ' ', (string) $s)));
+        $esOt = fn ($h) => in_array($h, ['OT', 'ORDEN DE TRABAJO', 'ORDEN TRABAJO', 'CODIGO', 'CÓDIGO', 'CODIGO PROYECTO', 'CÓDIGO PROYECTO'], true);
+        $esSup = fn ($h) => in_array($h, ['SUPERVISOR RESPONSABLE', 'SUPERVISOR', 'RESPONSABLE', 'RESPONSABLE OBRA', 'RESPONSABLE DE OBRA'], true);
+        $esCom = fn ($h) => in_array($h, ['COMERCIAL', 'RESPONSABLE COMERCIAL'], true);
+
+        $actualizados = 0;
+        $vistas = [];
+        $huboColumnas = false;
+
+        try {
+            $reader = IOFactory::createReaderForFile($full);
+            $reader->setReadDataOnly(true);
+            $spreadsheet = $reader->load($full);
+
+            DB::transaction(function () use ($spreadsheet, $norm, $esOt, $esSup, $esCom, &$actualizados, &$vistas, &$huboColumnas) {
+                foreach ($spreadsheet->getSheetNames() as $sheetName) {
+                    $rows = $spreadsheet->getSheetByName($sheetName)->toArray(null, true, false, false);
+
+                    // Fila de encabezados: la primera que tenga una columna de OT.
+                    $headerIdx = null;
+                    foreach ($rows as $i => $r) {
+                        foreach ($r as $cell) {
+                            if ($esOt($norm($cell))) { $headerIdx = $i; break 2; }
+                        }
+                    }
+                    if ($headerIdx === null) continue;
+
+                    $map = [];
+                    foreach ($rows[$headerIdx] as $idx => $cell) {
+                        $h = $norm($cell);
+                        if ($esOt($h) && ! isset($map['ot']))       $map['ot']  = $idx;
+                        elseif ($esSup($h) && ! isset($map['sup'])) $map['sup'] = $idx;
+                        elseif ($esCom($h) && ! isset($map['com'])) $map['com'] = $idx;
+                    }
+                    // Necesita la OT y al menos una columna de responsable.
+                    if (! isset($map['ot']) || (! isset($map['sup']) && ! isset($map['com']))) continue;
+                    $huboColumnas = true;
+
+                    for ($i = $headerIdx + 1; $i < count($rows); $i++) {
+                        $r  = $rows[$i];
+                        $ot = isset($r[$map['ot']]) ? trim((string) $r[$map['ot']]) : '';
+                        if ($ot === '' || isset($vistas[$ot])) continue;
+                        $vistas[$ot] = true;
+
+                        $datos = [];
+                        if (isset($map['sup'])) $datos['responsable_obra']      = trim((string) ($r[$map['sup']] ?? '')) ?: null;
+                        if (isset($map['com'])) $datos['responsable_comercial'] = trim((string) ($r[$map['com']] ?? '')) ?: null;
+                        if (empty($datos)) continue;
+
+                        FichaProyecto::updateOrCreate(['codigo_proyecto' => $ot], $datos);
+                        $actualizados++;
+                    }
+                }
+            });
+        } finally {
+            @unlink($full);
+        }
+
+        if (! $huboColumnas) {
+            return back()->with('error', 'No se encontró la columna OT ni «Supervisor responsable»/«Comercial» en el archivo.');
+        }
+
+        return back()->with('success', "Responsables actualizados: {$actualizados} obra(s).");
     }
 
     /** Período efectivo: el elegido, o el último con información cargada. */
