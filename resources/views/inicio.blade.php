@@ -4,33 +4,27 @@
 
 @section('content')
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-    <div>
-        <h1 class="page-title" style="margin-bottom:2px">Tablero gerencial</h1>
-        <span style="font-size:12px;color:#9CA3AF">
-            Comparativo Ene–{{ $nombreMesCorte }} · {{ $anio1 }} vs {{ $anio2 }}
-            <span style="background:#EFF6FF;color:#1D4ED8;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:6px">
-                Mismo período ambos años
-            </span>
-        </span>
-    </div>
-    <form method="GET" action="{{ route('dashboard') }}" style="display:flex;gap:8px;align-items:center">
-        <select name="anio1" style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
-            @foreach($aniosDisponibles as $a)
-                <option value="{{ $a }}" {{ $a == $anio1 ? 'selected' : '' }}>{{ $a }}</option>
-            @endforeach
-        </select>
-        <span style="color:#9CA3AF;font-size:12px;font-weight:500">VS</span>
-        <select name="anio2" style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
-            @foreach($aniosDisponibles as $a)
-                <option value="{{ $a }}" {{ $a == $anio2 ? 'selected' : '' }}>{{ $a }}</option>
-            @endforeach
-        </select>
-        <button type="submit" style="padding:6px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
-            Comparar
-        </button>
-    </form>
-</div>
+<x-page-banner title="Tablero gerencial" icon="📈" badge="Mismo período ambos años">
+    Comparativo Ene–{{ $nombreMesCorte }} · <b>{{ $anio1 }}</b> vs <b>{{ $anio2 }}</b>.
+    <x-slot:actions>
+        <form method="GET" action="{{ route('dashboard') }}" style="display:flex;gap:8px;align-items:center">
+            <select name="anio1" style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+                @foreach($aniosDisponibles as $a)
+                    <option value="{{ $a }}" {{ $a == $anio1 ? 'selected' : '' }}>{{ $a }}</option>
+                @endforeach
+            </select>
+            <span style="color:#9CA3AF;font-size:12px;font-weight:500">VS</span>
+            <select name="anio2" style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
+                @foreach($aniosDisponibles as $a)
+                    <option value="{{ $a }}" {{ $a == $anio2 ? 'selected' : '' }}>{{ $a }}</option>
+                @endforeach
+            </select>
+            <button type="submit" style="padding:6px 16px;background:#1B3F6E;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
+                Comparar
+            </button>
+        </form>
+    </x-slot:actions>
+</x-page-banner>
 
 {{-- KPI CARDS --}}
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">

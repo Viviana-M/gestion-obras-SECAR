@@ -8,14 +8,9 @@
     $cuadra = round($totalDebito - $totalCredito, 2) == 0;
 @endphp
 
-<h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    Reclasificación de <span style="font-family:monospace">{{ $h->cuenta_14 }}</span>
-    @if($h->reclasificado_at)
-        <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:10px;background:#DCFCE7;color:#15803D">HECHA</span>
-    @else
-        <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:10px;background:#FEF9C3;color:#854D0E">PENDIENTE</span>
-    @endif
-</h1>
+<x-page-banner title="Reclasificación de {{ $h->cuenta_14 }}" icon="🔄" :badge="$h->reclasificado_at ? 'HECHA' : 'PENDIENTE'">
+    Asiento correctivo que mueve los costos ya asentados de la cuenta 61 anterior a la nueva.
+</x-page-banner>
 
 @if(session('error'))
 <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#DC2626">{{ session('error') }}</div>

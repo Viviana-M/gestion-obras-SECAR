@@ -43,10 +43,14 @@ class RepartoFifoTerceros
 
         $lineas = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $obras)
-            ->orderBy('anio')
-            ->orderBy('mes')
-            ->orderBy('id')
-            ->get(['id', 'codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social', 'estado_er']);
+            ->get(['id', 'codigo_proyecto', 'cuenta_contable', 'tercero_dcto', 'razon_social', 'estado_er', 'fecha_docto', 'periodo', 'anio', 'mes']);
+
+        // FIFO "más antiguo primero" por fecha_docto (AAAAMMDD), con fallback al período (AAAAMM) y
+        // desempate estable por id. Se ordena en PHP para que el criterio sea idéntico en SQLite/MySQL
+        // y para tratar bien las fechas nulas (caen al período). Alinea con DistribucionService.
+        $lineas = $lineas
+            ->sortBy(fn ($l) => [$this->ordenFifo($l), (int) $l->id])
+            ->values();
 
         $entradas = [];   // compras: estado_er < 0
         $aplicado = [];   // ya cruzado a la 61 en planos anteriores: estado_er > 0
@@ -145,5 +149,25 @@ class RepartoFifoTerceros
     private function clave(string $obra, string $cuenta): string
     {
         return $obra . '|' . $cuenta;
+    }
+
+    /**
+     * Clave de orden FIFO de una línea: fecha_docto en AAAAMMDD (entero) si existe; si no, el período
+     * AAAAMM × 100 (para quedar en la misma magnitud que AAAAMMDD); y si falta, anio/mes. Más antiguo
+     * = valor menor. El desempate final por id lo pone quien ordena.
+     */
+    private function ordenFifo($l): int
+    {
+        $fecha = preg_replace('/\D/', '', (string) ($l->fecha_docto ?? ''));
+        if (strlen($fecha) === 8) {
+            return (int) $fecha;
+        }
+
+        $periodo = preg_replace('/\D/', '', (string) ($l->periodo ?? ''));
+        if (strlen($periodo) === 6) {
+            return ((int) $periodo) * 100;
+        }
+
+        return ((int) $l->anio) * 10000 + ((int) $l->mes) * 100;
     }
 }

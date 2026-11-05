@@ -33,7 +33,7 @@ class BalanceImport implements ToModel, WithHeadingRow, WithChunkReading, WithBa
 
         $debito  = $this->limpiarNumero($row['debitos']  ?? 0);
         $credito = $this->limpiarNumero($row['creditos'] ?? 0);
-        $movto   = $this->limpiarNumero($row['movto_libro2'] ?? 0);
+        $movto   = $this->limpiarNumero($row['movimiento_libro_1'] ?? $row['movto_libro_1'] ?? $row['movto_libro1'] ?? 0);
         if ($movto == 0) $movto = $debito - $credito;
         if ($debito == 0 && $credito == 0) return null; // sin movimiento
 

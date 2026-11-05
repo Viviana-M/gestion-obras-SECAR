@@ -1,0 +1,375 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\FichaProyecto;
+use App\Models\Homologacion;
+use App\Models\ObraEstado;
+use App\Models\ProyectoCerrado;
+use App\Models\RegistroFinanciero;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\TestCase;
+
+/**
+ * Consulta de gerencia (solo lectura): lista de obras con responsable (de la ficha) y margen real
+ * (MC%), con esquema de costos por categoría (PART.%), filtros y Excel.
+ */
+class ConsultaProyectosGerenciaTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function gerente(): User
+    {
+        return User::factory()->create([
+            'rol' => 'gerente', 'activo' => true, 'permisos_modulos' => ['gestion_financiera' => 'ver'],
+        ]);
+    }
+
+    private function homolog(string $c14, string $estructura): void
+    {
+        Homologacion::create(['cuenta_14' => $c14, 'cuenta_61' => '61'.substr($c14, 2), 'nombre' => 'H',
+            'estructura' => $estructura, 'vigente_desde' => 202001, 'vigente_hasta' => null, 'version' => 1]);
+    }
+
+    private function ingreso(string $cod, float $monto, int $mes = 7, int $anio = 2026): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod, 'cuenta_contable' => '41350100',
+            'cuenta_mayor' => 'Ingreso', 'estado_er' => $monto, 'valor_debito' => 0, 'valor_credito' => 0,
+            'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    /** Costo reconocido (cuenta 61): la descripción termina en la cuenta 14 para triangular su estructura. */
+    private function costo(string $cod, string $c14, float $monto, int $mes = 7, int $anio = 2026): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod, 'cuenta_contable' => '61'.substr($c14, 2),
+            'descripcion' => 'Costo '.$c14, 'cuenta_mayor' => 'Costos aplicados', 'estado_er' => -abs($monto),
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    /** Saldo por distribuir en cuenta 1420 (hace que la obra aparezca en Distribución y, por tanto, en gerencia). */
+    private function saldo14(string $cod, float $neto = -100000, int $mes = 6, int $anio = 2026): void
+    {
+        RegistroFinanciero::create([
+            'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Proy '.$cod, 'cuenta_contable' => '14200105',
+            'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => $neto, 'valor_debito' => 0, 'valor_credito' => 0,
+            'mes' => $mes, 'anio' => $anio,
+        ]);
+    }
+
+    private function seedEsc(): void
+    {
+        $this->homolog('14200105', 'EQU-MAT-SUM');   // Equipos y materiales
+        $this->homolog('14200530', 'MOI');           // M.O. interna
+
+        // C-700 (mantenimiento, contrato): ingreso 1.000.000, costo 300k materiales + 200k MOI → MC 500k (50%).
+        $this->ingreso('C-700', 1000000);
+        $this->costo('C-700', '14200105', 300000);
+        $this->costo('C-700', '14200530', 200000);
+        $this->saldo14('C-700'); // saldo por distribuir → aparece en Distribución
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra Contrato', 'cliente' => 'Clínica X',
+            'responsable_obra' => 'Ana Ruiz', 'responsable_comercial' => 'Luis Paz', 'margen_ofertado' => 45]);
+
+        // O0001 (instalaciones, obras): ingreso 500k, costo 400k materiales → MC 100k (20%).
+        $this->ingreso('O0001', 500000);
+        $this->costo('O0001', '14200105', 400000);
+        $this->saldo14('O0001');
+        FichaProyecto::create(['codigo_proyecto' => 'O0001', 'nombre_obra' => 'Obra Inst', 'cliente' => 'Hotel Y',
+            'responsable_obra' => 'Beto Gómez', 'margen_ofertado' => 25]);
+    }
+
+    #[Test]
+    public function lista_las_obras_con_responsable_margen_y_esquema(): void
+    {
+        $this->seedEsc();
+
+        $resp = $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]));
+        $resp->assertOk();
+
+        $obras = collect($resp->viewData('obras'))->keyBy('codigo');
+
+        // C-700: esquema correcto y MC% = 50.
+        $c = $obras['C-700'];
+        $this->assertSame('Ana Ruiz', $c['responsable']);
+        $this->assertEqualsWithDelta(1000000, $c['ingreso'], 0.5);
+        $this->assertEqualsWithDelta(300000, $c['cat']['EQU-MAT-SUM'], 0.5);
+        $this->assertEqualsWithDelta(200000, $c['cat']['MOI'], 0.5);
+        $this->assertEqualsWithDelta(500000, $c['total_costo'], 0.5);
+        $this->assertEqualsWithDelta(500000, $c['mc'], 0.5);
+        $this->assertEqualsWithDelta(50, $c['mc_pct'], 0.1);
+        $this->assertEqualsWithDelta(45, $c['ofertado'], 0.1);   // ofertado desde la ficha
+
+        // Se ve en pantalla el responsable y las etiquetas del esquema.
+        $resp->assertSee('Ana Ruiz', false);
+        $resp->assertSee('M.O. interna', false);
+        $resp->assertSee('Equipos y materiales', false);
+    }
+
+    #[Test]
+    public function ordena_peor_margen_primero(): void
+    {
+        $this->seedEsc();
+
+        $obras = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->viewData('obras'))->pluck('codigo')->all();
+
+        // O0001 (20%) antes que C-700 (50%).
+        $this->assertSame(['O0001', 'C-700'], $obras);
+    }
+
+    #[Test]
+    public function filtra_por_departamento_tipo_y_responsable(): void
+    {
+        $this->seedEsc();
+        $g = $this->gerente();
+
+        // Departamento = instalaciones → solo O0001.
+        $dep = collect($this->actingAs($g)->get(route('financiero.proyectos', ['mes'=>7,'anio'=>2026,'departamento'=>'instalaciones']))->viewData('obras'))->pluck('codigo')->all();
+        $this->assertSame(['O0001'], $dep);
+
+        // Tipo = contrato → solo C-700.
+        $tipo = collect($this->actingAs($g)->get(route('financiero.proyectos', ['mes'=>7,'anio'=>2026,'tipo'=>'contrato']))->viewData('obras'))->pluck('codigo')->all();
+        $this->assertSame(['C-700'], $tipo);
+
+        // Responsable = Beto Gómez → solo O0001.
+        $resp = collect($this->actingAs($g)->get(route('financiero.proyectos', ['mes'=>7,'anio'=>2026,'responsable'=>'Beto Gómez']))->viewData('obras'))->pluck('codigo')->all();
+        $this->assertSame(['O0001'], $resp);
+    }
+
+    #[Test]
+    public function el_buscador_filtra_por_codigo_obra_cliente_o_responsable(): void
+    {
+        $this->seedEsc();
+
+        $obras = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes'=>7,'anio'=>2026,'q'=>'Clínica X']))
+            ->viewData('obras'))->pluck('codigo')->all();
+        $this->assertSame(['C-700'], $obras);
+    }
+
+    #[Test]
+    public function totales_cuadran(): void
+    {
+        $this->seedEsc();
+
+        $t = $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))->viewData('totales');
+
+        $this->assertEqualsWithDelta(1500000, $t['ingreso'], 0.5);      // 1.000.000 + 500.000
+        $this->assertEqualsWithDelta(900000, $t['total_costo'], 0.5);   // 500.000 + 400.000
+        $this->assertEqualsWithDelta(600000, $t['mc'], 0.5);
+        $this->assertEqualsWithDelta(40, $t['mc_pct'], 0.1);            // 600k / 1.5M
+    }
+
+    #[Test]
+    public function descarga_el_excel_con_el_esquema(): void
+    {
+        Excel::fake();
+        $this->seedEsc();
+
+        $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos.excel', ['mes' => 7, 'anio' => 2026]))->assertOk();
+
+        Excel::assertDownloaded('Proyectos_gerencia_todos_202607.xlsx', function ($export) {
+            $plano = json_encode($export->array(), JSON_UNESCAPED_UNICODE);
+            return str_contains($plano, 'Responsable')
+                && str_contains($plano, 'M.O. interna')
+                && str_contains($plano, 'Ana Ruiz')
+                && str_contains($plano, 'TOTAL');
+        });
+    }
+
+    #[Test]
+    public function excluye_solo_las_cerradas_e_incluye_las_sin_responsable(): void
+    {
+        $this->seedEsc(); // C-700 (Ana Ruiz) y O0001 (Beto Gómez), ambas abiertas con responsable
+
+        // Cerrada por cierre contable: no aparece aunque tenga saldo por distribuir y responsable.
+        $this->saldo14('C-900');
+        FichaProyecto::create(['codigo_proyecto' => 'C-900', 'nombre_obra' => 'Obra Cerrada', 'responsable_obra' => 'Ana Ruiz']);
+        ProyectoCerrado::create(['codigo_proyecto' => 'C-900', 'tipo_cierre' => 'total', 'user_id' => $this->gerente()->id]);
+
+        // Cerrada por estado manual: tampoco aparece.
+        $this->saldo14('C-901');
+        FichaProyecto::create(['codigo_proyecto' => 'C-901', 'nombre_obra' => 'Obra Manual', 'responsable_obra' => 'Ana Ruiz']);
+        ObraEstado::create(['codigo_proyecto' => 'C-901', 'estado' => 'cerrada']);
+
+        // Con saldo por distribuir pero SIN responsable en la ficha: SÍ aparece (— Sin asignar —).
+        $this->saldo14('C-902');
+        FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable', 'responsable_obra' => '']);
+
+        // Con saldo por distribuir y sin ficha (por tanto sin responsable): SÍ aparece.
+        $this->saldo14('C-903');
+
+        $obras = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->viewData('obras'))->keyBy('codigo');
+
+        $codigos = $obras->keys()->sort()->values()->all();
+        $this->assertSame(['C-700', 'C-902', 'C-903', 'O0001'], $codigos); // cerradas fuera; sin responsable dentro
+        $this->assertNull($obras['C-902']['responsable']);                 // se mostrará como "— Sin asignar —"
+        $this->assertNull($obras['C-903']['responsable']);
+    }
+
+    #[Test]
+    public function las_obras_sin_responsable_se_muestran_como_sin_asignar(): void
+    {
+        $this->saldo14('C-902');
+        FichaProyecto::create(['codigo_proyecto' => 'C-902', 'nombre_obra' => 'Sin responsable']);
+
+        $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->assertOk()
+            ->assertSee('Sin asignar', false);
+    }
+
+    #[Test]
+    public function solo_muestra_las_obras_que_estan_en_distribucion(): void
+    {
+        $this->homolog('14200105', 'EQU-MAT-SUM');
+
+        // C-700: con saldo por distribuir (1420) → aparece.
+        $this->ingreso('C-700', 1000000);
+        $this->saldo14('C-700');
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'En distribución', 'responsable_obra' => 'Ana Ruiz']);
+
+        // C-800: con ingreso y costo reconocido pero SIN saldo en 1420 (ya distribuida) → NO aparece.
+        $this->ingreso('C-800', 2000000);
+        $this->costo('C-800', '14200105', 500000);
+        FichaProyecto::create(['codigo_proyecto' => 'C-800', 'nombre_obra' => 'Sin saldo 14', 'responsable_obra' => 'Ana Ruiz']);
+
+        $cods = collect($this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->viewData('obras'))->pluck('codigo')->all();
+
+        $this->assertSame(['C-700'], $cods); // solo la que está en Distribución de costos
+    }
+
+    #[Test]
+    public function colorea_el_mc_con_el_semaforo_segun_el_departamento(): void
+    {
+        // Mant C-700 @ 20% → rojo (mant <27). Inst O0001 @ 20% → ámbar (inst ≥20 y <23): mismo %,
+        // distinto color por departamento. Mant C-701 @ 35% → verde (mant ≥30).
+        $this->ingreso('C-700', 1000000); $this->costo('C-700', '14200105', 800000); $this->saldo14('C-700');
+        $this->ingreso('O0001', 1000000); $this->costo('O0001', '14200105', 800000); $this->saldo14('O0001');
+        $this->ingreso('C-701', 1000000); $this->costo('C-701', '14200105', 650000); $this->saldo14('C-701');
+
+        $html = $this->actingAs($this->gerente())
+            ->get(route('financiero.proyectos', ['mes' => 7, 'anio' => 2026]))
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('background:#DC2626', $html); // rojo (C-700, mant 20%)
+        $this->assertStringContainsString('background:#FDE047', $html); // ámbar (O0001, inst 20%)
+        $this->assertStringContainsString('background:#16A34A', $html); // verde (C-701, mant 35%)
+    }
+
+    #[Test]
+    public function requiere_el_modulo_de_gestion_financiera(): void
+    {
+        $sin = User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true, 'permisos_modulos' => ['operacion' => 'ver'],
+        ]);
+        $this->actingAs($sin)->get(route('financiero.proyectos'))->assertForbidden();
+    }
+
+    /** Genera un xlsx con las filas dadas (hoja "Maestro"). */
+    private function hojaResp(array $filas): UploadedFile
+    {
+        $ss = new Spreadsheet();
+        $sheet = $ss->getActiveSheet();
+        $sheet->setTitle('Maestro');
+        $r = 1;
+        foreach ($filas as $f) {
+            $sheet->fromArray($f, null, 'A'.$r);
+            $r++;
+        }
+        $path = tempnam(sys_get_temp_dir(), 'resp').'.xlsx';
+        (new Xlsx($ss))->save($path);
+
+        return new UploadedFile($path, 'maestro.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    #[Test]
+    public function importar_responsables_actualiza_y_crea_cruzando_por_ot(): void
+    {
+        // C-700 ya existe con responsables viejos; C-900 no existe (se crea con responsables).
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra', 'responsable_obra' => 'Viejo', 'responsable_comercial' => 'Viejo Com']);
+
+        $archivo = $this->hojaResp([
+            ['OT', 'Supervisor responsable', 'Comercial'],
+            ['C-700', 'Ana Ruiz', 'Luis Paz'],
+            ['C-900', 'Beto Gómez', 'Marta Díaz'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('ficha_proyectos', [
+            'codigo_proyecto' => 'C-700', 'responsable_obra' => 'Ana Ruiz', 'responsable_comercial' => 'Luis Paz',
+        ]);
+        $this->assertDatabaseHas('ficha_proyectos', [
+            'codigo_proyecto' => 'C-900', 'responsable_obra' => 'Beto Gómez', 'responsable_comercial' => 'Marta Díaz',
+        ]);
+    }
+
+    #[Test]
+    public function importar_responsables_no_toca_el_resto_de_la_ficha(): void
+    {
+        FichaProyecto::create(['codigo_proyecto' => 'C-700', 'nombre_obra' => 'Obra X', 'cliente' => 'Cliente X',
+            'margen_ofertado' => 30, 'responsable_obra' => 'Viejo']);
+
+        $archivo = $this->hojaResp([
+            ['OT', 'Supervisor responsable'],
+            ['C-700', 'Ana Ruiz'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])->assertRedirect();
+
+        $f = FichaProyecto::where('codigo_proyecto', 'C-700')->first();
+        $this->assertSame('Ana Ruiz', $f->responsable_obra);   // actualizado
+        $this->assertSame('Obra X', $f->nombre_obra);           // intacto
+        $this->assertSame('Cliente X', $f->cliente);            // intacto
+        $this->assertEqualsWithDelta(30, (float) $f->margen_ofertado, 0.1);
+    }
+
+    #[Test]
+    public function importar_responsables_avisa_si_faltan_columnas(): void
+    {
+        $archivo = $this->hojaResp([
+            ['OT', 'Otra cosa'],
+            ['C-700', 'x'],
+        ]);
+
+        $this->actingAs($this->gerente())
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertSessionHas('error');
+    }
+
+    #[Test]
+    public function importar_responsables_solo_para_gerencia(): void
+    {
+        // Usuario con el módulo pero que NO es gerencia: pasa el middleware pero no puede importar.
+        $noGerencia = User::factory()->create([
+            'rol' => 'aux_costos', 'activo' => true, 'permisos_modulos' => ['gestion_financiera' => 'ver'],
+        ]);
+        $archivo = $this->hojaResp([['OT', 'Supervisor responsable'], ['C-700', 'Ana Ruiz']]);
+
+        $this->actingAs($noGerencia)
+            ->post(route('financiero.proyectos.importar-responsables'), ['archivo' => $archivo])
+            ->assertForbidden();
+    }
+}

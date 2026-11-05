@@ -3,7 +3,9 @@
 @section('title', 'Cargar información financiera')
 
 @section('content')
-    <h1 class="page-title">Cierre de mes — Carga de información financiera</h1>
+    <x-page-banner title="Cierre de mes — Carga de información financiera" icon="📥">
+        Sube el Excel o CSV del BIABLE del período; al recargar un mes se reemplaza la información cargada.
+    </x-page-banner>
 
     @if(session('success'))
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803D;margin-bottom:1rem;">
@@ -19,7 +21,7 @@
 
     <div class="card">
         <h3>Período a cargar</h3>
-        <form method="POST" action="{{ route('contable.carga.store') }}" enctype="multipart/form-data">
+        <form id="form-cierre" method="POST" action="{{ route('contable.carga.store') }}" enctype="multipart/form-data">
             @csrf
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem">
                 <div>
@@ -54,25 +56,32 @@
                 <input type="file" name="archivo" accept=".xlsx,.xls,.csv"
                     style="width:100%;padding:8px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;background:white">
                 <small style="font-size:11px;color:#9CA3AF">Formatos aceptados: .xlsx, .xls, .csv — máximo 50MB</small>
-<div style="margin-top:8px;padding:10px 12px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;font-size:12px;color:#0369A1">
-    <strong>Columnas requeridas del archivo BIABLE:</strong><br>
-    <span style="font-family:monospace">
-        A: Unidad de negocio &nbsp;|&nbsp;
-        B: Cuenta contable &nbsp;|&nbsp;
-        C: Descripción cuenta &nbsp;|&nbsp;
-        D: Valor débito &nbsp;|&nbsp;
-        E: Valor crédito &nbsp;|&nbsp;
-        F: Movto libro 2 &nbsp;|&nbsp;
-        G: Tercero Docto &nbsp;|&nbsp;
-        H: Razon social Docto
-    </span><br>
-    <span style="font-size:11px;margin-top:6px;display:block;color:#0369A1">
-        Las columnas <strong>Tercero Docto</strong> y <strong>Razon social Docto</strong> son necesarias para el plano de cargue al ERP. No las elimine del archivo.
-    </span>
-    <span style="color:#DC2626;font-size:11px;margin-top:4px;display:block">
-        ⚠ El archivo debe guardarse como <strong>Valores</strong> en Excel antes de subir (sin fórmulas).
-    </span>
-</div>
+                @php
+                    // Única fuente de verdad: el mapeo del importador. La pantalla refleja exactamente
+                    // las columnas que el sistema reconoce POR NOMBRE (el orden del archivo no importa).
+                    $notasBiable = [
+                        'documento'      => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'tercero_doc'    => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'razon_doc'      => 'Obligatoria para el plano de cargue al ERP; no la elimines.',
+                        'fecha_docto'    => 'Con ella se ordena el cruce de saldos (FIFO, más antiguo primero).',
+                        'tipo_documento' => 'Arma el documento completo TIPO-NÚMERO (ej. FSE-7970, SII-52).',
+                    ];
+                    $columnasBiable = collect(\App\Imports\Financiero\MovimientoBiableImport::COLUMNAS_UI)
+                        ->map(fn ($c) => [
+                            'nombre'      => $c['label'],
+                            'obligatoria' => $c['obligatoria'],
+                            'nueva'       => $c['nueva'],
+                            'nota'        => $notasBiable[$c['campo']] ?? null,
+                        ])->all();
+                @endphp
+                <x-columnas-plano :numerar="false"
+                    titulo="El archivo BIABLE debe traer estas columnas (el sistema las reconoce por su nombre, el orden no importa):"
+                    :columnas="$columnasBiable">
+                    Las columnas <b>Docto.</b>, <b>Tercero Docto</b> y <b>Razón social Docto</b> son obligatorias para el plano de cargue al ERP.
+                    Con <b>Fecha del documento</b> y <b>Tipo de documento</b> se arma el documento completo (ej. <b>FSE-7970</b>) y se ordena el cruce de saldos.<br>
+                    El archivo debe incluir <b>todas las cuentas</b> del período: 14 (inventario en tránsito), <b>26 (provisiones)</b>, <b>28 (facturación anticipada)</b>, 41 (ingresos operacionales), 42 (ingresos no operacionales), 61 (costo de ventas).<br>
+                    <span style="color:#DC2626">⚠ Guarda el archivo como <b>Valores</b> en Excel antes de subir (sin fórmulas).</span>
+                </x-columnas-plano>
             </div>
 
             <button type="submit"
@@ -80,6 +89,12 @@
                 Cargar archivo
             </button>
         </form>
+        @include('contable.partials.progreso-lotes', [
+            'pid' => 'cierre', 'formId' => 'form-cierre',
+            'prepararUrl' => route('contable.carga.preparar'),
+            'procesarUrl' => route('contable.carga.procesar'),
+        ])
+        <p style="font-size:11px;color:#9CA3AF;margin-top:8px">Procesamiento por lotes con progreso en tiempo real — optimizado para cierres de miles de registros.</p>
     </div>
 
     @if($historial->count() > 0)
