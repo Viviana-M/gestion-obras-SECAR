@@ -276,6 +276,29 @@ class DistribucionManoObraTest extends TestCase
         $this->assertEqualsWithDelta(150000, $may['OB2'], 1);
     }
 
+    #[Test]
+    public function el_boton_precargar_mes_anterior_se_renderiza_sin_romper_la_vista(): void
+    {
+        // Regresión del 500 "Undefined variable $mesAnteriorNombre": esa variable se usaba en el
+        // formulario "Precargar mes anterior" ANTES de definirse en la vista. Solo se dispara cuando
+        // hay personal de MO + permiso de editar + asignaciones del mes anterior (moHayMesAnterior),
+        // combinación que ningún test previo renderizaba, por eso el bug llegó a producción.
+        $this->base();
+        // El botón "Precargar" solo aparece con el período abierto (puedeEditar = operación + abierto).
+        \App\Models\CierrePeriodo::create(['mes' => 5, 'anio' => 2026, 'abierto' => true]);
+        // Asignación del mes anterior (abril 2026) → moHayMesAnterior = true → se renderiza el form.
+        ManoObraAsignacion::create(['bolsa_un' => 'MTO00099', 'cuenta_14' => '14200530', 'persona' => '111',
+            'tercero' => '111', 'obra_destino' => 'OB1', 'monto' => 300000, 'mes' => 4, 'anio' => 2026, 'origen' => 'manual']);
+
+        $html = $this->actingAs($this->op('editar'))
+            ->get('/operativo/distribucion?mes=5&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        // El formulario aparece y usa el nombre del mes anterior sin lanzar "Undefined variable".
+        $this->assertStringContainsString('Precargar mes anterior', $html);
+        $this->assertStringContainsString('Abril 2026', $html);
+    }
+
     // ─────────── Resumen ───────────
 
     #[Test]
