@@ -261,7 +261,15 @@
     {{-- ══════════ MANO DE OBRA DIRECTA — panel colapsable DENTRO de la zona de la bolsa ══════════ --}}
     {{-- Se abre al pulsar "Mano de obra" en la tarjeta. Muestra el personal con su "por aplicar" y las
          acciones del plano por departamento. La asignación se hace dentro de cada obra destino (abajo). --}}
-    @php $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.'); @endphp
+    @php
+        $moFmtG = fn ($n) => '$'.number_format((float) $n, 0, ',', '.');
+        // Nombre del mes anterior (usado por "Precargar mes anterior"). Se define aquí,
+        // antes del primer uso, porque el bloque general de abajo corre más tarde.
+        $nombresMes = $nombresMes ?? [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+        $mesAnt = $mes - 1; $anioAnt = $anio;
+        if ($mesAnt < 1) { $mesAnt = 12; $anioAnt = $anio - 1; }
+        $mesAnteriorNombre = ($nombresMes[$mesAnt] ?? '').' '.$anioAnt;
+    @endphp
     @foreach(($moPersonasDep ?? []) as $moDep => $moPers)
         @if(!empty($moPers))
         <div class="mo-global card mo-panel" id="mo-panel-{{ $moDep }}" data-dep="{{ $moDep }}" style="display:none;padding:12px 14px;margin:-2px 0 1rem;border:1px solid #D8CBF0;background:#F7F4FD">
