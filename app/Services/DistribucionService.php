@@ -327,10 +327,15 @@ class DistribucionService
         // tercero: así "Asignar desde bolsa de área" coincide con el total del detalle — excluye solo el
         // maestro de personal, deja la MO directa/apoyo, cruza parafiscales y respeta los montos editados.
         $distPorKey = [];
-        foreach ($this->detalleBolsaTerceros($codigos, $periodo, $anio, $mes, $vista) as $lnsUn) {
+        $moExtraida = [];          // [cédula => MO realmente descontada del detalle]
+        $detallePosPorDepto = [];  // [depto => saldo positivo del detalle = "Otros costos" real]
+        foreach ($this->detalleBolsaTerceros($codigos, $periodo, $anio, $mes, $vista, $moExtraida) as $un => $lnsUn) {
+            $dep = $deptoDeUn[$un] ?? 'otros';
             foreach ($lnsUn as $ld) {
                 $kk = (string) $ld['un_codigo'].'|'.(string) $ld['cuenta_14'];
                 $distPorKey[$kk] = ($distPorKey[$kk] ?? 0.0) + (float) $ld['monto_distribuir'];
+                $s = (float) $ld['saldo'];
+                if ($s > 0) { $detallePosPorDepto[$dep] = ($detallePosPorDepto[$dep] ?? 0.0) + $s; }
             }
         }
 
@@ -392,12 +397,21 @@ class DistribucionService
             //    personas del maestro Mano de obra directa; se distribuye por persona a los proyectos.
             //  · "Otros costos" = la bolsa MENOS esa mano de obra (materiales, servicios…).
             // La MO de apoyo (otro maestro) NO entra aquí: se reclasifica por su propio plano 14→61.
+            // La mano de obra que se EXTRAE de la bolsa es la que el detalle realmente pudo descontar:
+            // si un reverso de SECAR ya consumió parte del sueldo/SS en la bolsa, esa parte ya no está y
+            // no se puede volver a sacar. Así "Otros costos" = total − MO extraída = suma del detalle,
+            // y la tarjeta por persona muestra lo efectivamente descontado (no el bruto de nómina).
             $personas = array_values($personasPorDepto[$d] ?? []);
-            foreach ($personas as &$per) $per['total'] = round($per['total'], 2);
+            foreach ($personas as &$per) {
+                $per['total_bruto'] = round($per['total'], 2);                       // costo completo de nómina (referencia)
+                $per['total']       = round((float) ($moExtraida[(string) $per['cedula']] ?? 0.0), 2); // lo extraído de la bolsa
+            }
             unset($per);
+            $personas = array_values(array_filter($personas, fn ($p) => $p['total'] > 0.005));
             usort($personas, fn ($a, $b) => $b['total'] <=> $a['total']);
-            $mo          = round(min($total, array_sum(array_column($personas, 'total'))), 2);
-            $otrosCostos = round($total - $mo, 2);                      // disponible bruto de otros costos
+            // "Otros costos" disponible = saldo positivo del detalle; MO = el resto del total de la bolsa.
+            $otrosCostos = round($detallePosPorDepto[$d] ?? 0.0, 2);
+            $mo          = round($total - $otrosCostos, 2);            // MO realmente extraída de la bolsa
             $otrosNeto   = round($otrosCostos - $totalReversado, 2);    // otros costos neto = disponible − reversado
 
             $result[] = [
@@ -619,9 +633,10 @@ class DistribucionService
      *
      * @return array<string, array<int, array<string,mixed>>>  [un_codigo => líneas]
      */
-    public function detalleBolsaTerceros(array $codigos, int $periodo, int $anio, int $mes, string $vista = 'todo'): array
+    public function detalleBolsaTerceros(array $codigos, int $periodo, int $anio, int $mes, string $vista = 'todo', ?array &$extraido = null): array
     {
         if (empty($codigos)) {
+            if ($extraido !== null) { $extraido = []; }
             return [];
         }
         $homol = Homologacion::mapaEn($periodo);
@@ -664,10 +679,14 @@ class DistribucionService
         // autoliquidación (otra tabla), el fondo puede venir por NIT o por NOMBRE según cada fuente: se
         // indexa por ambos alias hacia una misma bolsa restante para poder cruzarlo con la línea.
         $extraerSalario = [];   // [un|cuenta|tercero => sueldo por descontar] (se drena entre líneas)
+        $salKeyCed = [];        // [un|cuenta|tercero => cédula] para atribuir lo extraído a cada persona
         $ssPool  = [];          // [idFondo => SS restante del maestro para ese fondo]
         $ssAlias = [];          // [NIT|NOMBRE => idFondo]
+        $ssContrib = [];        // [idFondo => [cédula => SS aportada]] para repartir lo extraído del fondo
         $ssSeq   = 0;
-        foreach ($this->manoObraDirectaPorPersona($codigos, $anio, $mes) as $per) {
+        $extraidoPorCed = [];   // [cédula => mano de obra REALMENTE descontada del detalle]
+        foreach ($this->manoObraDirectaPorPersona($codigos, $anio, $mes) as $ced => $per) {
+            $ced = (string) $ced;
             foreach (($per['buckets'] ?? []) as $b) {
                 if (($b['tipo'] ?? '') === 'ss') {
                     $nit = trim((string) ($b['tercero_nit'] ?? ''));
@@ -678,9 +697,11 @@ class DistribucionService
                     if ($nit !== '') { $ssAlias[$nit] = $cid; }
                     if ($nom !== '') { $ssAlias[$nom] = $cid; }
                     $ssPool[$cid] = ($ssPool[$cid] ?? 0.0) + (float) $b['monto'];
+                    $ssContrib[$cid][$ced] = ($ssContrib[$cid][$ced] ?? 0.0) + (float) $b['monto'];
                 } else {
                     $k = trim((string) $b['un']).'|'.trim((string) $b['cuenta']).'|'.trim((string) $b['tercero']);
                     $extraerSalario[$k] = ($extraerSalario[$k] ?? 0.0) + (float) $b['monto'];
+                    $salKeyCed[$k] = $ced;
                 }
             }
         }
@@ -743,6 +764,10 @@ class DistribucionService
                         $quita = min($saldo, (float) $extraerSalario[$kSal]);
                         $saldo = round($saldo - $quita, 2);
                         $extraerSalario[$kSal] -= $quita;
+                        if ($quita > 0 && isset($salKeyCed[$kSal])) {
+                            $c = $salKeyCed[$kSal];
+                            $extraidoPorCed[$c] = ($extraidoPorCed[$c] ?? 0.0) + $quita;
+                        }
                     }
                     // 2) SEGURIDAD SOCIAL / parafiscales del maestro: por FONDO (COLPENSIONES, EPS…),
                     //    ubicado por NIT o por NOMBRE. Se descuenta su parte de cualquier línea del fondo.
@@ -752,6 +777,14 @@ class DistribucionService
                             $q2    = min($saldo, (float) $ssPool[$cid]);
                             $saldo = round($saldo - $q2, 2);
                             $ssPool[$cid] -= $q2;
+                            // Repartir lo descontado del fondo entre las personas que aportaron a él.
+                            $contrib = $ssContrib[$cid] ?? [];
+                            $sumC = array_sum($contrib);
+                            if ($sumC > 0.005) {
+                                foreach ($contrib as $c => $ap) {
+                                    $extraidoPorCed[$c] = ($extraidoPorCed[$c] ?? 0.0) + $q2 * ($ap / $sumC);
+                                }
+                            }
                         }
                     }
                 }
@@ -787,6 +820,10 @@ class DistribucionService
             usort($lineas, fn ($a, $b) => [$a['cuenta_14'], $a['ord'], $a['min_id']] <=> [$b['cuenta_14'], $b['ord'], $b['min_id']]);
         }
         unset($lineas);
+
+        if ($extraido !== null) {
+            $extraido = array_map(fn ($v) => round($v, 2), $extraidoPorCed);
+        }
 
         return $out;
     }

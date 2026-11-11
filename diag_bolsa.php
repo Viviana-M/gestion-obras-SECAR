@@ -30,6 +30,8 @@ foreach (['mantenimiento', 'instalaciones'] as $dep) {
     // Tarjeta
     $bolsa = collect($svc->bolsasGrandes($dep, $periodo, $anio, $mes))->firstWhere('codigo', $dep);
     $otros = (float) ($bolsa['otros_costos'] ?? 0);
+    $otrosNeto = (float) ($bolsa['otros_neto'] ?? $otros);
+    $rev   = (float) ($bolsa['total_reversado'] ?? 0);
     $mo    = (float) ($bolsa['mano_obra'] ?? 0);
     $total = (float) ($bolsa['total'] ?? 0);
     $aDist = (float) ($bolsa['a_distribuir'] ?? 0);
@@ -47,17 +49,19 @@ foreach (['mantenimiento', 'instalaciones'] as $dep) {
         }
     }
 
-    $diff = round($sumDet - $otros, 2);
+    $diff = round($sumDet - $otrosNeto, 2);
     echo str_repeat('=', 64).PHP_EOL;
     echo strtoupper($dep)." ($anio/$mes)".PHP_EOL;
     echo str_repeat('=', 64).PHP_EOL;
-    echo "  Total bolsa .................. ".$fmt($total).PHP_EOL;
-    echo "  Mano de obra (tarjeta) ....... ".$fmt($mo)."   [sueldo ".$fmt($dir)." + SS ".$fmt($ss)."]".PHP_EOL;
-    echo "  Otros costos (tarjeta) ....... ".$fmt($otros)."   <-- objetivo".PHP_EOL;
-    echo "  Detalle (suma de saldos) ..... ".$fmt($sumDet).PHP_EOL;
-    echo "  Detalle (suma a distribuir) .. ".$fmt($sumDist).PHP_EOL;
-    echo "  A distribuir (tarjeta) ....... ".$fmt($aDist).PHP_EOL;
-    echo "  DIFERENCIA detalle - otros ... ".$fmt($diff)."   ".(abs($diff) < 1000 ? '>> CUADRA' : '>> DESCUADRE')." ".PHP_EOL;
+    echo "  Total bolsa ...................... ".$fmt($total).PHP_EOL;
+    echo "  Mano de obra extraída (tarjeta) .. ".$fmt($mo)."   [nómina bruta: sueldo ".$fmt($dir)." + SS ".$fmt($ss)."]".PHP_EOL;
+    echo "  Otros costos disponible .......... ".$fmt($otros).PHP_EOL;
+    echo "  Reversado de más (solo lectura) .. ".$fmt($rev).PHP_EOL;
+    echo "  Otros costos NETO (tarjeta) ...... ".$fmt($otrosNeto)."   <-- objetivo (lo que ve la tarjeta)".PHP_EOL;
+    echo "  Detalle (suma de saldos) ......... ".$fmt($sumDet).PHP_EOL;
+    echo "  Detalle (suma a distribuir) ...... ".$fmt($sumDist).PHP_EOL;
+    echo "  A distribuir (tarjeta) ........... ".$fmt($aDist).PHP_EOL;
+    echo "  DIFERENCIA detalle - otros neto .. ".$fmt($diff)."   ".(abs($diff) < 1000 ? '>> CUADRA' : '>> DESCUADRE')." ".PHP_EOL;
     echo PHP_EOL;
 
     if ($dep !== 'mantenimiento') continue;
