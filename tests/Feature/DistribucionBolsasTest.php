@@ -519,17 +519,25 @@ class DistribucionBolsasTest extends TestCase
                 'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
             ]);
         };
-        $rf('111', 'Faustino Personal', 500000);
-        $rf('222', 'Nubia Apoyo', 300000);
-        $rf('900', 'Proveedor SAS', 200000);
+        $rf2 = function (string $cc, string $t, string $razon, float $monto) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $cc,
+                'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => $t, 'razon_social' => $razon,
+                'tipo_documento' => 'FSE', 'documento' => $t.$cc, 'fecha_docto' => '2026-07-10',
+                'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+            ]);
+        };
+        $rf2('14200530', '111', 'Faustino Personal', 500000); // sueldo del maestro (cuenta MO) → se extrae
+        $rf2('14200530', '222', 'Nubia Apoyo', 300000);       // apoyo (no es el maestro de personal) → se lista
+        $rf2('14209999', '900', 'Proveedor SAS', 200000);     // material → se lista
 
         $det = app(DistribucionService::class)
             ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
-        $terceros = collect($det['MTO00099'] ?? [])->pluck('tercero_dcto')->all();
+        $por = collect($det['MTO00099'] ?? [])->keyBy('tercero_dcto');
 
-        $this->assertContains('900', $terceros);     // proveedor normal → en otros costos
-        $this->assertNotContains('111', $terceros);  // maestro de personal → fuera del detalle
-        $this->assertContains('222', $terceros);     // apoyo → AHORA sí queda en otros costos
+        $this->assertEqualsWithDelta(200000, $por['900']['saldo'] ?? 0, 1);  // proveedor → otros costos
+        $this->assertEqualsWithDelta(0, $por['111']['saldo'] ?? 0, 1);       // maestro de personal → descontado a $0
+        $this->assertEqualsWithDelta(300000, $por['222']['saldo'] ?? 0, 1);  // apoyo → queda en otros costos
     }
 
     #[Test]
@@ -569,7 +577,7 @@ class DistribucionBolsasTest extends TestCase
             ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo')['MTO00099'] ?? []);
         $porTercero = $det->keyBy('tercero_dcto');
 
-        $this->assertArrayNotHasKey('111', $porTercero->all());  // maestro de personal → oculta
+        $this->assertEqualsWithDelta(0, $porTercero['111']['saldo'] ?? 0, 1);  // maestro de personal → descontado a $0
         $this->assertArrayHasKey('222', $porTercero->all());     // MO directa → se lista
         $this->assertEqualsWithDelta(700000, $porTercero['222']['saldo'], 1);
         $this->assertArrayHasKey('333', $porTercero->all());     // MO de apoyo (no es el maestro) → se lista

@@ -647,30 +647,21 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // Del detalle solo se oculta la nómina de las PERSONAS DEL MAESTRO que se reparte por persona en
-        // "Mano de obra del personal" — ESE maestro es `terceros_mano_obra` (el mismo que usa la tarjeta).
-        // La mano de obra DIRECTA y la de apoyo (fuera de ese maestro) se DEJAN aquí para distribuir. Si
-        // un departamento no tiene a nadie en ese maestro (p. ej. instalaciones), no se separa nada.
-        // Nota: para el CRUCE FIFO se sigue considerando toda la nómina (flag 'mo'); del LISTADO solo se
-        // oculta el maestro de personal (flag 'mo_persona').
-        $extraidos = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
-            ->map(fn ($c) => trim((string) $c))->filter()->flip();
         $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
             ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
-            ->map(fn ($c) => trim((string) $c))->filter()->flip();
+            ->map(fn ($c) => trim((string) $c))->filter()->flip(); // solo para el orden del cruce FIFO (flag 'mo')
         $cuentasMo = array_flip(\App\Services\RedistribucionMoEspecialService::CUENTAS_MO);
 
-        // CRUCE de parafiscales/seguridad social: las líneas de ENTIDAD (COLPENSIONES, EPS, ARP, cajas,
-        // fondos) traen la parte de TODOS. Se les resta la porción de las personas del maestro (tomada
-        // de la autoliquidación/PILA por empleado) y solo el resto (de la MO directa) queda distribuible.
-        // Llave exacta (U.N., cuenta, tercero-entidad) = (un_codigo, id_cuenta, cedula) de la PILA.
-        $aporteMaestro = [];
-        foreach (\App\Models\AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
-                    ->whereIn('un_codigo', $codigos)
-                    ->get(['un_codigo', 'id_cuenta', 'cedula', 'empleado', 'aporte_empresa']) as $a) {
-            if (! isset($extraidos[trim((string) $a->empleado)])) continue; // solo la parte del maestro de personal
-            $k = trim((string) $a->un_codigo).'|'.trim((string) $a->id_cuenta).'|'.trim((string) $a->cedula);
-            $aporteMaestro[$k] = ($aporteMaestro[$k] ?? 0.0) + (float) $a->aporte_empresa;
+        // Lo que la bolsa EXTRAE como "Mano de obra del personal" es EXACTAMENTE lo que la tarjeta reparte
+        // por persona (manoObraDirectaPorPersona). Usamos su MISMO desglose (un, cuenta, tercero) para
+        // descontarlo del detalle → el total del detalle = "Otros costos" de la tarjeta. Cubre el sueldo
+        // (tercero = persona) y la seguridad social / parafiscales (tercero = fondo/entidad), ya cruzados.
+        $extraer = [];
+        foreach ($this->manoObraDirectaPorPersona($codigos, $anio, $mes) as $per) {
+            foreach (($per['buckets'] ?? []) as $b) {
+                $k = trim((string) $b['un']).'|'.trim((string) $b['cuenta']).'|'.trim((string) $b['tercero']);
+                $extraer[$k] = ($extraer[$k] ?? 0.0) + (float) $b['monto'];
+            }
         }
 
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
@@ -697,7 +688,6 @@ class DistribucionService
                 'ord'            => $ord,
                 'min_id'         => (int) $f->min_id, // desempate estable del FIFO
                 'mo'             => isset($cuentasMo[$cuenta]) || isset($terceroMo[trim((string) $f->tercero_dcto)]), // entra al cruce FIFO
-                'mo_persona'     => isset($extraidos[trim((string) $f->tercero_dcto)]), // persona del maestro de personal → se oculta del listado
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }
@@ -716,13 +706,13 @@ class DistribucionService
                 ->keyBy(fn ($m) => (string) $m->tercero.'∷'.(string) $m->documento);
 
             foreach ($terceros as $t) {
-                if (! empty($t['mo_persona'])) continue; // nómina de personas del maestro: va aparte (por persona)
                 $saldo  = round((float) $t['saldo'], 2);
                 $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
-                // Cruce de parafiscales: descuenta del saldo la parte de los supervisores del maestro
-                // (PILA) de esta (U.N., cuenta, tercero-entidad). Lo que queda es MO directa distribuible.
+                // Descuenta EXACTAMENTE lo que la tarjeta extrae como "Mano de obra del personal" para
+                // esta (U.N., cuenta, tercero): sueldo de la persona del maestro y su seguridad social /
+                // parafiscales. Lo que queda es otros costos distribuible (MO directa, apoyo, materiales…).
                 if (! $alerta && $saldo > 0) {
-                    $quita = min($saldo, (float) ($aporteMaestro[$un.'|'.$cuenta.'|'.$t['tercero_dcto']] ?? 0.0));
+                    $quita = min($saldo, (float) ($extraer[$un.'|'.$cuenta.'|'.trim((string) $t['tercero_dcto'])] ?? 0.0));
                     $saldo = round($saldo - $quita, 2);
                 }
                 $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
