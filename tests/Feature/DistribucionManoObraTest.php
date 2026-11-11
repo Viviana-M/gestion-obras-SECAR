@@ -218,6 +218,22 @@ class DistribucionManoObraTest extends TestCase
         $this->assertEqualsWithDelta(600000, $b['total_mo'], 1); // solo Juan
     }
 
+    #[Test]
+    public function el_disponible_de_la_bolsa_de_area_excluye_la_mano_de_obra(): void
+    {
+        $this->base(); // bolsa MTO00099: total 800k = otros costos 200k + mano de obra 600k.
+
+        $b = collect(app(\App\Services\DistribucionService::class)
+            ->bolsasGrandes('mantenimiento', \App\Models\Homologacion::periodo(2026, 5), 2026, 5))
+            ->firstWhere('codigo', 'mantenimiento');
+
+        // "Asignar desde bolsa de área" ofrece SOLO otros costos (200k), no el total con MO (800k).
+        $this->assertEqualsWithDelta(200000, $b['a_distribuir'], 1);
+        // La mano de obra sigue intacta: se muestra/distribuye aparte (por persona).
+        $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);
+        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1);
+    }
+
     // ─────────── Guardar / validación ───────────
 
     #[Test]

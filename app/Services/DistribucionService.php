@@ -332,11 +332,14 @@ class DistribucionService
                 // Una (U.N., cuenta) con neto NEGATIVO es "reversado de más": no es distribuible, se
                 // reporta aparte (solo lectura) y NO se resta del disponible.
                 $reversado = $saldo < -0.005;
-                $aDist = $reversado
+                $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
+                // La mano de obra se distribuye POR PERSONA (sección "Mano de obra del personal"),
+                // NO desde "Asignar desde bolsa de área". Por eso su "a distribuir" aquí es 0: no debe
+                // inflar el disponible de Otros costos ni entrar al pool de la bolsa de área.
+                $aDist = ($reversado || $esMo)
                     ? 0.0
                     // Sin registro: se distribuye el saldo completo. Con registro(s): la suma por tercero (tope = saldo).
                     : (isset($montoGuardado[$key]) ? max(0.0, min($saldo, (float) ($montosSum[$key] ?? 0))) : $saldo);
-                $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
                 $terceros = $l['terceros'] ?? [];
                 $porDepto[$depto][] = [
                     'un_codigo'        => (string) $un,
