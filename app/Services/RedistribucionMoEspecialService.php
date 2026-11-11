@@ -129,7 +129,8 @@ class RedistribucionMoEspecialService
                 if ($porcion <= 0.005) continue;
                 $out[$ced]['ss']    += $porcion;
                 $out[$ced]['total'] += $porcion;
-                $out[$ced]['buckets'][] = ['un' => (string) $un, 'cuenta' => $cuenta, 'monto' => $porcion, 'tipo' => 'ss', 'tercero' => $fondoTercero];
+                $out[$ced]['buckets'][] = ['un' => (string) $un, 'cuenta' => $cuenta, 'monto' => $porcion, 'tipo' => 'ss', 'tercero' => $fondoTercero,
+                    'tercero_nit' => trim((string) $a->fondo_nit), 'tercero_nom' => trim((string) $a->fondo_nom)];
             }
         }
 
