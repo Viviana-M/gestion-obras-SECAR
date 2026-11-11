@@ -23,7 +23,19 @@ class CargaFinancieraController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        return view('contable.carga', compact('historial'));
+        // Control por período: cuánto quedó cargado en Costos (cuenta 61) y Anticipos / costos por
+        // aplicar (cuenta 14), para verificar de un vistazo que el archivo del mes entró con su
+        // información (y no, p. ej., un archivo vacío o del mes equivocado). Neto = débito − crédito.
+        $sumaPorCuenta = fn (string $prefijo) => RegistroFinanciero::where('cuenta_contable', 'like', $prefijo.'%')
+            ->selectRaw('anio, mes, ROUND(SUM(valor_debito - valor_credito), 0) total')
+            ->groupBy('anio', 'mes')
+            ->get()
+            ->mapWithKeys(fn ($r) => [$r->anio.'-'.$r->mes => (float) $r->total]);
+
+        $costos61    = $sumaPorCuenta('61');
+        $anticipos14 = $sumaPorCuenta('14');
+
+        return view('contable.carga', compact('historial', 'costos61', 'anticipos14'));
     }
 
     /** Carga SÍNCRONA (formulario clásico / respaldo). La web usa preparar()+procesar(). */
