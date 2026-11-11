@@ -656,23 +656,34 @@ class DistribucionService
         // por persona (manoObraDirectaPorPersona). Usamos su MISMO desglose (un, cuenta, tercero) para
         // descontarlo del detalle → el total del detalle = "Otros costos" de la tarjeta. Cubre el sueldo
         // (tercero = persona) y la seguridad social / parafiscales (tercero = fondo/entidad), ya cruzados.
-        // El SUELDO va en su línea exacta (un, cuenta, persona). La SEGURIDAD SOCIAL va por FONDO/entidad
-        // (COLPENSIONES, EPS…): la tarjeta la ubica en la UN del salario, pero en la bolsa esa entidad
-        // puede estar en otra UN/cuenta, así que se descuenta de CUALQUIER línea de ese fondo.
-        $extraerSalario = [];
-        $ssFondo        = [];
+        // El SUELDO va en su línea exacta (un, cuenta, tercero). El tercero se identifica igual que en
+        // la tarjeta: cédula/NIT si el financiero la trae, si no el NOMBRE (en producción suele venir el
+        // nombre en la razón social, sin cédula). La SEGURIDAD SOCIAL va por FONDO/entidad (COLPENSIONES,
+        // EPS…): la tarjeta la ubica en la UN del salario, pero en la bolsa esa entidad puede estar en otra
+        // UN/cuenta, así que se descuenta de CUALQUIER línea de ese fondo. Como la SS sale de la
+        // autoliquidación (otra tabla), el fondo puede venir por NIT o por NOMBRE según cada fuente: se
+        // indexa por ambos alias hacia una misma bolsa restante para poder cruzarlo con la línea.
+        $extraerSalario = [];   // [un|cuenta|tercero => sueldo por descontar] (se drena entre líneas)
+        $ssPool  = [];          // [idFondo => SS restante del maestro para ese fondo]
+        $ssAlias = [];          // [NIT|NOMBRE => idFondo]
+        $ssSeq   = 0;
         foreach ($this->manoObraDirectaPorPersona($codigos, $anio, $mes) as $per) {
             foreach (($per['buckets'] ?? []) as $b) {
                 if (($b['tipo'] ?? '') === 'ss') {
-                    $f = trim((string) $b['tercero']);
-                    $ssFondo[$f] = ($ssFondo[$f] ?? 0.0) + (float) $b['monto'];
+                    $nit = trim((string) ($b['tercero_nit'] ?? ''));
+                    $nom = trim((string) ($b['tercero_nom'] ?? ''));
+                    if ($nit === '' && $nom === '') { $nom = trim((string) $b['tercero']); }
+                    $cid = $ssAlias[$nit] ?? ($ssAlias[$nom] ?? null);
+                    if ($cid === null) { $cid = 'f'.(++$ssSeq); }
+                    if ($nit !== '') { $ssAlias[$nit] = $cid; }
+                    if ($nom !== '') { $ssAlias[$nom] = $cid; }
+                    $ssPool[$cid] = ($ssPool[$cid] ?? 0.0) + (float) $b['monto'];
                 } else {
                     $k = trim((string) $b['un']).'|'.trim((string) $b['cuenta']).'|'.trim((string) $b['tercero']);
                     $extraerSalario[$k] = ($extraerSalario[$k] ?? 0.0) + (float) $b['monto'];
                 }
             }
         }
-        $ssRestante = $ssFondo; // se va drenando por fondo a medida que se listan sus líneas
 
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
         // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
@@ -723,13 +734,25 @@ class DistribucionService
                 //  · Seguridad social / parafiscales del maestro: por FONDO (COLPENSIONES, EPS…), en
                 //    cualquier línea de ese fondo (va donde BIABLE la posteó). Lo demás queda distribuible.
                 if (! $alerta && $saldo > 0) {
-                    $terc  = trim((string) $t['tercero_dcto']);
-                    $quita = min($saldo, (float) ($extraerSalario[$un.'|'.$cuenta.'|'.$terc] ?? 0.0));
-                    $saldo = round($saldo - $quita, 2);
-                    if ($saldo > 0 && ! empty($ssRestante[$terc])) {
-                        $q2 = min($saldo, (float) $ssRestante[$terc]);
-                        $saldo = round($saldo - $q2, 2);
-                        $ssRestante[$terc] -= $q2;
+                    // Mismo criterio de tercero que la tarjeta: cédula/NIT si viene, si no el NOMBRE.
+                    $terc = trim((string) $t['tercero_dcto']) ?: trim((string) $t['razon_social']);
+                    // 1) SUELDO del personal del maestro: llave exacta (U.N., cuenta, tercero). Se DRENA
+                    //    entre las líneas de esa llave (puede haber varios documentos del mismo tercero).
+                    $kSal = $un.'|'.$cuenta.'|'.$terc;
+                    if (! empty($extraerSalario[$kSal])) {
+                        $quita = min($saldo, (float) $extraerSalario[$kSal]);
+                        $saldo = round($saldo - $quita, 2);
+                        $extraerSalario[$kSal] -= $quita;
+                    }
+                    // 2) SEGURIDAD SOCIAL / parafiscales del maestro: por FONDO (COLPENSIONES, EPS…),
+                    //    ubicado por NIT o por NOMBRE. Se descuenta su parte de cualquier línea del fondo.
+                    if ($saldo > 0) {
+                        $cid = $ssAlias[trim((string) $t['tercero_dcto'])] ?? ($ssAlias[trim((string) $t['razon_social'])] ?? null);
+                        if ($cid !== null && ! empty($ssPool[$cid])) {
+                            $q2    = min($saldo, (float) $ssPool[$cid]);
+                            $saldo = round($saldo - $q2, 2);
+                            $ssPool[$cid] -= $q2;
+                        }
                     }
                 }
                 $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
