@@ -656,13 +656,23 @@ class DistribucionService
         // por persona (manoObraDirectaPorPersona). Usamos su MISMO desglose (un, cuenta, tercero) para
         // descontarlo del detalle → el total del detalle = "Otros costos" de la tarjeta. Cubre el sueldo
         // (tercero = persona) y la seguridad social / parafiscales (tercero = fondo/entidad), ya cruzados.
-        $extraer = [];
+        // El SUELDO va en su línea exacta (un, cuenta, persona). La SEGURIDAD SOCIAL va por FONDO/entidad
+        // (COLPENSIONES, EPS…): la tarjeta la ubica en la UN del salario, pero en la bolsa esa entidad
+        // puede estar en otra UN/cuenta, así que se descuenta de CUALQUIER línea de ese fondo.
+        $extraerSalario = [];
+        $ssFondo        = [];
         foreach ($this->manoObraDirectaPorPersona($codigos, $anio, $mes) as $per) {
             foreach (($per['buckets'] ?? []) as $b) {
-                $k = trim((string) $b['un']).'|'.trim((string) $b['cuenta']).'|'.trim((string) $b['tercero']);
-                $extraer[$k] = ($extraer[$k] ?? 0.0) + (float) $b['monto'];
+                if (($b['tipo'] ?? '') === 'ss') {
+                    $f = trim((string) $b['tercero']);
+                    $ssFondo[$f] = ($ssFondo[$f] ?? 0.0) + (float) $b['monto'];
+                } else {
+                    $k = trim((string) $b['un']).'|'.trim((string) $b['cuenta']).'|'.trim((string) $b['tercero']);
+                    $extraerSalario[$k] = ($extraerSalario[$k] ?? 0.0) + (float) $b['monto'];
+                }
             }
         }
+        $ssRestante = $ssFondo; // se va drenando por fondo a medida que se listan sus líneas
 
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
         // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
@@ -708,12 +718,19 @@ class DistribucionService
             foreach ($terceros as $t) {
                 $saldo  = round((float) $t['saldo'], 2);
                 $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
-                // Descuenta EXACTAMENTE lo que la tarjeta extrae como "Mano de obra del personal" para
-                // esta (U.N., cuenta, tercero): sueldo de la persona del maestro y su seguridad social /
-                // parafiscales. Lo que queda es otros costos distribuible (MO directa, apoyo, materiales…).
+                // Descuenta lo que la tarjeta extrae como "Mano de obra del personal":
+                //  · Sueldo de la persona del maestro: llave exacta (U.N., cuenta, persona).
+                //  · Seguridad social / parafiscales del maestro: por FONDO (COLPENSIONES, EPS…), en
+                //    cualquier línea de ese fondo (va donde BIABLE la posteó). Lo demás queda distribuible.
                 if (! $alerta && $saldo > 0) {
-                    $quita = min($saldo, (float) ($extraer[$un.'|'.$cuenta.'|'.trim((string) $t['tercero_dcto'])] ?? 0.0));
+                    $terc  = trim((string) $t['tercero_dcto']);
+                    $quita = min($saldo, (float) ($extraerSalario[$un.'|'.$cuenta.'|'.$terc] ?? 0.0));
                     $saldo = round($saldo - $quita, 2);
+                    if ($saldo > 0 && ! empty($ssRestante[$terc])) {
+                        $q2 = min($saldo, (float) $ssRestante[$terc]);
+                        $saldo = round($saldo - $q2, 2);
+                        $ssRestante[$terc] -= $q2;
+                    }
                 }
                 $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
                 // La alerta no se distribuye; en lo demás, por defecto se distribuye el saldo completo.
