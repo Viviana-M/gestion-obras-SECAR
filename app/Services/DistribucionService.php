@@ -641,16 +641,28 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // La MANO DE OBRA del personal (nómina) NO es "otros costos" y NO se lista en este detalle:
-        // sale del flujo y se muestra aparte, en la sección "Mano de obra del personal", y se reparte por
-        // proyecto. Es nómina toda línea que esté en una CUENTA de mano de obra (sueldos, auxilios,
-        // parafiscales, prestaciones — lista taxativa CUENTAS_MO) O cuyo tercero sea del maestro de MO
-        // (directa o apoyo). Sus débitos SÍ entran al cruce (el reverso de SECAR los consume primero),
-        // pero tras el cruce se ocultan del listado de otros costos.
+        // Solo la nómina de las PERSONAS DEL MAESTRO (supervisores / apoyo administrativo) se saca del
+        // detalle: se extrae y se reparte por persona en "Mano de obra del personal". La mano de obra
+        // DIRECTA (gente que NO está en el maestro) SÍ se deja aquí para distribuir desde la bolsa.
+        // Sus débitos igual entran al cruce FIFO (flag 'mo'), pero del LISTADO solo se oculta la del
+        // maestro (flag 'mo_persona').
         $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
             ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
             ->map(fn ($c) => trim((string) $c))->filter()->flip();
         $cuentasMo = array_flip(\App\Services\RedistribucionMoEspecialService::CUENTAS_MO);
+
+        // CRUCE de parafiscales/seguridad social: las líneas de ENTIDAD (COLPENSIONES, EPS, ARP, cajas,
+        // fondos) traen la parte de TODOS. Se les resta la porción de las personas del maestro (tomada
+        // de la autoliquidación/PILA por empleado) y solo el resto (de la MO directa) queda distribuible.
+        // Llave exacta (U.N., cuenta, tercero-entidad) = (un_codigo, id_cuenta, cedula) de la PILA.
+        $aporteMaestro = [];
+        foreach (\App\Models\AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
+                    ->whereIn('un_codigo', $codigos)
+                    ->get(['un_codigo', 'id_cuenta', 'cedula', 'empleado', 'aporte_empresa']) as $a) {
+            if (! isset($terceroMo[trim((string) $a->empleado)])) continue; // solo la parte del maestro
+            $k = trim((string) $a->un_codigo).'|'.trim((string) $a->id_cuenta).'|'.trim((string) $a->cedula);
+            $aporteMaestro[$k] = ($aporteMaestro[$k] ?? 0.0) + (float) $a->aporte_empresa;
+        }
 
         // Agrupar por la llave del cruce (U.N., cuenta) = (codigo_proyecto, cuenta_contable). TODO el
         // cruce se hace dentro de esta llave: NUNCA se cruza entre distintas U.N. aunque compartan la
@@ -675,7 +687,8 @@ class DistribucionService
                 'fecha'          => $fecha,
                 'ord'            => $ord,
                 'min_id'         => (int) $f->min_id, // desempate estable del FIFO
-                'mo'             => isset($cuentasMo[$cuenta]) || isset($terceroMo[trim((string) $f->tercero_dcto)]), // nómina: entra al cruce, no se lista
+                'mo'             => isset($cuentasMo[$cuenta]) || isset($terceroMo[trim((string) $f->tercero_dcto)]), // entra al cruce FIFO
+                'mo_persona'     => isset($terceroMo[trim((string) $f->tercero_dcto)]), // persona del maestro → se oculta del listado
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }
@@ -694,9 +707,15 @@ class DistribucionService
                 ->keyBy(fn ($m) => (string) $m->tercero.'∷'.(string) $m->documento);
 
             foreach ($terceros as $t) {
-                if (! empty($t['mo'])) continue; // MO: ya cruzada contra el reverso; no se lista en otros costos
+                if (! empty($t['mo_persona'])) continue; // nómina de personas del maestro: va aparte (por persona)
                 $saldo  = round((float) $t['saldo'], 2);
                 $alerta = (bool) ($t['alerta'] ?? false); // neto negativo: reversado de más (solo lectura)
+                // Cruce de parafiscales: descuenta del saldo la parte de los supervisores del maestro
+                // (PILA) de esta (U.N., cuenta, tercero-entidad). Lo que queda es MO directa distribuible.
+                if (! $alerta && $saldo > 0) {
+                    $quita = min($saldo, (float) ($aporteMaestro[$un.'|'.$cuenta.'|'.$t['tercero_dcto']] ?? 0.0));
+                    $saldo = round($saldo - $quita, 2);
+                }
                 $g      = $guardados[$t['tercero_dcto'].'∷'.$t['documento']] ?? null;
                 // La alerta no se distribuye; en lo demás, por defecto se distribuye el saldo completo.
                 $aDist  = $alerta ? 0.0 : ($g ? max(0.0, min($saldo, (float) $g->monto_distribuir)) : $saldo);
