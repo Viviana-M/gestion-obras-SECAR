@@ -323,6 +323,17 @@ class DistribucionService
             }
         }
 
+        // El "a distribuir" (disponible, pool de asignación) sale del MISMO cálculo que el detalle por
+        // tercero: así "Asignar desde bolsa de área" coincide con el total del detalle — excluye solo el
+        // maestro de personal, deja la MO directa/apoyo, cruza parafiscales y respeta los montos editados.
+        $distPorKey = [];
+        foreach ($this->detalleBolsaTerceros($codigos, $periodo, $anio, $mes, $vista) as $lnsUn) {
+            foreach ($lnsUn as $ld) {
+                $kk = (string) $ld['un_codigo'].'|'.(string) $ld['cuenta_14'];
+                $distPorKey[$kk] = ($distPorKey[$kk] ?? 0.0) + (float) $ld['monto_distribuir'];
+            }
+        }
+
         $porDepto = [];
         foreach ($saldos as $un => $lineas) {
             $depto = $deptoDeUn[$un] ?? 'otros';
@@ -333,13 +344,8 @@ class DistribucionService
                 // reporta aparte (solo lectura) y NO se resta del disponible.
                 $reversado = $saldo < -0.005;
                 $esMo  = in_array((string) $l['estructura'], self::ESTRUCTURAS_MO, true);
-                // La mano de obra se distribuye POR PERSONA (sección "Mano de obra del personal"),
-                // NO desde "Asignar desde bolsa de área". Por eso su "a distribuir" aquí es 0: no debe
-                // inflar el disponible de Otros costos ni entrar al pool de la bolsa de área.
-                $aDist = ($reversado || $esMo)
-                    ? 0.0
-                    // Sin registro: se distribuye el saldo completo. Con registro(s): la suma por tercero (tope = saldo).
-                    : (isset($montoGuardado[$key]) ? max(0.0, min($saldo, (float) ($montosSum[$key] ?? 0))) : $saldo);
+                // "A distribuir" = lo que dice el detalle para esta (U.N., cuenta) (0 si es reversado).
+                $aDist = $reversado ? 0.0 : (float) ($distPorKey[$key] ?? 0.0);
                 $terceros = $l['terceros'] ?? [];
                 $porDepto[$depto][] = [
                     'un_codigo'        => (string) $un,
