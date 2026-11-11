@@ -533,11 +533,14 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function la_nomina_en_cuentas_de_mano_de_obra_no_aparece_en_otros_costos(): void
+    public function el_detalle_oculta_solo_el_maestro_y_cruza_los_parafiscales(): void
     {
-        // Las líneas de nómina viven en cuentas de MO (sueldos, parafiscales, prestaciones) y a veces su
-        // tercero es una ENTIDAD (fondo/EPS), no el empleado. Igual deben salir del detalle de otros
-        // costos: se excluyen por CUENTA de mano de obra. Un material en una cuenta 1420 normal sí aparece.
+        // Regla de negocio: del detalle solo se saca la nómina de las PERSONAS DEL MAESTRO (supervisores
+        // / apoyo). La mano de obra DIRECTA (gente fuera del maestro) SÍ se deja para distribuir. A las
+        // entidades de parafiscales (COLPENSIONES) se les resta la parte del maestro (vía PILA) y el
+        // resto queda distribuible.
+        \App\Models\TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Supervisor', 'departamento' => 'mantenimiento', 'activo' => true]);
+
         $rf = function (string $cc, string $t, string $razon, float $monto) {
             RegistroFinanciero::create([
                 'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => $cc,
@@ -546,17 +549,29 @@ class DistribucionBolsasTest extends TestCase
                 'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
             ]);
         };
-        $rf('14200545', '800088233', 'COLPENSIONES',        600000); // parafiscal (entidad) en cuenta de MO
-        $rf('14200530', '901111111', 'SUELDOS DEL PERIODO',  500000); // sueldo en cuenta de MO
-        $rf('14209999', '900',       'Proveedor SAS',        200000); // material: cuenta 1420 normal
+        $rf('14200530', '111', 'Supervisor',       500000); // sueldo de persona DEL MAESTRO → se oculta
+        $rf('14200530', '222', 'Obrero Directo',   700000); // sueldo de MO DIRECTA (fuera del maestro) → se lista
+        $rf('14200545', '800088233', 'COLPENSIONES', 600000); // parafiscal (entidad): se cruza
+        $rf('14209999', '900', 'Proveedor SAS',    200000); // material normal → se lista
 
-        $det = app(DistribucionService::class)
-            ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
-        $terceros = collect($det['MTO00099'] ?? [])->pluck('tercero_dcto')->all();
+        // PILA: de los $600k de COLPENSIONES, $250k son del supervisor del maestro (empleado 111).
+        \App\Models\AutoliquidacionAporte::create([
+            'cedula' => '800088233', 'razon_social' => 'COLPENSIONES', 'empleado' => '111', 'empleado_nombre' => 'Supervisor',
+            'un_codigo' => 'MTO00099', 'id_cuenta' => '14200545', 'concepto_pila' => 'Pensión',
+            'aporte_empresa' => 250000, 'aporte_empleado' => 0, 'mes' => 7, 'anio' => 2026,
+        ]);
 
-        $this->assertContains('900', $terceros);           // material normal → sí aparece
-        $this->assertNotContains('800088233', $terceros);  // parafiscal (cuenta MO) → fuera
-        $this->assertNotContains('901111111', $terceros);  // sueldo (cuenta MO) → fuera
+        $det = collect(app(DistribucionService::class)
+            ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo')['MTO00099'] ?? []);
+        $porTercero = $det->keyBy('tercero_dcto');
+
+        $this->assertArrayNotHasKey('111', $porTercero->all());  // persona del maestro → oculta
+        $this->assertArrayHasKey('222', $porTercero->all());     // MO directa → se lista
+        $this->assertEqualsWithDelta(700000, $porTercero['222']['saldo'], 1);
+        $this->assertArrayHasKey('900', $porTercero->all());     // material → se lista
+        // COLPENSIONES cruzado: 600k − 250k (parte del maestro) = 350k distribuible.
+        $this->assertArrayHasKey('800088233', $porTercero->all());
+        $this->assertEqualsWithDelta(350000, $porTercero['800088233']['saldo'], 1);
     }
 
     #[Test]
