@@ -219,19 +219,24 @@ class DistribucionManoObraTest extends TestCase
     }
 
     #[Test]
-    public function el_disponible_de_la_bolsa_de_area_excluye_la_mano_de_obra(): void
+    public function el_disponible_de_la_bolsa_coincide_con_el_total_del_detalle(): void
     {
-        $this->base(); // bolsa MTO00099: total 800k = otros costos 200k + mano de obra 600k.
+        $this->base(); // bolsa MTO00099 con Juan (maestro de personal), su SS y materiales.
 
-        $b = collect(app(\App\Services\DistribucionService::class)
-            ->bolsasGrandes('mantenimiento', \App\Models\Homologacion::periodo(2026, 5), 2026, 5))
+        $svc = app(\App\Services\DistribucionService::class);
+        $periodo = \App\Models\Homologacion::periodo(2026, 5);
+
+        $b = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 5))
             ->firstWhere('codigo', 'mantenimiento');
 
-        // "Asignar desde bolsa de área" ofrece SOLO otros costos (200k), no el total con MO (800k).
-        $this->assertEqualsWithDelta(200000, $b['a_distribuir'], 1);
-        // La mano de obra sigue intacta: se muestra/distribuye aparte (por persona).
+        $codes = \App\Models\UnBolsa::where('departamento', 'mantenimiento')->where('activo', true)->pluck('codigo')->all();
+        $detTotal = collect($svc->detalleBolsaTerceros($codes, $periodo, 2026, 5))
+            ->flatten(1)->sum('monto_distribuir');
+
+        // Lo clave: el "a distribuir" del recuadro de asignación = el total del detalle (misma fuente).
+        $this->assertEqualsWithDelta($detTotal, $b['a_distribuir'], 1);
+        // La mano de obra del personal (Juan) sigue intacta en su propia sección.
         $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);
-        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1);
     }
 
     // ─────────── Guardar / validación ───────────
