@@ -59,6 +59,12 @@ class ImportadorCierre implements ImportadorLotes
             );
         }
 
+        // CANDADO ANTI-MES-EQUIVOCADO: el período lo fija el formulario, no el archivo. Si el archivo
+        // corresponde a OTRO mes (según su columna 'periodo' AAAAMM, o la fecha del documento), se
+        // rechaza ANTES de borrar nada, para no sobrescribir un mes con los datos de otro por un
+        // selector mal puesto (causa de pérdidas de datos en producción).
+        $this->verificarPeriodoDelArchivo($lector, $rutaAbsoluta, $hoja, $info, $mapaSlug, $mes, $anio);
+
         // Reemplazo del período: borra SOLO lo cargado desde BIABLE (origen='biable'); nunca los
         // movimientos generados por el sistema al aplicar planos (reverso_plano/distribucion_plano).
         RegistroFinanciero::where('mes', $mes)->where('anio', $anio)->where('origen', 'biable')->delete();
@@ -69,6 +75,81 @@ class ImportadorCierre implements ImportadorLotes
             'anio' => $anio,
             'meta' => ['hoja' => $hoja, 'fila_encabezado' => 1, 'mapa_slug' => $mapaSlug],
         ];
+    }
+
+    /**
+     * Rechaza la carga si el período DENTRO del archivo no coincide con el mes/año elegidos en el
+     * formulario. Mira una muestra de filas: primero la columna 'periodo' (AAAAMM, ignorando los
+     * ajustes de cierre que terminan en '13'); si no hay, cae a la fecha del documento (AAAAMMDD).
+     * Si el archivo no trae ninguna de las dos o no se puede determinar, NO bloquea (no hay con qué).
+     */
+    private function verificarPeriodoDelArchivo(LectorExcel $lector, string $ruta, ?string $hoja, array $info, array $mapaSlug, int $mes, int $anio): void
+    {
+        $offPeriodo = $mapaSlug['periodo'] ?? null;
+        $offFecha   = null;
+        foreach (['fecha_del_documento', 'fecha_documento', 'fecha_docto', 'fecha_dcto', 'fecha_doc', 'fecha'] as $a) {
+            if (isset($mapaSlug[$a])) { $offFecha = $mapaSlug[$a]; break; }
+        }
+        if ($offPeriodo === null && $offFecha === null) {
+            return; // el archivo no trae período ni fecha: no se puede validar.
+        }
+
+        $total = (int) ($info['total_filas'] ?? 0);
+        $desde = 2;                               // fila 2 en adelante (1 es el encabezado)
+        $hasta = min($total, $desde + 499);       // muestra de hasta 500 filas
+        if ($hasta < $desde) {
+            return; // archivo sin filas de datos: se tratará como "vacío" más adelante.
+        }
+        $filas = $lector->leerVentana($ruta, $hoja, $desde, $hasta, null, $info['ultima_columna'] ?? 'A');
+
+        $conteo = [];   // 'AAAAMM' => cuántas filas
+        foreach ($filas as $row) {
+            $p = $offPeriodo !== null ? $this->periodoDesdeColumna($row[$offPeriodo] ?? null) : null;
+            if ($p === null && $offFecha !== null) {
+                $p = $this->periodoDesdeFecha($row[$offFecha] ?? null);
+            }
+            if ($p !== null) {
+                $conteo[$p] = ($conteo[$p] ?? 0) + 1;
+            }
+        }
+        if (empty($conteo)) {
+            return; // no se pudo determinar el período del archivo: no se bloquea.
+        }
+
+        arsort($conteo);
+        $periodoArchivo = (string) array_key_first($conteo);   // período dominante en la muestra
+        $periodoSel     = sprintf('%04d%02d', $anio, $mes);
+
+        if ($periodoArchivo !== $periodoSel) {
+            $fmt = fn (string $p) => substr($p, 4, 2).'/'.substr($p, 0, 4);
+            throw new \RuntimeException(
+                "El archivo parece ser del período {$fmt($periodoArchivo)}, pero en el formulario ".
+                "seleccionaste {$fmt($periodoSel)}. No se cargó ni se borró nada. ".
+                'Verifica el mes y el año seleccionados y vuelve a intentarlo.'
+            );
+        }
+    }
+
+    /** Normaliza un valor de la columna 'periodo' a 'AAAAMM'; descarta el período 13 (ajuste de cierre). */
+    private function periodoDesdeColumna($valor): ?string
+    {
+        $v = preg_replace('/\.0+$/', '', trim((string) $valor));   // 202609.0 → 202609
+        if (preg_match('/^(\d{4})(\d{2})$/', (string) $v, $m)) {
+            return $m[2] === '13' ? null : $m[1].$m[2];
+        }
+
+        return null;
+    }
+
+    /** Extrae 'AAAAMM' de una fecha de documento en formato AAAAMMDD (lo que trae el BIABLE). */
+    private function periodoDesdeFecha($valor): ?string
+    {
+        $v = preg_replace('/\.0+$/', '', trim((string) $valor));
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', (string) $v, $m) && $m[2] >= '01' && $m[2] <= '12') {
+            return $m[1].$m[2];
+        }
+
+        return null;
     }
 
     public function procesarFilas(array $filas, array $meta, int $mes, int $anio): array
