@@ -641,11 +641,14 @@ class DistribucionService
 
         $nombreUn = UnBolsa::whereIn('codigo', $codigos)->pluck('nombre', 'codigo');
 
-        // Solo la nómina de las PERSONAS DEL MAESTRO (supervisores / apoyo administrativo) se saca del
-        // detalle: se extrae y se reparte por persona en "Mano de obra del personal". La mano de obra
-        // DIRECTA (gente que NO está en el maestro) SÍ se deja aquí para distribuir desde la bolsa.
-        // Sus débitos igual entran al cruce FIFO (flag 'mo'), pero del LISTADO solo se oculta la del
-        // maestro (flag 'mo_persona').
+        // Del detalle solo se oculta la nómina de las PERSONAS DEL MAESTRO que se reparte por persona en
+        // "Mano de obra del personal" — ESE maestro es `terceros_mano_obra` (el mismo que usa la tarjeta).
+        // La mano de obra DIRECTA y la de apoyo (fuera de ese maestro) se DEJAN aquí para distribuir. Si
+        // un departamento no tiene a nadie en ese maestro (p. ej. instalaciones), no se separa nada.
+        // Nota: para el CRUCE FIFO se sigue considerando toda la nómina (flag 'mo'); del LISTADO solo se
+        // oculta el maestro de personal (flag 'mo_persona').
+        $extraidos = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
+            ->map(fn ($c) => trim((string) $c))->filter()->flip();
         $terceroMo = \App\Models\TerceroManoObra::where('activo', true)->pluck('cedula')
             ->merge(\App\Models\ManoObraDirecta::where('activo', true)->pluck('cedula'))
             ->map(fn ($c) => trim((string) $c))->filter()->flip();
@@ -659,7 +662,7 @@ class DistribucionService
         foreach (\App\Models\AutoliquidacionAporte::where('mes', $mes)->where('anio', $anio)
                     ->whereIn('un_codigo', $codigos)
                     ->get(['un_codigo', 'id_cuenta', 'cedula', 'empleado', 'aporte_empresa']) as $a) {
-            if (! isset($terceroMo[trim((string) $a->empleado)])) continue; // solo la parte del maestro
+            if (! isset($extraidos[trim((string) $a->empleado)])) continue; // solo la parte del maestro de personal
             $k = trim((string) $a->un_codigo).'|'.trim((string) $a->id_cuenta).'|'.trim((string) $a->cedula);
             $aporteMaestro[$k] = ($aporteMaestro[$k] ?? 0.0) + (float) $a->aporte_empresa;
         }
@@ -688,7 +691,7 @@ class DistribucionService
                 'ord'            => $ord,
                 'min_id'         => (int) $f->min_id, // desempate estable del FIFO
                 'mo'             => isset($cuentasMo[$cuenta]) || isset($terceroMo[trim((string) $f->tercero_dcto)]), // entra al cruce FIFO
-                'mo_persona'     => isset($terceroMo[trim((string) $f->tercero_dcto)]), // persona del maestro → se oculta del listado
+                'mo_persona'     => isset($extraidos[trim((string) $f->tercero_dcto)]), // persona del maestro de personal → se oculta del listado
                 'saldo'          => round(-1 * (float) $f->saldo_er, 2), // Libro 1 = débito − crédito
             ];
         }
