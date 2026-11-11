@@ -503,12 +503,12 @@ class DistribucionBolsasTest extends TestCase
     }
 
     #[Test]
-    public function el_detalle_de_otros_costos_excluye_personal_directo_y_de_apoyo(): void
+    public function el_detalle_excluye_solo_el_maestro_de_personal_no_el_apoyo(): void
     {
-        // Faustino (maestro Mano de obra DIRECTA) y Nubia (maestro Mano de obra de APOYO) NO deben
-        // aparecer en el detalle de "otros costos": los directos se reparten por persona y el apoyo
-        // lo reclasifica contabilidad (PILA). Un proveedor normal SÍ aparece.
-        \App\Models\TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Faustino Directo', 'departamento' => 'mantenimiento', 'activo' => true]);
+        // Del detalle se saca SOLO la nómina del maestro de personal (terceros_mano_obra), que se reparte
+        // por persona. La MO de apoyo (mano_obra_directa) y la MO directa fuera del maestro SÍ quedan como
+        // otros costos (es lo que pidió gerencia: instalaciones no separa nada, todo es otros costos).
+        \App\Models\TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Faustino Personal', 'departamento' => 'mantenimiento', 'activo' => true]);
         \App\Models\ManoObraDirecta::create(['cedula' => '222', 'nombre' => 'Nubia Apoyo', 'activo' => true]);
 
         $rf = function (string $t, string $razon, float $monto) {
@@ -519,7 +519,7 @@ class DistribucionBolsasTest extends TestCase
                 'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
             ]);
         };
-        $rf('111', 'Faustino Directo', 500000);
+        $rf('111', 'Faustino Personal', 500000);
         $rf('222', 'Nubia Apoyo', 300000);
         $rf('900', 'Proveedor SAS', 200000);
 
@@ -527,9 +527,9 @@ class DistribucionBolsasTest extends TestCase
             ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
         $terceros = collect($det['MTO00099'] ?? [])->pluck('tercero_dcto')->all();
 
-        $this->assertContains('900', $terceros);    // proveedor normal → en otros costos
-        $this->assertNotContains('111', $terceros);  // directo → fuera del detalle
-        $this->assertNotContains('222', $terceros);  // apoyo → fuera del detalle
+        $this->assertContains('900', $terceros);     // proveedor normal → en otros costos
+        $this->assertNotContains('111', $terceros);  // maestro de personal → fuera del detalle
+        $this->assertContains('222', $terceros);     // apoyo → AHORA sí queda en otros costos
     }
 
     #[Test]
@@ -539,7 +539,10 @@ class DistribucionBolsasTest extends TestCase
         // / apoyo). La mano de obra DIRECTA (gente fuera del maestro) SÍ se deja para distribuir. A las
         // entidades de parafiscales (COLPENSIONES) se les resta la parte del maestro (vía PILA) y el
         // resto queda distribuible.
+        // Maestro de personal (terceros_mano_obra) = lo que SÍ se extrae. La MO de apoyo (mano_obra_directa)
+        // NO es ese maestro: debe quedarse como otros costos (igual que instalaciones).
         \App\Models\TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Supervisor', 'departamento' => 'mantenimiento', 'activo' => true]);
+        \App\Models\ManoObraDirecta::create(['cedula' => '333', 'nombre' => 'Apoyo', 'activo' => true]);
 
         $rf = function (string $cc, string $t, string $razon, float $monto) {
             RegistroFinanciero::create([
@@ -549,8 +552,9 @@ class DistribucionBolsasTest extends TestCase
                 'estado_er' => -$monto, 'valor_debito' => $monto, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
             ]);
         };
-        $rf('14200530', '111', 'Supervisor',       500000); // sueldo de persona DEL MAESTRO → se oculta
-        $rf('14200530', '222', 'Obrero Directo',   700000); // sueldo de MO DIRECTA (fuera del maestro) → se lista
+        $rf('14200530', '111', 'Supervisor',       500000); // maestro de personal → se oculta
+        $rf('14200530', '222', 'Obrero Directo',   700000); // MO directa (fuera del maestro) → se lista
+        $rf('14200533', '333', 'Apoyo',            400000); // MO de apoyo (NO es el maestro de personal) → se lista
         $rf('14200545', '800088233', 'COLPENSIONES', 600000); // parafiscal (entidad): se cruza
         $rf('14209999', '900', 'Proveedor SAS',    200000); // material normal → se lista
 
@@ -565,9 +569,11 @@ class DistribucionBolsasTest extends TestCase
             ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo')['MTO00099'] ?? []);
         $porTercero = $det->keyBy('tercero_dcto');
 
-        $this->assertArrayNotHasKey('111', $porTercero->all());  // persona del maestro → oculta
+        $this->assertArrayNotHasKey('111', $porTercero->all());  // maestro de personal → oculta
         $this->assertArrayHasKey('222', $porTercero->all());     // MO directa → se lista
         $this->assertEqualsWithDelta(700000, $porTercero['222']['saldo'], 1);
+        $this->assertArrayHasKey('333', $porTercero->all());     // MO de apoyo (no es el maestro) → se lista
+        $this->assertEqualsWithDelta(400000, $porTercero['333']['saldo'], 1);
         $this->assertArrayHasKey('900', $porTercero->all());     // material → se lista
         // COLPENSIONES cruzado: 600k − 250k (parte del maestro) = 350k distribuible.
         $this->assertArrayHasKey('800088233', $porTercero->all());
@@ -597,8 +603,8 @@ class DistribucionBolsasTest extends TestCase
             ->detalleBolsaTerceros(['MTO00099'], \App\Models\Homologacion::periodo(2026, 7), 2026, 7, 'todo');
         $por = collect($det['MTO00099'] ?? [])->keyBy('tercero_dcto');
 
-        // La MO (apoyo) se consumió contra SECAR y NO se lista.
-        $this->assertArrayNotHasKey('222', $por->all());
+        // La MO (apoyo) se consumió contra SECAR → queda en $0 (línea cruzada; la UI la oculta).
+        $this->assertEqualsWithDelta(0, $por['222']['saldo'] ?? 0, 1);
         // El proveedor (otros costos) sobrevive completo pese a ser el más antiguo: la MO se cruza primero.
         $this->assertEqualsWithDelta(200000, $por['900']['saldo'], 1);
         $this->assertFalse($por['900']['alerta']);
