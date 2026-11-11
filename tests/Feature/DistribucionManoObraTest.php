@@ -239,6 +239,40 @@ class DistribucionManoObraTest extends TestCase
         $this->assertEqualsWithDelta(600000, $b['mano_obra'], 1);
     }
 
+    /**
+     * Cuando un reverso de SECAR consume parte de la mano de obra en la bolsa, esa MO ya no está para
+     * extraer: "Otros costos" sube y "Mano de obra" baja a lo realmente extraído, pero el detalle sigue
+     * cuadrando con "Otros costos neto". Reproduce el caso de mantenimiento en producción.
+     */
+    #[Test]
+    public function un_reverso_que_consume_mano_de_obra_mantiene_el_detalle_cuadrado(): void
+    {
+        $this->base(); // Juan 500k salario + 100k SS (= 600k MO) + 200k materiales. Total 800k.
+        // SECAR reversa 300k en la cuenta de MO (estado_er POSITIVO = saldo negativo que consume la MO).
+        RegistroFinanciero::create([
+            'codigo_proyecto' => 'MTO00099', 'nombre_proyecto' => 'Bolsa', 'cuenta_contable' => '14200530',
+            'cuenta_mayor' => 'Costos por aplicar', 'tercero_dcto' => '890319324', 'razon_social' => 'SECAR',
+            'estado_er' => 300000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 5, 'anio' => 2026, 'origen' => 'biable',
+        ]);
+
+        $svc = app(\App\Services\DistribucionService::class);
+        $periodo = \App\Models\Homologacion::periodo(2026, 5);
+        $b = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 5))->firstWhere('codigo', 'mantenimiento');
+
+        // Total bolsa = netos positivos = (500k+100k−300k) MO + 200k materiales = 500k.
+        $this->assertEqualsWithDelta(500000, $b['total'], 1);
+        // El reverso consumió 300k de la MO: queda 300k de MO extraíble (y 200k de otros costos).
+        $this->assertEqualsWithDelta(300000, $b['mano_obra'], 1);
+        $this->assertEqualsWithDelta(200000, $b['otros_costos'], 1);
+        // Identidad contable: otros neto + mano de obra = neto de la cuenta 14.
+        $this->assertEqualsWithDelta($b['otros_neto'] + $b['mano_obra'], $b['neto'], 1);
+
+        // Y lo esencial: el total del detalle (suma de saldos) = "Otros costos neto" de la tarjeta.
+        $codes = \App\Models\UnBolsa::where('departamento', 'mantenimiento')->where('activo', true)->pluck('codigo')->all();
+        $sumDet = collect($svc->detalleBolsaTerceros($codes, $periodo, 2026, 5))->flatten(1)->sum('saldo');
+        $this->assertEqualsWithDelta($b['otros_neto'], $sumDet, 1);
+    }
+
     // ─────────── Guardar / validación ───────────
 
     #[Test]

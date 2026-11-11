@@ -688,10 +688,19 @@ class DistribucionCostosController extends Controller
         foreach ($moDeptos as $d) {
             $codigosD = UnBolsa::where('activo', true)->where('departamento', $d)->pluck('codigo')->all();
             $moUns = array_merge($moUns, $codigosD);
+            // MO realmente EXTRAÍDA de la bolsa por persona (no el bruto de nómina): si un reverso de SECAR
+            // ya consumió parte del sueldo/SS en la bolsa, esa parte no queda para distribuir. Así el panel
+            // por persona suma lo mismo que la tarjeta de "Mano de obra".
+            $ext = [];
+            $this->svc->detalleBolsaTerceros($codigosD, $periodo, $anio, $mes, $vista, $ext);
             $porCed = [];
             foreach ($this->svc->manoObraDirectaPorPersona($codigosD, $anio, $mes) as $ced => $p) {
-                $porCed[(string) $ced] = ['nom' => $p['nombre'], 'doc' => $p['doc'], 'total' => $p['total'],
-                    'conceptos' => $p['conceptos'] ?? []];
+                $bruto = (float) $p['total'];
+                $extr  = round((float) ($ext[(string) $ced] ?? 0.0), 2);
+                if ($extr <= 0.005) continue; // su MO fue consumida por reversos: nada por distribuir
+                $ratio = $bruto > 0.005 ? $extr / $bruto : 0.0;    // escalar el desglose a lo extraído
+                $conc  = array_map(fn ($c) => ['concepto' => $c['concepto'], 'monto' => round(((float) $c['monto']) * $ratio, 2)], $p['conceptos'] ?? []);
+                $porCed[(string) $ced] = ['nom' => $p['nombre'], 'doc' => $p['doc'], 'total' => $extr, 'conceptos' => $conc];
             }
             $moPersonasDep[$d] = $porCed;
         }
