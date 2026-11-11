@@ -66,6 +66,7 @@
         <div class="filtro-field" style="flex:2 1 240px">
             <label class="filtro-label">Buscar proyecto</label>
             <input type="text" id="buscador" autocomplete="off" placeholder="🔎 Código, proyecto o cliente…"
+                oninput="filtrarObras(this.value)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();}" class="filtro-input">
         </div>
         @php

@@ -106,6 +106,7 @@
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Período</th>
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Archivo</th>
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Registros</th>
+                    <th style="text-align:right;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Control del mes<br><span style="font-weight:400;color:#9CA3AF">Costos (61) · Costos x aplicar (1420)</span></th>
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Cargado por</th>
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Fecha</th>
                     <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:11px">Estado</th>
@@ -126,6 +127,11 @@
                     </td>
                     <td style="padding:8px;border-bottom:1px solid #F3F4F6">
                         {{ number_format($carga->registros) }}
+                    </td>
+                    @php $k = $carga->anio.'-'.$carga->mes; @endphp
+                    <td style="padding:8px;border-bottom:1px solid #F3F4F6;font-size:12px;text-align:right;white-space:nowrap">
+                        <div style="color:#1D9E75;font-weight:600">${{ number_format($costos61[$k] ?? 0, 0, ',', '.') }}</div>
+                        <div style="color:#1B3F6E;font-weight:600">${{ number_format($cxp1420[$k] ?? 0, 0, ',', '.') }}</div>
                     </td>
                     <td style="padding:8px;border-bottom:1px solid #F3F4F6;font-size:12px">
                         {{ $carga->usuario->name ?? 'N/A' }}

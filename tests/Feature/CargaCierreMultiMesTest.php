@@ -76,6 +76,34 @@ class CargaCierreMultiMesTest extends TestCase
     }
 
     #[Test]
+    public function el_panel_de_cargue_muestra_el_control_de_costos_61_y_anticipos_14(): void
+    {
+        $user = User::factory()->create([
+            'rol' => 'admin', 'activo' => true, 'permisos_modulos' => ['contabilidad' => 'editar'],
+        ]);
+        CargaFinanciera::create([
+            'mes' => 9, 'anio' => 2026, 'archivo_original' => '2026_09.xlsx', 'ruta_archivo' => 'x.xlsx',
+            'estado' => 'completado', 'registros' => 2, 'user_id' => $user->id,
+        ]);
+        // Costos (61): débito 1.000.000 · Costos por aplicar (1420): débito 500.000 en septiembre 2026.
+        // La fila 1405 (otra cuenta 14) NO debe contar: el control es solo 1420.
+        foreach ([['61350100', 1000000], ['14200105', 500000], ['14050101', 777000]] as [$cta, $deb]) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => 'C-1', 'nombre_proyecto' => 'Obra', 'cuenta_contable' => $cta,
+                'cuenta_mayor' => 'x', 'estado_er' => 0, 'valor_debito' => $deb, 'valor_credito' => 0,
+                'mes' => 9, 'anio' => 2026,
+            ]);
+        }
+
+        $this->actingAs($user)->get(route('contable.carga'))
+            ->assertOk()
+            ->assertSee('Control del mes', false)
+            ->assertSee('$1.000.000', false)   // Costos (61)
+            ->assertSee('$500.000', false)     // Costos por aplicar (solo 1420)
+            ->assertDontSee('$1.277.000', false); // 1420 + 1405: no debe aparecer (1405 queda fuera)
+    }
+
+    #[Test]
     public function un_archivo_de_otro_mes_se_rechaza_sin_borrar_el_mes_seleccionado(): void
     {
         User::factory()->create(['id' => 1]);

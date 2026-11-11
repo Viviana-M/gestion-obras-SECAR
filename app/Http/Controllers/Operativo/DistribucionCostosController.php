@@ -1508,12 +1508,24 @@ class DistribucionCostosController extends Controller
             $cerrar = array_keys(array_filter($estadoObra, fn($e) => $e === 'cerrada'));
             $pendientePorObra = collect();
             if (!empty($cerrar)) {
+                // El pendiente para cerrar se mide con el MISMO criterio que la pantalla: solo 1420
+                // (lo distribuible) y con el corte acumulado al mes. Las otras 14xx (1455 inventario
+                // en tránsito) NO se distribuyen, así que no deben impedir el cierre.
                 $pendientePorObra = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
+                    ->where('cuenta_contable', 'like', \App\Services\DistribucionService::PREFIJO_BOLSA.'%')
+                    ->where(function ($q) use ($anio, $mes) {
+                        $q->where('anio', '<', $anio)
+                            ->orWhere(fn ($s) => $s->where('anio', $anio)->where('mes', '<=', $mes));
+                    })
                     ->whereIn('codigo_proyecto', $cerrar)
                     ->selectRaw('codigo_proyecto, SUM(estado_er) as saldo')
                     ->groupBy('codigo_proyecto')
                     ->pluck('saldo', 'codigo_proyecto');
             }
+
+            // Parseo robusto del monto aplicado: puede llegar numérico (ya capado) o como texto con
+            // separador de miles ("1.000.000"); floatval crudo daría 1.0 → degradaba el cierre.
+            $limpiarMonto = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
 
             foreach ($estadoObra as $cod => $est) {
                 if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
@@ -1521,7 +1533,7 @@ class DistribucionCostosController extends Controller
                     $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
                     $pendAbs   = $saldo < 0 ? abs($saldo) : 0;
                     $reversado = $saldo > 0 ? $saldo : 0;
-                    $aplicado  = array_sum(array_map('floatval', $aplicar[$cod] ?? []));
+                    $aplicado  = array_sum(array_map($limpiarMonto, (array) ($aplicar[$cod] ?? [])));
                     if ($reversado > 0.5 || $aplicado < $pendAbs - 0.5) {
                         $est = 'parcial';
                         $noCerradas[] = $cod;
