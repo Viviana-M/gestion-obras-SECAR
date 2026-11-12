@@ -45,8 +45,10 @@
                 <td style="padding:8px 10px">
                     @if($u->rol === 'admin')
                         <span style="background:#EFF6FF;color:#1D4ED8;font-size:10px;padding:2px 8px;border-radius:10px">Administrador</span>
+                    @elseif($u->rol === 'consulta_obras')
+                        <span style="background:#F1EDFB;color:#5B3FA8;font-size:10px;padding:2px 8px;border-radius:10px">Solo consulta — Obras</span>
                     @else
-                        <span style="background:#F3F4F6;color:#6B7280;font-size:10px;padding:2px 8px;border-radius:10px">{{ ucfirst($u->rol) }}</span>
+                        <span style="background:#F3F4F6;color:#6B7280;font-size:10px;padding:2px 8px;border-radius:10px">{{ ucfirst(str_replace('_', ' ', $u->rol)) }}</span>
                     @endif
                 </td>
                 <td style="padding:8px 10px;color:#6B7280;font-size:11px">

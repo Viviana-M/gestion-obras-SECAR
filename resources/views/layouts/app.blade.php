@@ -136,7 +136,7 @@
     </div>
     <div class="navbar-user">
         <span>{{ $usuario->name }}</span>
-        <span class="navbar-rol">{{ ucfirst($usuario->rol) }}</span>
+        <span class="navbar-rol">{{ $usuario->esConsultaObras() ? 'Solo consulta — Obras' : ucfirst(str_replace('_', ' ', $usuario->rol)) }}</span>
         <form method="POST" action="{{ route('logout') }}">
             @csrf
             <button type="submit" class="btn-logout">Salir</button>
@@ -146,6 +146,16 @@
 
 <div class="layout {{ $colapsado ? 'collapsed' : '' }}">
     <aside class="sidebar">
+
+        @if($usuario->esConsultaObras())
+        {{-- Usuario de SOLO CONSULTA: únicamente ve el acceso a Consulta de Obras, nada más. --}}
+        <div class="module {{ request()->is('operativo/consulta-obras') ? 'open active-mod' : '' }}">
+            <a href="{{ route('operativo.consulta-obras') }}" class="module-head {{ request()->is('operativo/consulta-obras') ? 'active' : '' }}" style="text-decoration:none">
+                <span class="module-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2"/><circle cx="15" cy="16" r="2"/></svg></span>
+                <span class="module-name">Consulta de Obras</span>
+            </a>
+        </div>
+        @else
 
         @if($usuario->puedeVerModulo('gestion_financiera'))
         <div class="module {{ $finActive ? 'open active-mod' : '' }}">
@@ -249,6 +259,8 @@
             </div>
         </div>
         @endif
+
+        @endif {{-- fin: menú completo para usuarios que no son de solo consulta --}}
 
     </aside>
 
