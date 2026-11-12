@@ -30,6 +30,7 @@ class UsuarioController extends Controller
         'gerente',
         'ing_instalaciones',
         'supervisor_mtto',
+        'consulta_obras',
     ];
 
     private function soloAdmin(): void
@@ -66,13 +67,18 @@ class UsuarioController extends Controller
             'permisos.*' => 'in:no,ver,editar',
         ]);
 
+        if ($datos['rol'] === 'consulta_obras' && ! $this->tieneDepartamento($datos['permisos'] ?? [])) {
+            return back()->withInput()
+                ->withErrors(['rol' => 'Elige el departamento (Mantenimiento o Instalaciones) para el usuario de solo consulta.']);
+        }
+
         $usuario = User::create([
             'name'             => $datos['name'],
             'email'            => $datos['email'],
             'sede'             => $datos['sede'] ?? null,
             'rol'              => $datos['rol'],
             'password'         => $datos['password'],
-            'permisos_modulos' => $datos['rol'] === 'admin' ? null : $this->armarPermisos($datos['permisos'] ?? []),
+            'permisos_modulos' => $this->permisosSegunRol($datos['rol'], $datos['permisos'] ?? []),
             'activo'           => true,
         ]);
 
@@ -110,13 +116,16 @@ class UsuarioController extends Controller
                 ->withErrors(['rol' => 'No puedes quitarte a ti misma el rol de administrador.']);
         }
 
+        if ($datos['rol'] === 'consulta_obras' && ! $this->tieneDepartamento($datos['permisos'] ?? [])) {
+            return back()->withInput()
+                ->withErrors(['rol' => 'Elige el departamento (Mantenimiento o Instalaciones) para el usuario de solo consulta.']);
+        }
+
         $usuario->name  = $datos['name'];
         $usuario->email = $datos['email'];
         $usuario->sede  = $datos['sede'] ?? null;
         $usuario->rol   = $datos['rol'];
-        $usuario->permisos_modulos = $datos['rol'] === 'admin'
-            ? null
-            : $this->armarPermisos($datos['permisos'] ?? []);
+        $usuario->permisos_modulos = $this->permisosSegunRol($datos['rol'], $datos['permisos'] ?? []);
 
         if (! empty($datos['password'])) {
             $usuario->password = $datos['password'];
@@ -146,6 +155,37 @@ class UsuarioController extends Controller
     }
 
     // ═══════════════════ Helpers de permisos ═══════════════════
+
+    /** Permisos efectivos según el cargo: admin = todo (null); consulta = operación:ver + su depto. */
+    private function permisosSegunRol(string $rol, array $permisos): ?array
+    {
+        if ($rol === 'admin') {
+            return null;
+        }
+        if ($rol === 'consulta_obras') {
+            // Solo lectura encerrado en Consulta de Obras: necesita operación:ver (para la ruta) y su
+            // departamento (para que departamentosPermitidos()/departamentoUnico() filtren las obras).
+            $mapa = ['operacion' => 'ver'];
+            foreach (User::DEPARTAMENTOS as $dep) {
+                if (($permisos[$dep] ?? 'no') !== 'no') {
+                    $mapa[$dep] = 'ver';
+                }
+            }
+            return $mapa;
+        }
+        return $this->armarPermisos($permisos);
+    }
+
+    /** ¿Se marcó al menos un departamento (dep_mantenimiento / dep_instalaciones)? */
+    private function tieneDepartamento(array $permisos): bool
+    {
+        foreach (User::DEPARTAMENTOS as $dep) {
+            if (($permisos[$dep] ?? 'no') !== 'no') {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private function armarPermisos(array $permisos): array
     {

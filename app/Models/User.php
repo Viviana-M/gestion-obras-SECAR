@@ -50,6 +50,16 @@ class User extends Authenticatable
     }
 
     /**
+     * Usuario de SOLO CONSULTA, encerrado en la pantalla "Consulta de Obras". Ve las cifras de su
+     * departamento pero no puede entrar a ninguna otra pantalla (el encierro lo hacen el middleware
+     * UsuarioActivo y el menú lateral). El departamento se asigna con dep_mantenimiento/dep_instalaciones.
+     */
+    public function esConsultaObras(): bool
+    {
+        return $this->rol === 'consulta_obras';
+    }
+
+    /**
      * ¿Pertenece a gerencia? (puede aprobar/rechazar autorizaciones de distribución)
      * Cuenta como gerencia: administrador, cargo gerente, o cualquier director
      * (roles que empiezan por 'dir_' o 'director', p. ej. dir_operaciones,
@@ -105,6 +115,11 @@ class User extends Authenticatable
      */
     public function paginaInicio(): string
     {
+        // Solo consulta: siempre aterriza en Consulta de Obras (única pantalla a la que accede).
+        if ($this->esConsultaObras()) {
+            return route('operativo.consulta-obras', absolute: false);
+        }
+
         $modulos = [
             'gestion_financiera' => '/dashboard',
             'operacion'          => '/operativo/distribucion',
