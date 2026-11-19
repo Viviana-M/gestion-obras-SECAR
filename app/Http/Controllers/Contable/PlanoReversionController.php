@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Homologacion;
 use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
+use App\Models\UnBolsa;
 use App\Support\GeneraPlanoSiesa;
 use App\Support\AplicaPlanoCuenta14;
 use Illuminate\Http\Request;
@@ -18,6 +19,9 @@ class PlanoReversionController extends Controller
     /** Mismo tipo de documento y tercero (SECAR) que el Plano de Cierre Contable. */
     private const TIPO_DOC  = 'CCC';
     private const NIT_SECAR = '890319324';
+
+    /** Bolsas de apoyo (ADM/COM/CNT) que NO son obras: nunca entran al plano de saldos contrarios. */
+    private const BOLSAS_APOYO_EXCLUIDAS = ['ADM00099', 'COM00099', 'CNT00099'];
 
     /**
      * Página de Contabilidad: vista previa de las cuentas 14 con saldo CONTRARIO
@@ -143,12 +147,16 @@ class PlanoReversionController extends Controller
     private function baseSaldos14(?int $mes, ?int $anio, string $alcance = 'cerradas')
     {
         $cerradas = ProyectoCerrado::pluck('codigo_proyecto');
+        // Las U.N. de bolsa (MTO/INS) y las de apoyo (ADM00099, …) NO son obras: nunca van al plano.
+        $excluir = UnBolsa::codigos();
+        $excluir = array_values(array_unique(array_merge($excluir, self::BOLSAS_APOYO_EXCLUIDAS)));
 
         return RegistroFinanciero::when(
                 $alcance === 'abiertas',
                 fn ($q) => $q->whereNotIn('codigo_proyecto', $cerradas), // obras NO cerradas (abiertas/parciales)
                 fn ($q) => $q->whereIn('codigo_proyecto', $cerradas)     // obras cerradas (comportamiento actual)
             )
+            ->whereNotIn('codigo_proyecto', $excluir)                    // fuera bolsas/apoyo (ADM00099, …)
             ->where('cuenta_mayor', 'Costos por aplicar')
             ->when($mes && $anio, function ($q) use ($mes, $anio) {
                 $q->where(function ($sub) use ($mes, $anio) {

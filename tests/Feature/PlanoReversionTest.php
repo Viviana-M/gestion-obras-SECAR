@@ -118,6 +118,21 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
+    public function la_bolsa_de_apoyo_adm00099_nunca_sale_en_el_plano(): void
+    {
+        // ADM00099 (bolsa de apoyo) con saldo contrario: NO es obra, no debe salir en ningún alcance.
+        $this->rf('ADM00099', '14200105', 400000, 6, 2026, 'Apoyo admin');
+        $this->rf('C-700', '14200105', 300000, 6, 2026, 'Materiales'); // obra abierta real
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.plano-reversion.index', ['alcance' => 'abiertas']));
+        $filas = collect($resp->viewData('filas'))->pluck('proyecto')->all();
+
+        $this->assertContains('C-700', $filas);
+        $this->assertNotContains('ADM00099', $filas);
+    }
+
+    #[Test]
     public function aplicar_en_abiertas_deja_la_cuenta_14_en_cero(): void
     {
         $this->rf('C-700', '14200105', 300000, 6, 2026, 'Materiales'); // abierta, saldo contrario
