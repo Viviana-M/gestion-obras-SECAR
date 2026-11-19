@@ -625,9 +625,10 @@ class DistribucionCostosController extends Controller
             return true;
         });
 
-        uasort($obras, fn($a, $b) =>
-            ($a['orden_sem'] <=> $b['orden_sem']) ?: ($b['total_pendiente'] <=> $a['total_pendiente'])
-        );
+        // Orden CONSECUTIVO ALFANUMÉRICO por código (C0001, C0002, …): orden natural (C2 antes que C10)
+        // y agrupado por prefijo. Es solo presentación; afecta la Distribución y la Consulta de Obras
+        // (comparten index()) y queda consistente con los reportes, que ya ordenan por código.
+        uasort($obras, fn($a, $b) => strnatcasecmp($a['codigo'], $b['codigo']));
 
         // Detalle de ítems por cuenta (Fase B/C): los ítems del período de cada obra,
         // agrupados por cuenta de costo, con su neto (salidas − reintegros).
