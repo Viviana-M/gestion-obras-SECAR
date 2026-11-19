@@ -395,6 +395,17 @@ class DistribucionCostosController extends Controller
         $asignPorObra  = $asignBolsa->groupBy('codigo_proyecto');
         $asignPorBolsa = $asignBolsa->groupBy('bolsa_codigo')->map(fn ($g) => (float) $g->sum('monto'));
 
+        // Trazabilidad del borrador: códigos que YA se trabajaron en ESTE borrador (aplicaciones —propias
+        // o de bolsa— o asignaciones de bolsa). Deben conservarse en la lista aunque ahora estén cerrados
+        // o sin saldo, para no perder el rastro de lo que se distribuyó.
+        $enBorrador = $distribucion
+            ? array_flip(
+                AplicacionCosto::where('distribucion_id', $distribucion->id)->distinct()->pluck('codigo_proyecto')
+                    ->merge($asignBolsa->pluck('codigo_proyecto'))
+                    ->filter()->unique()->values()->all()
+            )
+            : [];
+
         $obras = [];
         foreach ($saldos14 as $s) {
             $cod = $s->codigo_proyecto;
@@ -452,6 +463,19 @@ class DistribucionCostosController extends Controller
                     $ingresoMes, $ingresoAcum, $costoAplMes, $costoAplAcum
                 );
             }
+        }
+
+        // Trazabilidad: las obras ya trabajadas en ESTE borrador deben estar en la lista aunque no tengan
+        // saldo/ingreso ni ficha activa (se crean en 0 y conservan lo guardado). La exclusión de cerradas
+        // del filtro respeta esta excepción. No se re-agregan las bolsas de apoyo.
+        foreach (array_keys($enBorrador) as $cod) {
+            $cod = (string) $cod;
+            if ($cod === '' || isset($obras[$cod])) continue;
+            if (isset($bolsaCodigos[$cod]) || in_array($cod, self::BOLSAS_APOYO_EXCLUIDAS, true)) continue;
+            $obras[$cod] = $this->nuevaObra(
+                $cod, $fichas[$cod]->nombre_obra ?? $cod, $cerradas, $estadosObra, $fichas,
+                $ingresoMes, $ingresoAcum, $costoAplMes, $costoAplAcum
+            );
         }
 
         // Provisiones ACTIVAS al período (se arrastran cada mes hasta reversarlas).
@@ -623,13 +647,14 @@ class DistribucionCostosController extends Controller
         // Acota el aviso ("Hay N obras…") al departamento filtrado en pantalla (y al permitido del usuario).
         $inactivasConSaldo = $this->soloDepartamentoPermitido($inactivasConSaldo, $usuario, $depEfectivo);
 
-        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $bolsaCodigos) {
+        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $bolsaCodigos, $enBorrador) {
             if (isset($bolsaCodigos[$o['codigo']])) return false;
             // Bolsas de apoyo (ADM00099, …): nunca son obras de distribución, en ninguna vista.
             if (in_array($o['codigo'], self::BOLSAS_APOYO_EXCLUIDAS, true)) return false;
-            // Las órdenes CERRADas quedan fuera de la distribución (las cerradas con saldo viven en
-            // Contabilidad → Proyectos inactivos con saldo). El resto entra, con o sin saldo 1420.
-            if ($o['estado'] === 'cerrada') return false;
+            // Las órdenes CERRADas quedan fuera de la distribución base (las cerradas con saldo viven en
+            // Contabilidad → Proyectos inactivos con saldo). EXCEPCIÓN: si la obra YA se trabajó en ESTE
+            // borrador, se conserva (cerrada / solo lectura) para no perder la trazabilidad de lo distribuido.
+            if ($o['estado'] === 'cerrada' && !isset($enBorrador[$o['codigo']])) return false;
             if ($tipo !== 'todos' && $o['tipo'] !== $tipo) return false;
             if ($estadoFiltro !== 'todos' && $o['estado'] !== $estadoFiltro) return false;
 
