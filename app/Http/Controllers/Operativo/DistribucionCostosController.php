@@ -752,7 +752,7 @@ class DistribucionCostosController extends Controller
             $ext = [];
             $this->svc->detalleBolsaTerceros($codigosD, $periodo, $anio, $mes, $vista, $ext);
             $porCed = [];
-            foreach ($this->svc->manoObraDirectaPorPersona($codigosD, $anio, $mes) as $ced => $p) {
+            foreach ($this->svc->manoObraDirectaPorPersona($codigosD, $anio, $mes, $d) as $ced => $p) {
                 $bruto = (float) $p['total'];
                 $extr  = round((float) ($ext[(string) $ced] ?? 0.0), 2);
                 if ($extr <= 0.005) continue; // su MO fue consumida por reversos: nada por distribuir
@@ -1249,7 +1249,7 @@ class DistribucionCostosController extends Controller
     private function guardarManoObra(string $departamento, int $mes, int $anio, array $manoObra, ?int $userId): void
     {
         $codigos  = UnBolsa::where('activo', true)->where('departamento', $departamento)->pluck('codigo')->all();
-        $personas = $this->svc->manoObraDirectaPorPersona($codigos, $anio, $mes);
+        $personas = $this->svc->manoObraDirectaPorPersona($codigos, $anio, $mes, $departamento);
 
         // Agrupa por cédula → [obra => monto], limpiando el separador de miles.
         $mapa = [];
