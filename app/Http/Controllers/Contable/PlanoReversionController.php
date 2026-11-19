@@ -33,13 +33,15 @@ class PlanoReversionController extends Controller
         $anio = $request->filled('anio') ? (int) $request->get('anio') : null;
         if ($mes === null || $anio === null) { $mes = null; $anio = null; } // corte solo si vienen ambos
 
-        $filas = $this->cuentas14Contrarias($mes, $anio);
+        $alcance = $request->get('alcance') === 'abiertas' ? 'abiertas' : 'cerradas';
+
+        $filas = $this->cuentas14Contrarias($mes, $anio, $alcance);
         $total = array_sum(array_map(fn ($f) => abs($f['saldo']), $filas));
 
         $periodos = RegistroFinanciero::selectRaw('anio, mes')
             ->distinct()->orderByDesc('anio')->orderByDesc('mes')->get();
 
-        return view('contable.plano-reversion', compact('filas', 'total', 'mes', 'anio', 'periodos'));
+        return view('contable.plano-reversion', compact('filas', 'total', 'mes', 'anio', 'periodos', 'alcance'));
     }
     public function exportarPlano(Request $request)
     {
@@ -52,8 +54,9 @@ class PlanoReversionController extends Controller
 
         // N° de documento del asiento (SIESA). Lo puede fijar contabilidad; por defecto 1.
         $numeroDoc = max(1, (int) $request->get('documento', 1));
+        $alcance   = $request->get('alcance') === 'abiertas' ? 'abiertas' : 'cerradas';
 
-        $movimientos = $this->construirLineas($mes, $anio, $numeroDoc);
+        $movimientos = $this->construirLineas($mes, $anio, $numeroDoc, $alcance);
         if (empty($movimientos)) {
             return back()->with('error', 'No hay cuentas 14 con saldo contrario para exportar en este corte.');
         }
@@ -86,6 +89,7 @@ class PlanoReversionController extends Controller
             'documento'    => ['required', 'integer', 'min:1'],
             'destino_mes'  => ['required', 'integer', 'between:1,12'],
             'destino_anio' => ['required', 'integer', 'min:2000'],
+            'alcance'      => ['nullable', 'in:cerradas,abiertas'],
         ], [
             'documento.required' => 'Indica el número de documento del asiento.',
         ]);
@@ -94,13 +98,14 @@ class PlanoReversionController extends Controller
         $corteAnio = $datos['corte_anio'] ?? null;
         if ($corteMes === null || $corteAnio === null) { $corteMes = null; $corteAnio = null; }
         $numeroDoc = (int) $datos['documento'];
+        $alcance   = ($datos['alcance'] ?? 'cerradas') === 'abiertas' ? 'abiertas' : 'cerradas';
 
         $destinoMes = (int) $datos['destino_mes']; $destinoAnio = (int) $datos['destino_anio'];
         if (\App\Models\CierreConciliacion::estaCerrado($destinoMes, $destinoAnio)) {
             return back()->with('error', "El período destino {$destinoMes}/{$destinoAnio} está cerrado. Reábrelo para aplicar planos ahí.");
         }
 
-        $lineas = $this->construirLineas($corteMes, $corteAnio, $numeroDoc);
+        $lineas = $this->construirLineas($corteMes, $corteAnio, $numeroDoc, $alcance);
         if (empty($lineas)) {
             return back()->with('error', 'No hay cuentas 14 con saldo contrario para aplicar en este corte.');
         }
@@ -135,9 +140,15 @@ class PlanoReversionController extends Controller
      * Saldo por (obra cerrada, subcuenta 14) — misma fórmula que la tarjeta. Con corte
      * acumulado al mes si se indica (todos los períodos anteriores + el mes).
      */
-    private function baseSaldos14(?int $mes, ?int $anio)
+    private function baseSaldos14(?int $mes, ?int $anio, string $alcance = 'cerradas')
     {
-        return RegistroFinanciero::whereIn('codigo_proyecto', ProyectoCerrado::pluck('codigo_proyecto'))
+        $cerradas = ProyectoCerrado::pluck('codigo_proyecto');
+
+        return RegistroFinanciero::when(
+                $alcance === 'abiertas',
+                fn ($q) => $q->whereNotIn('codigo_proyecto', $cerradas), // obras NO cerradas (abiertas/parciales)
+                fn ($q) => $q->whereIn('codigo_proyecto', $cerradas)     // obras cerradas (comportamiento actual)
+            )
             ->where('cuenta_mayor', 'Costos por aplicar')
             ->when($mes && $anio, function ($q) use ($mes, $anio) {
                 $q->where(function ($sub) use ($mes, $anio) {
@@ -156,9 +167,9 @@ class PlanoReversionController extends Controller
      * Cuentas 14 con saldo contrario (para la vista previa): [cuenta, nombre, proyecto, saldo],
      * de las obras cerradas cuyo neto de la 14 no cuadró. Ordenadas por mayor saldo (absoluto).
      */
-    private function cuentas14Contrarias(?int $mes, ?int $anio): array
+    private function cuentas14Contrarias(?int $mes, ?int $anio, string $alcance = 'cerradas'): array
     {
-        $rows    = $this->baseSaldos14($mes, $anio);
+        $rows    = $this->baseSaldos14($mes, $anio, $alcance);
         $nombres = RegistroFinanciero::selectRaw('cuenta_contable, MAX(descripcion) as descripcion')
             ->groupBy('cuenta_contable')->pluck('descripcion', 'cuenta_contable');
 
@@ -189,10 +200,10 @@ class PlanoReversionController extends Controller
      * Asiento de reversión en el formato SIESA (mismas 12 columnas del Plano de Cierre
      * Contable): por cada cuenta 14 con saldo contrario, el par 14 ↔ 61 con su débito/crédito.
      */
-    private function construirLineas(?int $mes, ?int $anio, int $numeroDoc): array
+    private function construirLineas(?int $mes, ?int $anio, int $numeroDoc, string $alcance = 'cerradas'): array
     {
         $homol = Homologacion::pluck('cuenta_61', 'cuenta_14');
-        $rows  = $this->baseSaldos14($mes, $anio);
+        $rows  = $this->baseSaldos14($mes, $anio, $alcance);
 
         // Neto de la 14 por obra (para quedarnos solo con las que de verdad quedaron mal)
         $netoObra = [];
