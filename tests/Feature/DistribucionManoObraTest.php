@@ -80,6 +80,32 @@ class DistribucionManoObraTest extends TestCase
     // ─────────── Grid: costo por persona y subtotales ───────────
 
     #[Test]
+    public function instalaciones_no_tiene_mano_de_obra_aunque_un_costo_caiga_en_su_bolsa(): void
+    {
+        $this->base(); // Juan (maestro mantenimiento) con su MO en MTO00099.
+        // Pedro, personal de MANTENIMIENTO, con un costo que cae en la bolsa de INSTALACIONES (INS00099)
+        // —p. ej. por coincidencia de nombre con un tercero de esa bolsa—. NO debe contar como MO de
+        // instalaciones (su maestro no tiene personal); el valor queda como "otros costos" de la bolsa.
+        TerceroManoObra::create(['cedula' => '222', 'nombre' => 'Pedro Gomez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        $this->rf('INS00099', '14200530', '222', 'Pedro Gomez', 300000);
+
+        $svc = app(\App\Services\DistribucionService::class);
+        $periodo = \App\Models\Homologacion::periodo(2026, 5);
+
+        // Instalaciones: MO por persona = $0 y sin personal en "Ver personal".
+        $ins = collect($svc->bolsasGrandes('instalaciones', $periodo, 2026, 5))->firstWhere('codigo', 'instalaciones');
+        $this->assertNotNull($ins);
+        $this->assertEqualsWithDelta(0, $ins['mano_obra'], 1);
+        $this->assertCount(0, $ins['mo_personas']);
+        // El valor NO se pierde: queda dentro de la bolsa como otros costos.
+        $this->assertEqualsWithDelta(300000, $ins['otros_neto'], 1);
+
+        // Mantenimiento: su MO no cambia (Juan 600k; Pedro no tiene costo en bolsas de mantenimiento).
+        $mto = collect($svc->bolsasGrandes('mantenimiento', $periodo, 2026, 5))->firstWhere('codigo', 'mantenimiento');
+        $this->assertEqualsWithDelta(600000, $mto['mano_obra'], 1);
+    }
+
+    #[Test]
     public function el_grid_abre_por_persona_del_maestro_con_su_costo_completo(): void
     {
         $this->base();

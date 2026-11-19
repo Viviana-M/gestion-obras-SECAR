@@ -55,15 +55,25 @@ class DistribucionService
      *
      * @return array<string, array{cedula:string,doc:string,nombre:string,total:float,buckets:array<int,array{un:string,cuenta:string,monto:float,tipo:string,tercero:string}>}>
      */
-    public function manoObraDirectaPorPersona(array $codigos, int $anio, int $mes): array
+    public function manoObraDirectaPorPersona(array $codigos, int $anio, int $mes, ?string $departamento = null): array
     {
         if (empty($codigos)) {
             return [];
         }
-        $maestro = \App\Models\TerceroManoObra::where('activo', true)->get();
+        // El personal de MO directa es POR DEPARTAMENTO (p. ej. Instalaciones no tiene). Si se pide un
+        // departamento, el maestro se acota a él; así una bolsa sin personal queda en $0.
+        $maestro = \App\Models\TerceroManoObra::where('activo', true)
+            ->when($departamento, fn ($q) => $q->where('departamento', $departamento))
+            ->get();
         if ($maestro->isEmpty()) {
             return [];
         }
+
+        // Depto de cada U.N. de bolsa y de cada persona del maestro: la MO de una persona solo cuenta en
+        // bolsas de SU departamento. Evita que, por coincidencia de NOMBRE (el cruce también cruza por
+        // nombre), el costo de una persona de un depto se refleje como MO de otro.
+        $deptoDeUn    = \App\Models\UnBolsa::pluck('departamento', 'codigo');
+        $deptoPersona = $maestro->mapWithKeys(fn ($m) => [trim((string) $m->cedula) => (string) $m->departamento])->all();
 
         // Mismo cruce por cédula/nombre + seguridad social que el plano de MO de apoyo, pero con el
         // maestro de mano de obra DIRECTA. No se toca la lógica del servicio, solo se le pasa el maestro.
@@ -84,6 +94,10 @@ class DistribucionService
             $ssCod   = 0.0;  // seguridad social en las UN pedidas
             foreach ($p['buckets'] as $b) {
                 if (! in_array((string) $b['un'], $codigos, true)) continue; // solo las UN pedidas
+                // La MO de la persona solo cuenta en bolsas de SU departamento (el maestro lo define).
+                $depPer = $deptoPersona[(string) $ced] ?? null;
+                $depUn  = $deptoDeUn[(string) $b['un']] ?? null;
+                if ($depPer !== null && $depPer !== '' && $depUn !== null && $depPer !== $depUn) continue;
                 $monto = (float) $b['monto'];
                 if ($monto <= 0.005) continue;
                 $tipo = (string) ($b['tipo'] ?? '');
@@ -294,7 +308,7 @@ class DistribucionService
         $deptoDeUn = $uns->pluck('departamento', 'codigo');
 
         $saldos   = $this->saldosBolsasPorCuenta($codigos, $periodo, $anio, $mes, $vista); // [un => líneas con su desglose por tercero]
-        $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes);       // [cédula => costo completo + buckets]
+        $moPers   = $this->manoObraDirectaPorPersona($codigos, $anio, $mes, $departamento); // [cédula => costo + buckets]
         // Montos "a distribuir" AGREGADOS por (UN, cuenta): aunque ahora se guardan por tercero, el
         // disponible de la bolsa y el plano siguen siendo por cuenta → se suman las líneas de tercero.
         $montosSum = []; $montoGuardado = []; $obsPorCuenta = [];
