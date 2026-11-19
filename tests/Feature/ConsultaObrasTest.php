@@ -121,6 +121,28 @@ class ConsultaObrasTest extends TestCase
     }
 
     #[Test]
+    public function las_obras_salen_en_orden_consecutivo_alfanumerico_por_codigo(): void
+    {
+        // Se siembran desordenadas y con "natural" (C2 antes que C10).
+        foreach (['C0010', 'C0002', 'C0001'] as $cod) {
+            RegistroFinanciero::create([
+                'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Obra '.$cod, 'cuenta_contable' => '41350100',
+                'cuenta_mayor' => 'Ingreso', 'estado_er' => 1000000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026,
+            ]);
+            RegistroFinanciero::create([
+                'codigo_proyecto' => $cod, 'nombre_proyecto' => 'Obra '.$cod, 'cuenta_contable' => '14200105',
+                'cuenta_mayor' => 'Costos por aplicar', 'estado_er' => -100000, 'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 6, 'anio' => 2026,
+            ]);
+        }
+
+        $obras = $this->actingAs($this->ingeniero())
+            ->get(route('operativo.consulta-obras', ['mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento']))
+            ->assertOk()->viewData('obras');
+
+        $this->assertSame(['C0001', 'C0002', 'C0010'], array_keys($obras));
+    }
+
+    #[Test]
     public function la_consulta_usa_la_misma_fuente_de_datos_que_la_distribucion(): void
     {
         $this->seedObra();
