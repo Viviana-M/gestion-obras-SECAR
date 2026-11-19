@@ -208,23 +208,26 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
             </button>
             <div class="submenu">
+                {{-- Reorganizado en 4 grupos. Las rutas de "Validación de sobre-reversión",
+                     "Revisión de duplicados" y "Conciliación y cierre de cuenta 14" se CONSERVAN
+                     (accesibles por URL) pero se quitan del menú. --}}
                 <div class="submenu-group-label">Carga mensual</div>
                 <a href="/contable/carga" class="{{ request()->is('contable/carga') ? 'active' : '' }}">Cierre de mes</a>
                 <a href="{{ route('contable.autoliquidacion.index') }}" class="{{ request()->is('contable/autoliquidacion') ? 'active' : '' }}">Planilla PILA</a>
                 <a href="{{ route('contable.movimiento-comercial.index') }}" class="{{ request()->is('contable/movimiento-comercial') ? 'active' : '' }}">Movimientos comerciales</a>
-                <div class="submenu-group-label">Cierre y ajustes</div>
+
+                <div class="submenu-group-label">Cierre y planos</div>
                 <a href="/contable/plano-contable" class="{{ request()->is('contable/plano-contable') ? 'active' : '' }}">Plano de cierre</a>
-                <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Plano de reclasificación</a>
                 <a href="{{ route('contable.redistribucion-mo.index') }}" class="{{ request()->is('contable/redistribucion-mo*') ? 'active' : '' }}">Plano reclasificación MO apoyo</a>
                 <a href="{{ route('contable.cierre.index') }}" class="{{ request()->is('contable/cierre') ? 'active' : '' }}">Reabrir período</a>
+
+                <div class="submenu-group-label">Saldos y conciliación</div>
+                <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Saldos contrarios (cuenta 14)</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
-                <a href="{{ route('contable.conciliacion-cierre.index') }}" class="{{ request()->is('contable/conciliacion-cierre') ? 'active' : '' }}">Conciliación y cierre de cuenta 14</a>
-                <a href="{{ route('contable.sobre-reversion.index') }}" class="{{ request()->is('contable/sobre-reversion') ? 'active' : '' }}">Validación de sobre-reversión</a>
-                <a href="{{ route('contable.planos-aplicados.index') }}" class="{{ request()->is('contable/planos-aplicados') ? 'active' : '' }}">Planos aplicados (cuenta 14)</a>
-                <div class="submenu-group-label">Conciliación</div>
+                <a href="{{ route('contable.planos-aplicados.index') }}" class="{{ request()->is('contable/planos-aplicados') ? 'active' : '' }}">Planos aplicados</a>
                 <a href="{{ route('contable.cruce-secar.index') }}" class="{{ request()->is('contable/cruce-secar') ? 'active' : '' }}">Conciliación con SECAR</a>
                 <a href="{{ route('contable.recon14.index') }}" class="{{ request()->is('contable/recon14') ? 'active' : '' }}">Conciliación vs ERP</a>
-                <a href="{{ route('contable.duplicados.index') }}" class="{{ request()->is('contable/duplicados') ? 'active' : '' }}">Revisión de duplicados</a>
+
                 <div class="submenu-group-label">Mano de obra</div>
                 <a href="{{ route('contable.mano-obra-directa.index') }}" class="{{ request()->is('contable/mano-obra-directa') ? 'active' : '' }}">Mano de obra de apoyo</a>
                 <a href="{{ route('contable.terceros-mano-obra.index') }}" class="{{ request()->is('contable/terceros-mano-obra') ? 'active' : '' }}">Mano de obra directa</a>

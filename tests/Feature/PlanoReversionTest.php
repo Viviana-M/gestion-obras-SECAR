@@ -94,6 +94,46 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
+    public function el_alcance_abiertas_trae_solo_obras_no_cerradas_con_saldo_contrario(): void
+    {
+        // C-900 CERRADA con saldo contrario; C-700 ABIERTA (no cerrada) con saldo contrario.
+        $this->cerrar('C-900');
+        $this->rf('C-900', '14200105', 500000, 6, 2026, 'Materiales');
+        $this->rf('C-700', '14200105', 300000, 6, 2026, 'Materiales'); // NO cerrada
+
+        // Modo "abiertas": solo C-700, nunca la cerrada C-900.
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.plano-reversion.index', ['alcance' => 'abiertas']));
+        $resp->assertStatus(200);
+        $filas = $resp->viewData('filas');
+        $this->assertCount(1, $filas);
+        $this->assertSame('C-700', $filas[0]['proyecto']);
+        $this->assertSame('abiertas', $resp->viewData('alcance'));
+
+        // Modo por defecto (cerradas): solo C-900, nunca la abierta C-700.
+        $cerr = $this->actingAs($this->contable())->get(route('contable.plano-reversion.index'));
+        $filasC = $cerr->viewData('filas');
+        $this->assertCount(1, $filasC);
+        $this->assertSame('C-900', $filasC[0]['proyecto']);
+    }
+
+    #[Test]
+    public function aplicar_en_abiertas_deja_la_cuenta_14_en_cero(): void
+    {
+        $this->rf('C-700', '14200105', 300000, 6, 2026, 'Materiales'); // abierta, saldo contrario
+
+        $this->actingAs($this->contable('editar'))->post(route('contable.plano-reversion.aplicar'), [
+            'documento' => 5, 'destino_mes' => 6, 'destino_anio' => 2026, 'alcance' => 'abiertas',
+        ])->assertRedirect();
+
+        // Tras aplicar, el neto de la 14 de C-700 queda en ~0 (se insertó el ajuste reverso_plano).
+        $neto = RegistroFinanciero::where('codigo_proyecto', 'C-700')
+            ->where('cuenta_contable', '14200105')->sum('estado_er');
+        $this->assertEqualsWithDelta(0, $neto, 0.5);
+        $this->assertTrue(RegistroFinanciero::where('origen', 'reverso_plano')->where('codigo_proyecto', 'C-700')->exists());
+    }
+
+    #[Test]
     public function un_usuario_sin_contabilidad_no_puede_entrar(): void
     {
         $sin = User::factory()->create(['rol' => 'comercial', 'activo' => true,
