@@ -1677,6 +1677,23 @@ function bloquearForm(){
     f.querySelectorAll('input, select, button, textarea').forEach(e=>{ e.disabled=true; });
 }
 
+// Trazabilidad: una obra CERRADA que sigue en el borrador (ya se le distribuyó) se muestra en SOLO
+// LECTURA. Se usa readOnly (no disabled) en los montos para que SÍ se envíen al guardar y no se
+// pierdan sus líneas; se desactiva el cambio de estado. No se tocan el expandir/colapsar ni los
+// inputs ocultos (así se conserva lo distribuido).
+function bloquearCerradas(){
+    document.querySelectorAll('input[id^="estado-inp-"]').forEach(inp => {
+        if (inp.value !== 'cerrada') return;
+        const cod = inp.id.slice('estado-inp-'.length);
+        const card = document.getElementById('card-'+cod);
+        if (!card) return;
+        card.querySelectorAll('input[data-tipo="aplicar"]').forEach(e => { e.readOnly = true; });
+        card.querySelectorAll('textarea').forEach(e => { e.readOnly = true; });
+        card.querySelectorAll('button[data-estado]').forEach(e => { e.disabled = true; });
+        card.classList.add('obra-cerrada-lock');
+    });
+}
+
 /* ═══════════ Mano de obra directa: asignación DENTRO de cada obra destino ═══════════ */
 let moSeqG = 500000;
 const escMo = (s) => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1773,6 +1790,7 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
     moRecalcGlobal();
     refrescarDispObras();   // disponible por bolsa dentro de cada obra
+    bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 
     // Enlaces por addEventListener (además de los inline): garantizan que el
