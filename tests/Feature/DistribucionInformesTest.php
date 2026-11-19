@@ -146,6 +146,65 @@ class DistribucionInformesTest extends TestCase
         $this->assertSame($v2->id, $vigentes->first()->id);
     }
 
+    // ───────────────────────── Bug: el borrador no se retomaba al volver a entrar ─────────────────────────
+
+    /** Guarda un borrador (sin enviar) aplicando $monto a C-700. */
+    private function guardarBorrador(User $op, float $monto)
+    {
+        return $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14200105' => $monto]],
+            'estado_obra' => ['C-700' => 'parcial'],
+        ])->assertRedirect();
+    }
+
+    #[Test]
+    public function al_volver_a_entrar_sin_dist_se_retoma_el_borrador_guardado(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
+        $op = $this->operador();
+
+        $this->guardarBorrador($op, 100);
+        $draft = Distribucion::where('estado', 'borrador')->firstOrFail();
+
+        // Entrar por el menú (SIN ?dist) retoma ese mismo borrador, no abre una base nueva.
+        $resp = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertOk();
+        $this->assertSame($draft->id, $resp->viewData('distId'));
+    }
+
+    #[Test]
+    public function guardar_sin_dist_no_duplica_el_borrador(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
+        $op = $this->operador();
+
+        // Varios guardados SIN ?dist deben reutilizar el mismo borrador (no acumular duplicados).
+        $this->guardarBorrador($op, 100);
+        $this->guardarBorrador($op, 200);
+        $this->guardarBorrador($op, 300);
+
+        $this->assertSame(1, Distribucion::where('mes', 7)->where('anio', 2026)
+            ->where('departamento', 'mantenimiento')->where('tipo', 'obras')->count());
+    }
+
+    #[Test]
+    public function empezar_un_borrador_nuevo_no_retoma_el_existente(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
+        $op = $this->operador();
+
+        $this->guardarBorrador($op, 100);
+
+        // Con ?nuevo=1 NO se retoma: se muestra la base limpia (sin dist).
+        $resp = $this->actingAs($op)->get('/operativo/distribucion?nuevo=1&mes=7&anio=2026&departamento=mantenimiento');
+        $resp->assertOk();
+        $this->assertNull($resp->viewData('distId'));
+    }
+
     // ───────────────────────── Bug 3: facturado por tipo ─────────────────────────
 
     #[Test]

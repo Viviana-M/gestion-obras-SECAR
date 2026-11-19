@@ -261,6 +261,17 @@ class DistribucionCostosController extends Controller
         $distId       = $request->get('dist');
         $distribucion = $distId ? Distribucion::find($distId) : null;
 
+        // Al entrar SIN ?dist (p. ej. desde el menú) se RETOMA el borrador abierto del período y
+        // departamento del usuario, en vez de abrir una base nueva (que se veía "como se entregó").
+        // Se carga EN LÍNEA (sin redirigir) para no cambiar el tipo de respuesta de index(). Solo en la
+        // pantalla editable (no cuando index() lo llama consultaObras) y salvo que se pida una base nueva.
+        if (! $distribucion && ! $request->boolean('nuevo') && $request->routeIs('operativo.distribucion')) {
+            $distribucion = $this->borradorAbiertoDelUsuario($request);
+            if ($distribucion) {
+                $distId = $distribucion->id;
+            }
+        }
+
         if ($distribucion) {
             $mes  = (int) $distribucion->mes;
             $anio = (int) $distribucion->anio;
@@ -1338,6 +1349,44 @@ class DistribucionCostosController extends Controller
         return back()->with('success', 'Provisión eliminada (no había sido enviada a contabilidad).');
     }
 
+    /**
+     * Borrador ABIERTO (editable) del período y departamento que le corresponde al usuario, o null.
+     * Sirve para RETOMAR el trabajo guardado al entrar a la distribución sin ?dist.
+     */
+    private function borradorAbiertoDelUsuario(Request $request): ?Distribucion
+    {
+        [$defMes, $defAnio] = $this->ultimoPeriodoConDatos();
+        $mes  = (int) $request->get('mes', $defMes);
+        $anio = (int) $request->get('anio', $defAnio);
+
+        $usuario = $request->user();
+        // Supervisor: su propio departamento. Director/admin: el del filtro (si no eligió, no se fuerza).
+        $dep = $usuario?->departamentoUnico() ?: $request->get('departamento');
+        if (! $dep) {
+            return null;
+        }
+
+        return $this->borradorAbierto($mes, $anio, $dep);
+    }
+
+    /**
+     * El borrador de obras ABIERTO (estado 'borrador', o 'enviado' con edición habilitada) y NO
+     * reemplazado del período/departamento. Si hay varios (por duplicados antiguos), el más reciente.
+     */
+    private function borradorAbierto(int $mes, int $anio, string $departamento): ?Distribucion
+    {
+        return Distribucion::where('mes', $mes)->where('anio', $anio)
+            ->where('departamento', $departamento)
+            ->where('tipo', 'obras')
+            ->where('reemplazada', false)
+            ->where(function ($q) {
+                $q->where('estado', 'borrador')
+                  ->orWhere(fn ($s) => $s->where('estado', 'enviado')->where('edicion_habilitada', true));
+            })
+            ->orderByDesc('version')->orderByDesc('created_at')
+            ->first();
+    }
+
     public function guardar(Request $request)
 {
     abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
@@ -1500,6 +1549,17 @@ class DistribucionCostosController extends Controller
             $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $sinIngreso,
             $asignFinal, $poolBolsa, $infoGrande, $esAuto
         ) {
+            if (!$distribucion) {
+                // Sin ?dist: en vez de crear un borrador NUEVO cada vez (que generaba duplicados del
+                // mismo mes/departamento), se REUTILIZA el borrador existente si ya hay uno. Solo se
+                // reutiliza un 'borrador' nunca enviado: un 'enviado' (aunque tenga edición habilitada)
+                // que se reenvía sin ?dist conserva el flujo de NUEVA versión (marca la anterior).
+                $distribucion = Distribucion::where('mes', $mes)->where('anio', $anio)
+                    ->where('departamento', $departamento)->where('tipo', 'obras')
+                    ->where('estado', 'borrador')->where('reemplazada', false)
+                    ->orderByDesc('version')->orderByDesc('created_at')
+                    ->first();
+            }
             if (!$distribucion) {
                 // Numeración separada por departamento
                 $version = (Distribucion::where('mes', $mes)->where('anio', $anio)
