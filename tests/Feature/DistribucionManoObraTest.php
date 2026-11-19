@@ -80,6 +80,33 @@ class DistribucionManoObraTest extends TestCase
     // ─────────── Grid: costo por persona y subtotales ───────────
 
     #[Test]
+    public function la_seguridad_social_no_cruza_de_departamento_en_la_vista_combinada(): void
+    {
+        // Juan es personal de MANTENIMIENTO con salario y SS (fondo Colpensiones) en la autoliquidación,
+        // pero NO hay línea de ese fondo en mantenimiento. En cambio, una obra de INSTALACIONES tiene su
+        // propia línea de Colpensiones. En la vista combinada (sin departamento) la SS de Juan NO debe
+        // drenarse de la línea de instalaciones (antes se contaba como MO de instalaciones).
+        $this->homolog('14200530', '73950505', 'MOI');
+        TerceroManoObra::create(['cedula' => '111', 'nombre' => 'Juan Perez', 'departamento' => 'mantenimiento', 'activo' => true]);
+        $this->rf('MTO00099', '14200530', '111', 'Juan Perez', 500000);   // salario de Juan (mantenimiento)
+        AutoliquidacionAporte::create([
+            'cedula' => '899999', 'razon_social' => 'COLPENSIONES', 'empleado' => '111', 'empleado_nombre' => 'Juan Perez',
+            'id_cuenta' => '14200530', 'aporte_empresa' => 100000, 'aporte_empleado' => 0, 'mes' => 5, 'anio' => 2026,
+        ]);
+        $this->rf('INS00099', '14200530', '899999', 'COLPENSIONES', 300000); // Colpensiones en una obra de instalaciones
+
+        $svc = app(\App\Services\DistribucionService::class);
+        $periodo = \App\Models\Homologacion::periodo(2026, 5);
+        $bolsas = collect($svc->bolsasGrandes(null, $periodo, 2026, 5))->keyBy('codigo');
+
+        // Instalaciones: la SS de mantenimiento no cruza → MO = $0 y los $300k quedan como otros costos.
+        $this->assertEqualsWithDelta(0, $bolsas['instalaciones']['mano_obra'], 1);
+        $this->assertEqualsWithDelta(300000, $bolsas['instalaciones']['otros_neto'], 1);
+        // Mantenimiento: se extrae el salario de Juan (500k); su SS no tiene línea en mantenimiento.
+        $this->assertEqualsWithDelta(500000, $bolsas['mantenimiento']['mano_obra'], 1);
+    }
+
+    #[Test]
     public function instalaciones_no_tiene_mano_de_obra_aunque_un_costo_caiga_en_su_bolsa(): void
     {
         $this->base(); // Juan (maestro mantenimiento) con su MO en MTO00099.
