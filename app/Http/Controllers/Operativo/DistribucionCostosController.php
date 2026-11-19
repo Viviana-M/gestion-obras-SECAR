@@ -33,6 +33,10 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class DistribucionCostosController extends Controller
 {
+    /** Bolsas de apoyo (ADM/COM/CNT) que NO son obras: se excluyen de la lista de distribución en TODAS
+     *  las vistas (incluida admin/director, que no filtra por prefijo de departamento). */
+    private const BOLSAS_APOYO_EXCLUIDAS = ['ADM00099', 'COM00099', 'CNT00099'];
+
     private array $categorias = DistribucionService::CATEGORIAS;
 
     private DistribucionService $svc;
@@ -323,20 +327,9 @@ class DistribucionCostosController extends Controller
 
         $saldos14 = $saldos14Query->get();
 
-        // Solo obras con saldo NETO real en la cuenta 14 (por proyecto), según la vista.
-        // Evita mostrar obras cuyos movimientos de cuenta 14 se cancelan entre sí
-        // (neto ≈ 0): no hay nada que distribuir y solo hacen ruido.
-        $netoQuery = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
-            ->where('cuenta_contable', 'like', $pref1420) // solo 1420: si SUM(déb−cré) de 1420 = 0 → fuera del listado
-            ->selectRaw('codigo_proyecto, SUM(estado_er) as neto')
-            ->groupBy('codigo_proyecto')
-            ->havingRaw('ROUND(ABS(SUM(estado_er)), 0) >= 1'); // |neto| redondeado a peso ≥ $1 (sin $0 ni centavos)
-        if ($vista === 'mes') {
-            $netoQuery->where('anio', $anio)->where('mes', $mes);
-        } else {
-            $corteAcum($netoQuery);
-        }
-        $proyectosConSaldoNeto = $netoQuery->pluck('codigo_proyecto')->flip();
+        // (Antes se exigía saldo NETO ≥ $1 en 1420 por proyecto para listar una obra; ahora el universo
+        // incluye también las órdenes con ingreso o ficha activa aunque su neto sea 0, así que ese filtro
+        // se retiró. Las cerradas se descartan más abajo por su estado.)
 
         $ingresoMes   = $this->sumaMes('Ingreso', $anio, $mes);
         $ingresoAcum  = $this->sumaAcum('Ingreso', $anio, $mes);
@@ -432,6 +425,33 @@ class DistribucionCostosController extends Controller
             ];
             $obras[$cod]['total_pendiente'] += $pendiente;
             $obras[$cod]['total_reversado'] += $reversado;
+        }
+
+        // Universo ampliado de órdenes: además de las que tienen saldo en 1420 (arriba), traer también
+        // las que tienen INGRESO en el período y las ACTIVAS en el maestro (ficha activa). Así aparecen
+        // las órdenes NO cerradas aunque no tengan saldo 1420. Las que aún no estén en $obras se crean en
+        // 0 (nuevaObra las deja neutras: no alteran bolsa ni márgenes). Se saltan las bolsas (UN) y las
+        // bolsas de apoyo excluidas; el estado 'cerrada' se descarta después, en el filtro.
+        // Las bolsas de área (UN) son el ORIGEN del costo, no obras: nunca entran a la lista.
+        $bolsaCodigos = array_flip(UnBolsa::codigos());
+        // La ampliación aplica a la vista ACUMULADA (la que usa el cliente). La vista 'mes' conserva su
+        // semántica: solo las órdenes con movimiento de cuenta 14 en ese mes.
+        if ($vista !== 'mes') {
+            // Ingreso DEL PERÍODO (mes que se distribuye) + maestro activo. No se usa el ingreso
+            // acumulado histórico: una orden ya saldada (sin costo pendiente ni ficha activa) no debe
+            // reaparecer cada mes solo por haber facturado alguna vez.
+            $codigosExtra = collect($ingresoMes->keys())
+                ->merge($fichas->filter(fn ($f) => (bool) $f->activa)->keys())
+                ->unique();
+            foreach ($codigosExtra as $cod) {
+                $cod = (string) $cod;
+                if ($cod === '' || isset($obras[$cod])) continue;
+                if (isset($bolsaCodigos[$cod]) || in_array($cod, self::BOLSAS_APOYO_EXCLUIDAS, true)) continue;
+                $obras[$cod] = $this->nuevaObra(
+                    $cod, $fichas[$cod]->nombre_obra ?? $cod, $cerradas, $estadosObra, $fichas,
+                    $ingresoMes, $ingresoAcum, $costoAplMes, $costoAplAcum
+                );
+            }
         }
 
         // Provisiones ACTIVAS al período (se arrastran cada mes hasta reversarlas).
@@ -582,9 +602,7 @@ class DistribucionCostosController extends Controller
             $prefijosDepto = null; // admin sin elegir = ve todo
         }
 
-        // Las bolsas de área (UN) son el ORIGEN del costo, no un destino: nunca deben
-        // aparecer como una obra en la lista (sí en el panel superior).
-        $bolsaCodigos = array_flip(UnBolsa::codigos());
+        // ($bolsaCodigos se definió arriba, junto al universo ampliado de órdenes.)
 
         // Obras marcadas inactivas en el maestro pero que AÚN tienen saldo en cuenta 14:
         // no se cierran; se listan aparte para revisarlas antes de cerrarlas.
@@ -605,10 +623,13 @@ class DistribucionCostosController extends Controller
         // Acota el aviso ("Hay N obras…") al departamento filtrado en pantalla (y al permitido del usuario).
         $inactivasConSaldo = $this->soloDepartamentoPermitido($inactivasConSaldo, $usuario, $depEfectivo);
 
-        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $proyectosConSaldoNeto, $bolsaCodigos) {
+        $obras = array_filter($obras, function ($o) use ($tipo, $estadoFiltro, $prefijosDepto, $bolsaCodigos) {
             if (isset($bolsaCodigos[$o['codigo']])) return false;
-            // Solo obras con saldo neto real en cuenta 14 (por proyecto).
-            if (!isset($proyectosConSaldoNeto[$o['codigo']])) return false;
+            // Bolsas de apoyo (ADM00099, …): nunca son obras de distribución, en ninguna vista.
+            if (in_array($o['codigo'], self::BOLSAS_APOYO_EXCLUIDAS, true)) return false;
+            // Las órdenes CERRADas quedan fuera de la distribución (las cerradas con saldo viven en
+            // Contabilidad → Proyectos inactivos con saldo). El resto entra, con o sin saldo 1420.
+            if ($o['estado'] === 'cerrada') return false;
             if ($tipo !== 'todos' && $o['tipo'] !== $tipo) return false;
             if ($estadoFiltro !== 'todos' && $o['estado'] !== $estadoFiltro) return false;
 
