@@ -160,7 +160,7 @@
 @if($distId)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <span>Editando borrador existente ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza esta misma versión.</span>
-    <a href="{{ route('operativo.distribucion') }}" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
+    <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
 </div>
 @endif
 
