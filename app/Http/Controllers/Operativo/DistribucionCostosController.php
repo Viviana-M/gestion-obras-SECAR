@@ -1424,6 +1424,18 @@ class DistribucionCostosController extends Controller
             return $responderError('Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
         }
 
+        // Candado optimista (anti-pisado): el formulario trae el contador lock_version del borrador tal
+        // como estaba al cargarlo. Si en el servidor subió (otra persona guardó entretanto), NO se guarda,
+        // para no sobrescribir su trabajo en silencio. Solo aplica al editar un borrador ya existente.
+        $lockCliente = $request->input('lock_version');
+        if ($distribucion && $lockCliente !== null && $lockCliente !== ''
+            && (int) $distribucion->lock_version !== (int) $lockCliente) {
+            $m = 'Otra persona guardó cambios en este borrador. Recarga la página para no sobrescribir su trabajo.';
+            return $esAuto
+                ? response()->json(['ok' => false, 'error' => $m, 'stale' => true], 409)
+                : back()->with('error', $m);
+        }
+
         // Determinar el departamento del plano:
         // - supervisor: su propio departamento
         // - director/admin: el que venga del formulario (campo 'departamento')
@@ -1720,6 +1732,9 @@ class DistribucionCostosController extends Controller
             } else {
                 $msg = 'Borrador guardado.';
             }
+            // Sube el contador del candado optimista en CADA guardado (aunque solo cambien las líneas
+            // hijas), para que otra sesión con una marca vieja no pueda pisar este guardado.
+            $distribucion->lock_version = (int) ($distribucion->lock_version ?? 0) + 1;
             $distribucion->save();
 
             // Reenvío: cualquier OTRA versión enviada del mismo mes/año/departamento queda
@@ -1754,6 +1769,9 @@ class DistribucionCostosController extends Controller
                 'ok'   => true,
                 'dist' => $distribucion->id,
                 'hora' => now()->format('h:i a'),
+                // Nuevo contador del candado optimista, para que el cliente lo refresque y no se
+                // auto-rechace en el siguiente autoguardado.
+                'lock_version' => (int) $distribucion->lock_version,
             ]);
         }
 

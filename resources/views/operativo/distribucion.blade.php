@@ -159,7 +159,7 @@
 
 @if($distId)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-    <span>Editando borrador existente ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza esta misma versión.</span>
+    <span>📝 Retomando tu borrador guardado del <b>{{ optional($envio->updated_at)->format('d/m/Y H:i') ?: '—' }}</b> ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza <b>este mismo borrador</b>, no se crea uno nuevo.</span>
     <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
 </div>
 @endif
@@ -595,6 +595,8 @@
 <input type="hidden" name="mes" value="{{ $mes }}">
 <input type="hidden" name="anio" value="{{ $anio }}">
 <input type="hidden" name="dist" value="{{ $distId }}">
+{{-- Candado optimista: contador del borrador al cargarlo; guardar() rechaza si en el servidor subió. --}}
+<input type="hidden" name="lock_version" value="{{ $envio?->lock_version }}">
 <input type="hidden" name="departamento" value="{{ $depEfectivo }}">
 
 @php
@@ -1817,7 +1819,7 @@ document.addEventListener('DOMContentLoaded', function(){
     // Clave del respaldo local por período + departamento + borrador.
     const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
 
-    let dirty = false, saving = false, submitting = false, tmr = null;
+    let dirty = false, saving = false, submitting = false, stale = false, tmr = null;
 
     const statusEl = document.getElementById('autosave-status');
     function setStatus(txt, color) { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = color || '#9CA3AF'; } }
@@ -1837,7 +1839,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
     // ── Autoguardado en el SERVIDOR (borrador real en la BD) ──
     function autoguardarServidor() {
-        if (saving || submitting || !dirty) return;
+        if (saving || submitting || stale || !dirty) return;
         saving = true;
         setStatus('Autoguardando…', '#9CA3AF');
         const fd = new FormData(form);
@@ -1850,7 +1852,11 @@ document.addEventListener('DOMContentLoaded', function(){
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
             body: fd,
             credentials: 'same-origin',
-        }).then(r => r.ok ? r.json() : Promise.reject(r))
+        }).then(async r => {
+              if (r.ok) return r.json();
+              let j = null; try { j = await r.json(); } catch (e) {}
+              const err = new Error('resp'); err.payload = j; err.status = r.status; throw err;
+          })
           .then(j => {
               if (!j || !j.ok) throw new Error('resp');
               // Reutilizar el mismo borrador en los próximos autoguardados y al guardar a mano.
@@ -1862,11 +1868,24 @@ document.addEventListener('DOMContentLoaded', function(){
                       if (!u.searchParams.get('dist')) { u.searchParams.set('dist', j.dist); history.replaceState(null, '', u.toString()); }
                   } catch (e) {}
               }
+              // Refrescar la marca del candado optimista para no auto-rechazar el próximo guardado.
+              if (j.lock_version !== undefined && j.lock_version !== null) {
+                  const lv = form.querySelector('input[name="lock_version"]');
+                  if (lv) lv.value = j.lock_version;
+              }
               dirty = false;
               try { localStorage.removeItem(KEY); } catch (e) {}   // el servidor ya lo tiene
               setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
           })
-          .catch(() => { setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309'); })
+          .catch((err) => {
+              // Otra persona guardó entretanto: NO se pisó su trabajo. Se avisa y se deja de autoguardar.
+              if (err && err.payload && err.payload.stale) {
+                  stale = true; clearTimeout(tmr);
+                  setStatus('⚠ ' + (err.payload.error || 'Otra persona guardó cambios. Recarga la página.'), '#B45309');
+              } else {
+                  setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309');
+              }
+          })
           .finally(() => { saving = false; });
     }
 

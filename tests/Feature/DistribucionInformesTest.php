@@ -205,6 +205,54 @@ class DistribucionInformesTest extends TestCase
         $this->assertNull($resp->viewData('distId'));
     }
 
+    #[Test]
+    public function al_retomar_se_muestra_el_banner_con_fecha_y_version(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
+        $op = $this->operador();
+        $this->guardarBorrador($op, 100);
+
+        $html = $this->actingAs($op)->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento')
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('Retomando tu borrador guardado del', $html);
+        // Lleva el contador del candado optimista del borrador en el formulario.
+        $draft = Distribucion::where('estado', 'borrador')->firstOrFail();
+        $this->assertStringContainsString('name="lock_version" value="'.$draft->lock_version.'"', $html);
+    }
+
+    #[Test]
+    public function no_pisa_el_trabajo_de_otra_persona_si_la_version_esta_desfasada(): void
+    {
+        $this->rf('C-700', 'Ingreso', 5000000, 7, 2026, '41350100');
+        $this->rf('C-700', 'Costos por aplicar', -1000, 6, 2026, '14200105');
+        $op = $this->operador();
+
+        // A crea el borrador y toma el contador (como lo tendría su formulario al cargar).
+        $this->guardarBorrador($op, 100);
+        $draft = Distribucion::where('estado', 'borrador')->firstOrFail();
+        $lockA = $draft->lock_version;
+
+        // B guarda un cambio sobre el mismo borrador (sube lock_version).
+        $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'dist' => $draft->id, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14200105' => 200]], 'estado_obra' => ['C-700' => 'parcial'],
+            'lock_version' => $draft->fresh()->lock_version,
+        ])->assertRedirect();
+        $this->assertGreaterThan($lockA, $draft->fresh()->lock_version); // el contador subió
+
+        // A intenta guardar con su marca VIEJA → debe rechazarse (no pisar a B).
+        $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'guardar', 'dist' => $draft->id, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-700' => ['14200105' => 999]], 'estado_obra' => ['C-700' => 'parcial'],
+            'lock_version' => $lockA, 'auto' => '1',
+        ])->assertStatus(409)->assertJson(['ok' => false, 'stale' => true]);
+
+        // El monto de B (200) se conservó; el de A (999) no pisó.
+        $this->assertEqualsWithDelta(200, (float) AplicacionCosto::where('distribucion_id', $draft->id)->sum('monto_aplicar'), 0.5);
+    }
+
     // ───────────────────────── Bug 3: facturado por tipo ─────────────────────────
 
     #[Test]
