@@ -49,7 +49,7 @@ class ObrasRevisionTest extends TestCase
     }
 
     #[Test]
-    public function gm000045_no_aparece_en_distribucion(): void
+    public function gm000045_aparece_en_distribucion_aunque_su_neto_sea_cero(): void
     {
         $this->seedGM000045();
         $this->seedConSaldo();
@@ -58,8 +58,10 @@ class ObrasRevisionTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('id="card-C-800"', false);          // con saldo real: sí aparece
-        $resp->assertDontSee('id="card-GM000045"', false);   // neto ≈ 0: no aparece
+        $resp->assertSee('id="card-C-800"', false);     // con saldo real: aparece
+        // Con el nuevo universo (todas las no cerradas con actividad), una obra con movimiento en 1420
+        // y neto ≈ 0 también aparece (antes se ocultaba por exigir saldo neto por proyecto).
+        $resp->assertSee('id="card-GM000045"', false);
     }
 
     #[Test]

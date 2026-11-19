@@ -68,9 +68,8 @@ class EstadoObraPorIngresoTest extends TestCase
     #[Test]
     public function un_proyecto_con_saldo_solo_en_1455_no_aparece_en_distribucion(): void
     {
-        // Inventario (1455) negativo y enorme, SIN saldo en 1420: no hay nada que distribuir,
-        // así que el proyecto queda fuera del listado (antes se colaba como "abierto").
-        $this->rf('MOB07010', 'Ingreso', 5000, 7, 2026, '41350100');
+        // Inventario (1455) negativo y enorme, SIN saldo en 1420, SIN ingreso y SIN ficha activa: no
+        // hay actividad distribuible, así que el proyecto queda fuera (el 1455 no lo mete en la lista).
         $this->rf('MOB07010', 'Costos por aplicar', -50000000, 6, 2026, '14552599'); // 1455 inventario
         // Otro proyecto con saldo REAL en 1420: sí aparece.
         $this->rf('MOB07011', 'Costos por aplicar', -100, 6, 2026, '14200105');
@@ -86,7 +85,8 @@ class EstadoObraPorIngresoTest extends TestCase
     #[Test]
     public function una_obra_cerrada_conserva_su_estado_aunque_tenga_ingreso(): void
     {
-        // Obra con ingreso pero cerrada totalmente: sigue "cerrada", no se reabre a parcial.
+        // Obra cerrada totalmente: ya NO aparece en la distribución (las cerradas quedan fuera; las
+        // cerradas con saldo viven en Contabilidad → Proyectos inactivos con saldo).
         ProyectoCerrado::create([
             'codigo_proyecto' => 'MOB07003', 'tipo_cierre' => 'total',
             'user_id' => User::factory()->create()->id,
@@ -98,15 +98,14 @@ class EstadoObraPorIngresoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('name="estado_obra[MOB07003]" id="estado-inp-MOB07003" value="cerrada"', false);
-        $resp->assertSee('data-estado="cerrada" class="on"', false);
+        $resp->assertDontSee('id="card-MOB07003"', false);
     }
 
     #[Test]
     public function el_cierre_contable_manda_sobre_el_estado_manual_y_el_saldo(): void
     {
-        // Caso del bug: la obra tiene cierre contable, PERO un ObraEstado manual "abierta" y un
-        // residuo de saldo en 1420. El cierre debe mandar: se muestra "cerrada", no se reabre.
+        // El cierre contable manda sobre el ObraEstado manual "abierta" y el residuo de saldo: la obra
+        // se resuelve como CERRADA y, por serlo, queda FUERA de la distribución (no se reabre).
         ProyectoCerrado::create([
             'codigo_proyecto' => 'MOB07004', 'tipo_cierre' => 'total',
             'user_id' => User::factory()->create()->id,
@@ -119,6 +118,6 @@ class EstadoObraPorIngresoTest extends TestCase
             ->get('/operativo/distribucion?mes=7&anio=2026&departamento=mantenimiento');
 
         $resp->assertStatus(200);
-        $resp->assertSee('name="estado_obra[MOB07004]" id="estado-inp-MOB07004" value="cerrada"', false);
+        $resp->assertDontSee('id="card-MOB07004"', false);
     }
 }
