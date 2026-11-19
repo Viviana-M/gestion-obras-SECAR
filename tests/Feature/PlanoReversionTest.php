@@ -133,6 +133,25 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
+    public function abiertas_solo_trae_1420_contrario_no_el_pendiente_ni_el_1455(): void
+    {
+        // C1101401 (abierta): 1420 en pendiente normal (negativo) y un positivo solo en 1455 (inventario).
+        $this->rf('C1101401', '14200105', -1451028.69, 6, 2026, 'Pendiente');
+        $this->rf('C1101401', '14552599', 38784.31, 6, 2026, 'Inventario en transito');
+        // C-700 (abierta): 1420 CONTRARIO (positivo) → sí debe salir.
+        $this->rf('C-700', '14200105', 300000, 6, 2026, 'Reversado');
+
+        $resp = $this->actingAs($this->contable())
+            ->get(route('contable.plano-reversion.index', ['alcance' => 'abiertas']));
+        $filas = collect($resp->viewData('filas'));
+
+        $this->assertNotContains('C1101401', $filas->pluck('proyecto')->all()); // pendiente + 1455 → fuera
+        $this->assertContains('C-700', $filas->pluck('proyecto')->all());
+        // No aparece ninguna 1455 (inventario en tránsito).
+        $this->assertTrue($filas->every(fn ($f) => ! str_starts_with($f['cuenta'], '1455')));
+    }
+
+    #[Test]
     public function aplicar_en_abiertas_deja_la_cuenta_14_en_cero(): void
     {
         $this->rf('C-700', '14200105', 300000, 6, 2026, 'Materiales'); // abierta, saldo contrario
