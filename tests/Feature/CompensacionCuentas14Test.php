@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\PlanoAplicado;
+use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -77,6 +78,24 @@ class CompensacionCuentas14Test extends TestCase
         $this->assertNotNull($plano);
         $this->assertSame(2, RegistroFinanciero::where('plano_aplicado_id', $plano->id)->count());
         $this->assertTrue(RegistroFinanciero::where('origen', 'compensacion_14')->where('codigo_proyecto', 'R0040284')->exists());
+    }
+
+    #[Test]
+    public function tambien_compensa_obras_cerradas_y_excluye_el_1455(): void
+    {
+        // O0008566 CERRADA: 1420 neto ≈ 0 con subcuentas opuestas + un 1455 enorme (inventario).
+        ProyectoCerrado::create(['codigo_proyecto' => 'O0008566', 'tipo_cierre' => 'total', 'user_id' => User::factory()->create()->id]);
+        $this->rf('O0008566', '14205505', 170148);
+        $this->rf('O0008566', '14209595', -162308);
+        $this->rf('O0008566', '14200569', -2702);
+        $this->rf('O0008566', '14208002', -5138);
+        $this->rf('O0008566', '14552599', -50749742); // 1455: se excluye
+
+        $resp  = $this->actingAs($this->contable())->get(route('contable.compensacion-14.index'));
+        $filas = collect($resp->viewData('filas'));
+
+        $this->assertContains('O0008566', $filas->pluck('proyecto')->all()); // cerrada también compensa
+        $this->assertTrue($filas->every(fn ($f) => ! str_starts_with($f['cuenta'], '1455'))); // sin 1455
     }
 
     #[Test]
