@@ -223,6 +223,7 @@
 
                 <div class="submenu-group-label">Saldos y conciliación</div>
                 <a href="{{ route('contable.plano-reversion.index') }}" class="{{ request()->is('contable/plano-reversion*') ? 'active' : '' }}">Saldos contrarios (cuenta 14)</a>
+                <a href="{{ route('contable.compensacion-14.index') }}" class="{{ request()->is('contable/compensacion-14*') ? 'active' : '' }}">Compensación cuentas 14</a>
                 <a href="{{ route('operativo.obras-inactivas.index') }}" class="{{ request()->is('operativo/obras-inactivas') ? 'active' : '' }}">Proyectos inactivos con saldo</a>
                 <a href="{{ route('contable.planos-aplicados.index') }}" class="{{ request()->is('contable/planos-aplicados') ? 'active' : '' }}">Planos aplicados</a>
                 <a href="{{ route('contable.cruce-secar.index') }}" class="{{ request()->is('contable/cruce-secar') ? 'active' : '' }}">Conciliación con SECAR</a>
