@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
-use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
 use App\Services\DistribucionService;
@@ -14,8 +13,8 @@ use Illuminate\Http\Request;
 /**
  * Plano 2 — COMPENSACIÓN entre cuentas 14 (14↔14).
  *
- * Obras NO cerradas cuyo neto de la cuenta 1420 ≈ 0 pero descuadrado POR DENTRO: una subcuenta en
- * débito y otra en crédito que se compensan, sin que haya que mover costo (la 61 ya está correcta).
+ * Obras (abiertas O cerradas) cuyo neto de la cuenta 1420 ≈ 0 pero descuadrado POR DENTRO: una subcuenta
+ * en débito y otra en crédito que se compensan, sin que haya que mover costo (la 61 ya está correcta).
  * Se compensan las subcuentas 14 ENTRE SÍ (nunca se toca la 61), para que cada una quede en 0 y la
  * OT se pueda cerrar. Ejemplo R0040284: 14200105 y 14203010 opuestas (± 6.350.000), neto 0.
  */
@@ -132,8 +131,9 @@ class CompensacionCuentas14Controller extends Controller
     {
         $excluir = array_values(array_unique(array_merge(UnBolsa::codigos(), self::BOLSAS_APOYO_EXCLUIDAS)));
 
-        return RegistroFinanciero::whereNotIn('codigo_proyecto', ProyectoCerrado::pluck('codigo_proyecto')) // NO cerradas
-            ->whereNotIn('codigo_proyecto', $excluir)
+        // Compensable sin importar si la obra está cerrada o abierta: el criterio es el mismo
+        // (1420 neto ≈ 0 con subcuentas opuestas). Solo se excluyen las UN de bolsa/apoyo.
+        return RegistroFinanciero::whereNotIn('codigo_proyecto', $excluir)
             ->where('cuenta_mayor', 'Costos por aplicar')
             ->where('cuenta_contable', 'like', DistribucionService::PREFIJO_BOLSA.'%') // solo 1420
             ->when($mes && $anio, function ($q) use ($mes, $anio) {

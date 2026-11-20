@@ -67,6 +67,28 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
+    public function excluye_el_1455_y_las_obras_con_1420_neto_cero(): void
+    {
+        // O0008566 cerrada: 1420 neta ≈ 0 (subcuentas opuestas) + un 1455 enorme (inventario).
+        $this->cerrar('O0008566');
+        $this->rf('O0008566', '14205505', 170148, 6, 2026, 'A');
+        $this->rf('O0008566', '14209595', -162308, 6, 2026, 'B');
+        $this->rf('O0008566', '14200569', -2702, 6, 2026);
+        $this->rf('O0008566', '14208002', -5138, 6, 2026);
+        $this->rf('O0008566', '14552599', -50749742, 6, 2026, 'Inventario'); // 1455: NO debe entrar
+        // Obra cerrada con 1420 neto reversado (positivo) sí entra.
+        $this->cerrar('C-900');
+        $this->rf('C-900', '14200105', 500000, 6, 2026, 'Reversado');
+
+        $resp  = $this->actingAs($this->contable())->get(route('contable.plano-reversion.index'));
+        $filas = collect($resp->viewData('filas'));
+
+        $this->assertContains('C-900', $filas->pluck('proyecto')->all());
+        $this->assertNotContains('O0008566', $filas->pluck('proyecto')->all()); // neto ≈ 0 → no reverso
+        $this->assertTrue($filas->every(fn ($f) => ! str_starts_with($f['cuenta'], '1455'))); // sin 1455
+    }
+
+    #[Test]
     public function el_plano_tiene_las_mismas_columnas_que_el_cierre_contable(): void
     {
         $this->cerrar('C-900');

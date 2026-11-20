@@ -139,6 +139,9 @@ class PlanoReversionController extends Controller
     {
         return RegistroFinanciero::whereIn('codigo_proyecto', ProyectoCerrado::pluck('codigo_proyecto'))
             ->where('cuenta_mayor', 'Costos por aplicar')
+            // Solo 1420 (lo distribuible): se excluye la 1455 (inventario en tránsito) y demás 14xx,
+            // que no son reversado de más y sobrevaloraban el ajuste.
+            ->where('cuenta_contable', 'like', \App\Services\DistribucionService::PREFIJO_BOLSA.'%')
             ->when($mes && $anio, function ($q) use ($mes, $anio) {
                 $q->where(function ($sub) use ($mes, $anio) {
                     $sub->where('anio', '<', $anio)
@@ -166,7 +169,10 @@ class PlanoReversionController extends Controller
         foreach ($rows as $r) {
             $netoObra[$r->codigo_proyecto] = ($netoObra[$r->codigo_proyecto] ?? 0) + (float) $r->saldo;
         }
-        $obrasMal = array_filter($netoObra, fn ($v) => abs(round($v, 2)) >= 0.5);
+        // La obra entra al reverso solo si su NETO 1420 es MATERIAL (umbral por encima del ruido de
+        // centavos). Las de neto ≈ 0 con subcuentas opuestas (O0008566, −0.74) NO van aquí: son
+        // compensación (Plano 2), y antes se sobrevaloraban al sumar los brutos que se compensan.
+        $obrasMal = array_filter($netoObra, fn ($v) => abs(round($v, 2)) >= 1);
 
         $filas = [];
         foreach ($rows as $r) {
@@ -194,12 +200,13 @@ class PlanoReversionController extends Controller
         $homol = Homologacion::pluck('cuenta_61', 'cuenta_14');
         $rows  = $this->baseSaldos14($mes, $anio);
 
-        // Neto de la 14 por obra (para quedarnos solo con las que de verdad quedaron mal)
+        // Neto 1420 por obra: entra la que quedó con un neto MATERIAL (por encima del ruido de
+        // centavos). Las de neto ≈ 0 (subcuentas que se compensan, p. ej. O0008566) van al Plano 2.
         $netoObra = [];
         foreach ($rows as $r) {
             $netoObra[$r->codigo_proyecto] = ($netoObra[$r->codigo_proyecto] ?? 0) + (float) $r->saldo;
         }
-        $obrasMal = array_filter($netoObra, fn($v) => abs(round($v, 2)) >= 0.5);
+        $obrasMal = array_filter($netoObra, fn($v) => abs(round($v, 2)) >= 1);
 
         // Si SIESA lo pide al revés, cambia a true (único punto a tocar)
         $invertir = false;
@@ -207,10 +214,10 @@ class PlanoReversionController extends Controller
         $mov = [];
         foreach ($rows as $r) {
             $cod = $r->codigo_proyecto;
-            if (!isset($obrasMal[$cod])) continue;          // obra ya cuadrada: se ignora completa
+            if (!isset($obrasMal[$cod])) continue;          // obra cuadrada o no-reversada: se ignora
 
             $saldo = round((float) $r->saldo, 2);
-            if (abs($saldo) < 0.5) continue;                // subcuenta sin saldo: se ignora
+            if (abs($saldo) < 0.5) continue;                // ignora el ruido de centavos
 
             $c14 = $r->cuenta_contable;
             $c61 = $homol[$c14] ?? 'SIN HOMOLOGAR';

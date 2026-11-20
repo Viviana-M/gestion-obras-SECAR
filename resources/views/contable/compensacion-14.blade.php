@@ -9,7 +9,7 @@
 @endphp
 
 <x-page-banner title="Compensación entre cuentas 14" icon="🔀">
-    Obras NO cerradas cuyo <b>neto de la 1420 ≈ 0</b> pero descuadrado por dentro: una subcuenta en
+    Obras (abiertas o cerradas) cuyo <b>neto de la 1420 ≈ 0</b> pero descuadrado por dentro: una subcuenta en
     débito y otra en crédito que se compensan. Se cruzan las subcuentas 14 <b>entre sí</b> (sin tocar la 61)
     para dejarlas en 0 y que la OT se pueda cerrar.
 </x-page-banner>
