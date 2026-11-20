@@ -85,9 +85,9 @@ class PlanosAplicadosTest extends TestCase
     {
         $this->cerrar('GM1');
         $this->homolog('14200105', '61300105');
-        $this->rf('GM1', '14200105', -300000, 6, 2026);   // pendiente que el ERP revertirá
+        $this->rf('GM1', '14200105', 300000, 6, 2026);   // crédito de más (reversado) a reversar
 
-        $this->assertEqualsWithDelta(-300000, $this->saldo('GM1'), 1);
+        $this->assertEqualsWithDelta(300000, $this->saldo('GM1'), 1);
 
         $this->actingAs($this->contable())
             ->post(route('contable.plano-reversion.aplicar'), [
@@ -104,20 +104,20 @@ class PlanosAplicadosTest extends TestCase
         $this->assertEqualsWithDelta(300000, $plano->total_credito, 1);
         $this->assertEqualsWithDelta(300000, $plano->total_debito, 1); // cuadra
 
-        // Pata de cuenta 14 (crédito, baja el pendiente).
+        // Pata de cuenta 14 (débito, baja el crédito de más).
         $g14 = RegistroFinanciero::where('origen', 'reverso_plano')->where('cuenta_contable', '14200105')->sole();
         $this->assertSame('Costos por aplicar', $g14->cuenta_mayor);
-        $this->assertEqualsWithDelta(300000, $g14->valor_credito, 1);
-        $this->assertEqualsWithDelta(300000, $g14->estado_er, 1);
+        $this->assertEqualsWithDelta(300000, $g14->valor_debito, 1);
+        $this->assertEqualsWithDelta(-300000, $g14->estado_er, 1);
         $this->assertSame($plano->id, $g14->plano_aplicado_id);
 
-        // Pata de cuenta 6 (contrapartida, costo aplicado, débito).
+        // Pata de cuenta 6 (contrapartida, revierte el costo aplicado de más, crédito).
         $g6 = RegistroFinanciero::where('origen', 'reverso_plano')->where('cuenta_contable', '61300105')->sole();
         $this->assertSame('Costos aplicados', $g6->cuenta_mayor);
-        $this->assertEqualsWithDelta(300000, $g6->valor_debito, 1);
-        $this->assertEqualsWithDelta(-300000, $g6->estado_er, 1);
+        $this->assertEqualsWithDelta(300000, $g6->valor_credito, 1);
+        $this->assertEqualsWithDelta(300000, $g6->estado_er, 1);
 
-        // El saldo de la cuenta 14 de la obra ya quedó en cero (el pendiente se reflejó).
+        // El saldo de la cuenta 14 de la obra ya quedó en cero (el reversado se reflejó).
         $this->assertEqualsWithDelta(0, $this->saldo('GM1'), 1);
     }
 
@@ -126,7 +126,7 @@ class PlanosAplicadosTest extends TestCase
     {
         $this->cerrar('GM1');
         $this->homolog('14200105', '61300105');
-        $this->rf('GM1', '14200105', -300000, 6, 2026);
+        $this->rf('GM1', '14200105', 300000, 6, 2026);
         $c = $this->contable();
 
         $datos = ['corte_mes' => 6, 'corte_anio' => 2026, 'documento' => 5, 'destino_mes' => 7, 'destino_anio' => 2026];
@@ -142,7 +142,7 @@ class PlanosAplicadosTest extends TestCase
     {
         $this->cerrar('GM1');
         $this->homolog('14200105', '61300105');
-        $this->rf('GM1', '14200105', -300000, 7, 2026);   // pendiente en el mismo mes destino
+        $this->rf('GM1', '14200105', 300000, 7, 2026);   // reversado en el mismo mes destino
         $c = $this->contable();
 
         $this->actingAs($c)->post(route('contable.plano-reversion.aplicar'), [
@@ -167,7 +167,7 @@ class PlanosAplicadosTest extends TestCase
     {
         $this->cerrar('GM1');
         $this->homolog('14200105', '61300105');
-        $this->rf('GM1', '14200105', -300000, 6, 2026);
+        $this->rf('GM1', '14200105', 300000, 6, 2026);
         $c = $this->contable();
 
         $this->actingAs($c)->post(route('contable.plano-reversion.aplicar'), [
@@ -181,7 +181,37 @@ class PlanosAplicadosTest extends TestCase
 
         $this->assertSame(0, PlanoAplicado::count());
         $this->assertSame(0, RegistroFinanciero::where('origen', 'reverso_plano')->count());
-        $this->assertEqualsWithDelta(-300000, $this->saldo('GM1'), 1);   // volvió a como estaba
+        $this->assertEqualsWithDelta(300000, $this->saldo('GM1'), 1);   // volvió a como estaba
+    }
+
+    #[Test]
+    public function compensar_y_luego_reversar_deja_la_1420_en_cero(): void
+    {
+        // OC008666: 14200105 crédito +432.818 (homologada) y 14202505 débito −131.318.
+        $this->homolog('14200105', '61300105');
+        $this->rf('OC008666', '14200105', 432818, 6, 2026);
+        $this->rf('OC008666', '14202505', -131318, 6, 2026);
+        $c = $this->contable();
+
+        // 1) Compensación (cruza min(D,C) = 131.318): la débito queda en 0, la crédito baja a 301.500.
+        $this->actingAs($c)->post(route('contable.compensacion-14.aplicar'), [
+            'corte_mes' => 6, 'corte_anio' => 2026, 'documento' => 8, 'destino_mes' => 6, 'destino_anio' => 2026,
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $sub = fn ($cta) => (float) RegistroFinanciero::where('codigo_proyecto', 'OC008666')
+            ->where('cuenta_contable', $cta)->sum('estado_er');
+        $this->assertEqualsWithDelta(0, $sub('14202505'), 1);
+        $this->assertEqualsWithDelta(301500, $sub('14200105'), 1);
+
+        // 2) Reverso (sobre el exceso de crédito restante 301.500): la crédito queda en 0.
+        $this->actingAs($c)->post(route('contable.plano-reversion.aplicar'), [
+            'corte_mes' => 6, 'corte_anio' => 2026, 'documento' => 9, 'destino_mes' => 6, 'destino_anio' => 2026,
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $this->assertEqualsWithDelta(0, $sub('14200105'), 1);
+        $this->assertEqualsWithDelta(0, $sub('14202505'), 1);
+        // Toda la 1420 de la obra quedó en 0 aplicando ambos planos.
+        $this->assertEqualsWithDelta(0, $this->saldo('OC008666'), 1);
     }
 
     // ─────────── Distribución: aplicar en el sistema ───────────

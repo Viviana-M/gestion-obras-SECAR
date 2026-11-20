@@ -9,8 +9,9 @@
 @endphp
 
 <x-page-banner title="Saldos contrarios (cuenta 14)" icon="🔁">
-    Cuentas 14 (inventario en tránsito) de obras cerradas que quedaron con <b>saldo contrario</b>
-    (reversión excesiva: saldo del lado equivocado). Revísalas y descarga el plano para ajustar la contabilidad.
+    Obras (abiertas o cerradas) cuyo <b>neto de la 1420 quedó en crédito</b> (reversado de más): se
+    reversa contra la 61 el <b>exceso de crédito</b> (C − D, lo que queda tras compensar). Conviene
+    aplicar antes la <b>Compensación</b>. Revísalas y descarga el plano para ajustar la contabilidad.
 </x-page-banner>
 
 @if(session('success'))

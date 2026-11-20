@@ -89,6 +89,23 @@ class PlanoReversionTest extends TestCase
     }
 
     #[Test]
+    public function reversa_el_exceso_de_credito_neto_e_incluye_abiertas(): void
+    {
+        // OC008666 ABIERTA (sin cerrar): 14200105 crédito +432.818 y 14202505 débito −131.318.
+        //   C − D = 301.500 → reversa SOLO el exceso de crédito neto, no los 432.818 brutos.
+        $this->rf('OC008666', '14200105', 432818, 6, 2026, 'Materiales');
+        $this->rf('OC008666', '14202505', -131318, 6, 2026, 'Mano de obra');
+
+        $resp  = $this->actingAs($this->contable())->get(route('contable.plano-reversion.index'));
+        $filas = collect($resp->viewData('filas'));
+
+        // Aparece aunque esté ABIERTA, y solo por el exceso de crédito (301.500), no por 432.818.
+        $this->assertContains('OC008666', $filas->pluck('proyecto')->all());
+        $this->assertTrue($filas->every(fn ($f) => $f['cuenta'] !== '14202505')); // la débito no se reversa
+        $this->assertEqualsWithDelta(301500, $resp->viewData('total'), 1);
+    }
+
+    #[Test]
     public function el_plano_tiene_las_mismas_columnas_que_el_cierre_contable(): void
     {
         $this->cerrar('C-900');

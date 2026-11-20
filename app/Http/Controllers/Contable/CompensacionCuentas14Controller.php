@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\RegistroFinanciero;
 use App\Models\UnBolsa;
 use App\Services\DistribucionService;
+use App\Support\DescomponeSaldos14;
 use App\Support\GeneraPlanoSiesa;
 use App\Support\AplicaPlanoCuenta14;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class CompensacionCuentas14Controller extends Controller
 {
     use GeneraPlanoSiesa;
     use AplicaPlanoCuenta14;
+    use DescomponeSaldos14;
 
     private const TIPO_DOC  = 'CCC';
     private const NIT_SECAR = '890319324';
@@ -39,7 +41,7 @@ class CompensacionCuentas14Controller extends Controller
         if ($mes === null || $anio === null) { $mes = null; $anio = null; }
 
         $filas = $this->filasCompensables($mes, $anio);
-        $total = array_sum(array_map(fn ($f) => abs($f['saldo']), $filas));
+        $total = $this->totalCompensable($filas);
 
         $periodos = RegistroFinanciero::selectRaw('anio, mes')
             ->distinct()->orderByDesc('anio')->orderByDesc('mes')->get();
@@ -150,78 +152,61 @@ class CompensacionCuentas14Controller extends Controller
     }
 
     /**
-     * Obras COMPENSABLES: neto 1420 ≈ 0 pero con subcuentas cruzadas (al menos una en débito y una
-     * en crédito). Devuelve [codigo_proyecto => true].
+     * Filas de compensación para la vista previa: por cada subcuenta 1420 que participa en el cruce
+     * de una obra, el monto DRENADO con su signo (crédito drenado +, débito drenado −). El total a
+     * compensar por obra es min(D, C) (una cara del cruce).
      */
-    private function obrasCompensables($rows): array
-    {
-        $porObra = [];
-        foreach ($rows as $r) {
-            $porObra[$r->codigo_proyecto][] = round((float) $r->saldo, 2);
-        }
-
-        $out = [];
-        foreach ($porObra as $cod => $saldos) {
-            $neto   = round(array_sum($saldos), 2);
-            $hasPos = ! empty(array_filter($saldos, fn ($s) => $s >  0.5));
-            $hasNeg = ! empty(array_filter($saldos, fn ($s) => $s < -0.5));
-            if (abs($neto) <= 1.0 && $hasPos && $hasNeg) {
-                $out[$cod] = true;
-            }
-        }
-        return $out;
-    }
-
     private function filasCompensables(?int $mes, ?int $anio): array
     {
-        $rows        = $this->baseSaldos14($mes, $anio);
-        $compensables = $this->obrasCompensables($rows);
+        $rows    = $this->baseSaldos14($mes, $anio);
         $nombres = RegistroFinanciero::selectRaw('cuenta_contable, MAX(descripcion) as descripcion')
             ->groupBy('cuenta_contable')->pluck('descripcion', 'cuenta_contable');
 
         $filas = [];
-        foreach ($rows as $r) {
-            if (! isset($compensables[$r->codigo_proyecto])) continue;
-            $saldo = round((float) $r->saldo, 2);
-            if (abs($saldo) < 0.5) continue;
-            $filas[] = [
-                'cuenta'   => $r->cuenta_contable,
-                'nombre'   => $nombres[$r->cuenta_contable] ?? '',
-                'proyecto' => $r->codigo_proyecto,
-                'saldo'    => $saldo,
-            ];
+        foreach ($this->saldosPorObra14($rows) as $cod => $saldos) {
+            $d = $this->descomponerObra14($saldos);
+            if ($d['comp'] < $this->umbral14()) continue; // no hay cruce posible (un solo lado)
+
+            foreach ($d['compensacion'] as $l) {
+                $saldo = $l['debito'] > 0 ? $l['debito'] : -$l['credito']; // crédito drenado +, débito −
+                $filas[] = [
+                    'cuenta'   => $l['cuenta'],
+                    'nombre'   => $nombres[$l['cuenta']] ?? '',
+                    'proyecto' => $cod,
+                    'saldo'    => round($saldo, 2),
+                ];
+            }
         }
         usort($filas, fn ($a, $b) => [$a['proyecto'], $a['cuenta']] <=> [$b['proyecto'], $b['cuenta']]);
 
         return $filas;
     }
 
+    /** Total a compensar = Σ min(D, C) por obra (una cara del cruce, no se cuenta doble). */
+    private function totalCompensable(array $filas): float
+    {
+        // Las filas traen el crédito drenado en positivo; su suma es Σ min(D, C).
+        return round(array_sum(array_map(fn ($f) => max($f['saldo'], 0), $filas)), 2);
+    }
+
     /**
-     * Asiento de compensación 14↔14 (formato SIESA): por cada subcuenta 1420 con saldo material de
-     * una obra compensable, una línea que la lleva a 0. Como el neto de la obra ≈ 0, el conjunto
-     * cuadra (débitos = créditos) sin tocar la 61.
+     * Asiento de compensación 14↔14 (formato SIESA): drena min(D, C) cruzando el lado débito contra
+     * el lado crédito de cada obra. Cuadra (débitos = créditos) sin tocar la 61.
      */
     private function construirLineas(?int $mes, ?int $anio, int $numeroDoc): array
     {
-        $rows         = $this->baseSaldos14($mes, $anio);
-        $compensables = $this->obrasCompensables($rows);
+        $rows = $this->baseSaldos14($mes, $anio);
 
         $mov = [];
-        foreach ($rows as $r) {
-            $cod = $r->codigo_proyecto;
-            if (! isset($compensables[$cod])) continue;
+        foreach ($this->saldosPorObra14($rows) as $cod => $saldos) {
+            $d = $this->descomponerObra14($saldos);
+            if ($d['comp'] < $this->umbral14()) continue;
 
-            $saldo = round((float) $r->saldo, 2);
-            if (abs($saldo) < 0.5) continue;
-
-            $c14 = $r->cuenta_contable;
-            $m   = abs($saldo);
-
-            // saldo NEGATIVO -> CR 14 (para subirla a 0) ; POSITIVO -> DB 14 (para bajarla a 0).
-            if ($saldo < 0) {
-                $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, 0, $m, self::TIPO_DOC);
-            } else {
-                $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, $m, 0, self::TIPO_DOC);
+            foreach ($d['compensacion'] as $l) {
+                $mov[] = $this->filaPlano(
+                    $numeroDoc, $l['cuenta'], self::NIT_SECAR, $cod, null,
+                    $l['debito'], $l['credito'], self::TIPO_DOC
+                );
             }
         }
 

@@ -48,14 +48,31 @@ class CompensacionCuentas14Test extends TestCase
     public function detecta_r0040284_y_excluye_el_pendiente_c1101401(): void
     {
         $this->seedR0040284();
-        $this->rf('C1101401', '14200105', 1489813); // pendiente distribuible: neto 1420 ≠ 0 → NO entra
+        // Pendiente distribuible: su 1420 está toda en débito (saldo negativo) → no hay cruce posible.
+        $this->rf('C1101401', '14200105', -1489813);
 
         $resp = $this->actingAs($this->contable())->get(route('contable.compensacion-14.index'));
         $resp->assertStatus(200);
 
         $proyectos = collect($resp->viewData('filas'))->pluck('proyecto')->unique()->values()->all();
         $this->assertContains('R0040284', $proyectos);
-        $this->assertNotContains('C1101401', $proyectos);
+        $this->assertNotContains('C1101401', $proyectos); // D>0 pero C=0 → no compensa
+    }
+
+    #[Test]
+    public function compensa_solo_el_min_de_d_y_c_dejando_el_exceso_de_credito(): void
+    {
+        // OC008666: 14200105 crédito +432.818 y 14202505 débito −131.318.
+        //   C = 432.818, D = 131.318 → se compensa min = 131.318; el exceso de crédito (301.500)
+        //   NO se compensa aquí (va al reverso).
+        $this->rf('OC008666', '14200105', 432818);
+        $this->rf('OC008666', '14202505', -131318);
+
+        $resp  = $this->actingAs($this->contable())->get(route('contable.compensacion-14.index'));
+        $total = $resp->viewData('total');
+
+        $this->assertContains('OC008666', collect($resp->viewData('filas'))->pluck('proyecto')->all());
+        $this->assertEqualsWithDelta(131318, $total, 1); // solo min(D, C), no los 432.818 brutos
     }
 
     #[Test]

@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Contable;
 
 use App\Http\Controllers\Controller;
 use App\Models\Homologacion;
-use App\Models\ProyectoCerrado;
 use App\Models\RegistroFinanciero;
+use App\Models\UnBolsa;
+use App\Services\DistribucionService;
+use App\Support\DescomponeSaldos14;
 use App\Support\GeneraPlanoSiesa;
 use App\Support\AplicaPlanoCuenta14;
 use Illuminate\Http\Request;
@@ -14,10 +16,14 @@ class PlanoReversionController extends Controller
 {
     use GeneraPlanoSiesa;
     use AplicaPlanoCuenta14;
+    use DescomponeSaldos14;
 
     /** Mismo tipo de documento y tercero (SECAR) que el Plano de Cierre Contable. */
     private const TIPO_DOC  = 'CCC';
     private const NIT_SECAR = '890319324';
+
+    /** Bolsas de apoyo (ADM/COM/CNT) que NO son obras: nunca entran al plano. */
+    private const BOLSAS_APOYO_EXCLUIDAS = ['ADM00099', 'COM00099', 'CNT00099'];
 
     /**
      * Página de Contabilidad: vista previa de las cuentas 14 con saldo CONTRARIO
@@ -132,16 +138,18 @@ class PlanoReversionController extends Controller
     }
 
     /**
-     * Saldo por (obra cerrada, subcuenta 14) — misma fórmula que la tarjeta. Con corte
-     * acumulado al mes si se indica (todos los períodos anteriores + el mes).
+     * Saldo por (obra, subcuenta 1420) con corte acumulado al mes si se indica. Aplica a obras
+     * ABIERTAS y CERRADAS por igual; solo se excluyen la 1455 / demás 14xx y las UN de bolsa/apoyo.
      */
     private function baseSaldos14(?int $mes, ?int $anio)
     {
-        return RegistroFinanciero::whereIn('codigo_proyecto', ProyectoCerrado::pluck('codigo_proyecto'))
+        $excluir = array_values(array_unique(array_merge(UnBolsa::codigos(), self::BOLSAS_APOYO_EXCLUIDAS)));
+
+        return RegistroFinanciero::whereNotIn('codigo_proyecto', $excluir)
             ->where('cuenta_mayor', 'Costos por aplicar')
             // Solo 1420 (lo distribuible): se excluye la 1455 (inventario en tránsito) y demás 14xx,
             // que no son reversado de más y sobrevaloraban el ajuste.
-            ->where('cuenta_contable', 'like', \App\Services\DistribucionService::PREFIJO_BOLSA.'%')
+            ->where('cuenta_contable', 'like', DistribucionService::PREFIJO_BOLSA.'%')
             ->when($mes && $anio, function ($q) use ($mes, $anio) {
                 $q->where(function ($sub) use ($mes, $anio) {
                     $sub->where('anio', '<', $anio)
@@ -156,8 +164,9 @@ class PlanoReversionController extends Controller
     }
 
     /**
-     * Cuentas 14 con saldo contrario (para la vista previa): [cuenta, nombre, proyecto, saldo],
-     * de las obras cerradas cuyo neto de la 14 no cuadró. Ordenadas por mayor saldo (absoluto).
+     * Cuentas 14 a reversar (vista previa): por cada obra cuyo neto 1420 quedó en CRÉDITO (C > D),
+     * las subcuentas crédito con el EXCESO a reversar (C − D), ya descontado lo que se compensa.
+     * Las de neto ≈ 0 (subcuentas que se cruzan, p. ej. O0008566) NO aparecen: van al Plano 2.
      */
     private function cuentas14Contrarias(?int $mes, ?int $anio): array
     {
@@ -165,26 +174,16 @@ class PlanoReversionController extends Controller
         $nombres = RegistroFinanciero::selectRaw('cuenta_contable, MAX(descripcion) as descripcion')
             ->groupBy('cuenta_contable')->pluck('descripcion', 'cuenta_contable');
 
-        $netoObra = [];
-        foreach ($rows as $r) {
-            $netoObra[$r->codigo_proyecto] = ($netoObra[$r->codigo_proyecto] ?? 0) + (float) $r->saldo;
-        }
-        // La obra entra al reverso solo si su NETO 1420 es MATERIAL (umbral por encima del ruido de
-        // centavos). Las de neto ≈ 0 con subcuentas opuestas (O0008566, −0.74) NO van aquí: son
-        // compensación (Plano 2), y antes se sobrevaloraban al sumar los brutos que se compensan.
-        $obrasMal = array_filter($netoObra, fn ($v) => abs(round($v, 2)) >= 1);
-
         $filas = [];
-        foreach ($rows as $r) {
-            if (! isset($obrasMal[$r->codigo_proyecto])) continue;
-            $saldo = round((float) $r->saldo, 2);
-            if (abs($saldo) < 0.5) continue;
-            $filas[] = [
-                'cuenta'    => $r->cuenta_contable,
-                'nombre'    => $nombres[$r->cuenta_contable] ?? '',
-                'proyecto'  => $r->codigo_proyecto,
-                'saldo'     => $saldo,
-            ];
+        foreach ($this->saldosPorObra14($rows) as $cod => $saldos) {
+            foreach ($this->descomponerObra14($saldos)['reverso'] as $l) {
+                $filas[] = [
+                    'cuenta'    => $l['cuenta'],
+                    'nombre'    => $nombres[$l['cuenta']] ?? '',
+                    'proyecto'  => $cod,
+                    'saldo'     => $l['saldo'],   // exceso de crédito a reversar (neto)
+                ];
+            }
         }
         usort($filas, fn ($a, $b) => abs($b['saldo']) <=> abs($a['saldo']));
 
@@ -192,45 +191,22 @@ class PlanoReversionController extends Controller
     }
 
     /**
-     * Asiento de reversión en el formato SIESA (mismas 12 columnas del Plano de Cierre
-     * Contable): por cada cuenta 14 con saldo contrario, el par 14 ↔ 61 con su débito/crédito.
+     * Asiento de reversión en el formato SIESA (mismas 12 columnas del Plano de Cierre Contable):
+     * por cada subcuenta 1420 con crédito en exceso (C − D), la partida doble DB 14 / CR 61.
      */
     private function construirLineas(?int $mes, ?int $anio, int $numeroDoc): array
     {
         $homol = Homologacion::pluck('cuenta_61', 'cuenta_14');
         $rows  = $this->baseSaldos14($mes, $anio);
 
-        // Neto 1420 por obra: entra la que quedó con un neto MATERIAL (por encima del ruido de
-        // centavos). Las de neto ≈ 0 (subcuentas que se compensan, p. ej. O0008566) van al Plano 2.
-        $netoObra = [];
-        foreach ($rows as $r) {
-            $netoObra[$r->codigo_proyecto] = ($netoObra[$r->codigo_proyecto] ?? 0) + (float) $r->saldo;
-        }
-        $obrasMal = array_filter($netoObra, fn($v) => abs(round($v, 2)) >= 1);
-
-        // Si SIESA lo pide al revés, cambia a true (único punto a tocar)
-        $invertir = false;
-
         $mov = [];
-        foreach ($rows as $r) {
-            $cod = $r->codigo_proyecto;
-            if (!isset($obrasMal[$cod])) continue;          // obra cuadrada o no-reversada: se ignora
+        foreach ($this->saldosPorObra14($rows) as $cod => $saldos) {
+            foreach ($this->descomponerObra14($saldos)['reverso'] as $l) {
+                $c14 = $l['cuenta'];
+                $c61 = $homol[$c14] ?? 'SIN HOMOLOGAR';
+                $m   = round($l['saldo'], 2);
 
-            $saldo = round((float) $r->saldo, 2);
-            if (abs($saldo) < 0.5) continue;                // ignora el ruido de centavos
-
-            $c14 = $r->cuenta_contable;
-            $c61 = $homol[$c14] ?? 'SIN HOMOLOGAR';
-            $m   = abs($saldo);
-
-            // saldo NEGATIVO (pendiente) -> CR 14 / DB 61 ; POSITIVO (reversado) -> DB 14 / CR 61
-            $acreditar14 = ($saldo < 0);
-            if ($invertir) $acreditar14 = !$acreditar14;
-
-            if ($acreditar14) {
-                $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, 0, $m, self::TIPO_DOC);
-                $mov[] = $this->filaPlano($numeroDoc, $c61, self::NIT_SECAR, $cod, null, $m, 0, self::TIPO_DOC);
-            } else {
+                // Crédito de más → DB 14 / CR 61 (baja la 14 y revierte el costo aplicado de más).
                 $mov[] = $this->filaPlano($numeroDoc, $c14, self::NIT_SECAR, $cod, null, $m, 0, self::TIPO_DOC);
                 $mov[] = $this->filaPlano($numeroDoc, $c61, self::NIT_SECAR, $cod, null, 0, $m, self::TIPO_DOC);
             }
