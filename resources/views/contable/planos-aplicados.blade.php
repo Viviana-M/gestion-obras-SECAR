@@ -29,6 +29,7 @@
             <option value="reverso_apoyo" {{ $tipo === 'reverso_apoyo' ? 'selected' : '' }}>Reverso MO apoyo</option>
             <option value="distribucion" {{ $tipo === 'distribucion' ? 'selected' : '' }}>Distribución</option>
             <option value="mo_distribucion" {{ $tipo === 'mo_distribucion' ? 'selected' : '' }}>Distribución MO</option>
+            <option value="compensacion_14" {{ $tipo === 'compensacion_14' ? 'selected' : '' }}>Compensación cuentas 14</option>
         </select>
     </div>
     <div>
@@ -70,7 +71,7 @@
                 <td style="padding:9px 14px">
                     @php $esReverso = in_array($p->tipo, ['reverso', 'reverso_apoyo'], true); @endphp
                     <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:{{ $esReverso ? '#FEF3C7' : '#EFF6FF' }};color:{{ $esReverso ? '#854D0E' : '#1B3F6E' }}">
-                        {{ ['reverso'=>'Reverso','reverso_apoyo'=>'Reverso MO apoyo','distribucion'=>'Distribución','mo_distribucion'=>'Distribución MO'][$p->tipo] ?? 'Distribución' }}
+                        {{ ['reverso'=>'Reverso','reverso_apoyo'=>'Reverso MO apoyo','distribucion'=>'Distribución','mo_distribucion'=>'Distribución MO','compensacion_14'=>'Compensación cuentas 14'][$p->tipo] ?? 'Distribución' }}
                     </span>
                 </td>
                 <td style="padding:9px 14px;color:#374151">{{ $p->referencia ?: '—' }}</td>

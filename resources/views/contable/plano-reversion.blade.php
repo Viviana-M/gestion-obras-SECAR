@@ -9,14 +9,8 @@
 @endphp
 
 <x-page-banner title="Saldos contrarios (cuenta 14)" icon="🔁">
-    Cuentas 14 (inventario en tránsito) de
-    <b>{{ $alcance === 'abiertas' ? 'obras ABIERTAS (no cerradas)' : 'obras cerradas' }}</b>
-    que quedaron con <b>saldo contrario</b> (reversión excesiva: saldo del lado equivocado).
-    @if($alcance === 'abiertas')
-        Descarga el plano, cárgalo al ERP y pulsa <b>Aplicar</b> para dejar la cuenta 14 en ~0; así Operaciones podrá cerrar esas OT.
-    @else
-        Revísalas y descarga el plano para ajustar la contabilidad.
-    @endif
+    Cuentas 14 (inventario en tránsito) de obras cerradas que quedaron con <b>saldo contrario</b>
+    (reversión excesiva: saldo del lado equivocado). Revísalas y descarga el plano para ajustar la contabilidad.
 </x-page-banner>
 
 @if(session('success'))
@@ -29,14 +23,6 @@
 {{-- Filtros + descarga --}}
 <div class="card" style="padding:14px 16px;margin-bottom:1rem;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
     <form method="GET" action="{{ route('contable.plano-reversion.index') }}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0">
-        <div>
-            <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Alcance</label>
-            <select name="alcance" onchange="this.form.submit()"
-                style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">
-                <option value="cerradas" {{ $alcance !== 'abiertas' ? 'selected' : '' }}>Obras cerradas</option>
-                <option value="abiertas" {{ $alcance === 'abiertas' ? 'selected' : '' }}>Obras abiertas con saldo contrario</option>
-            </select>
-        </div>
         <div>
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">Corte (acumulado al mes)</label>
             <select name="periodo" onchange="const v=this.value; if(!v){this.form.mes.value='';this.form.anio.value='';} else {const [a,m]=v.split('-');this.form.mes.value=m;this.form.anio.value=a;} this.form.submit()"
@@ -60,7 +46,6 @@
     <form method="GET" action="{{ route('contable.plano-reversion.excel') }}" style="display:flex;gap:8px;align-items:flex-end;margin:0">
         <input type="hidden" name="mes" value="{{ $mes }}">
         <input type="hidden" name="anio" value="{{ $anio }}">
-        <input type="hidden" name="alcance" value="{{ $alcance }}">
         <div>
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
             <input type="number" name="documento" min="1" value="1" title="Número de documento del asiento para SIESA"
@@ -85,7 +70,6 @@
         @csrf
         <input type="hidden" name="corte_mes" value="{{ $mes }}">
         <input type="hidden" name="corte_anio" value="{{ $anio }}">
-        <input type="hidden" name="alcance" value="{{ $alcance }}">
         <div>
             <label style="font-size:11px;color:#6B7280;display:block;margin-bottom:4px">N° documento</label>
             <input type="number" name="documento" min="1" value="1" style="width:100px;padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px">

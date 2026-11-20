@@ -59,6 +59,12 @@ Route::middleware(['auth', UsuarioActivo::class])->group(function () {
         Route::get('/contable/plano-reversion/excel', [PlanoReversionController::class, 'exportarPlano'])->name('contable.plano-reversion.excel');
         Route::post('/contable/plano-reversion/aplicar', [PlanoReversionController::class, 'aplicar'])->name('contable.plano-reversion.aplicar');
 
+        // Plano 2 — Compensación entre cuentas 14 (14↔14): obras no cerradas con 1420 neto ≈ 0 pero
+        // descuadrado por dentro (subcuentas opuestas). Compensa las subcuentas entre sí, sin tocar la 61.
+        Route::get('/contable/compensacion-14', [\App\Http\Controllers\Contable\CompensacionCuentas14Controller::class, 'index'])->name('contable.compensacion-14.index');
+        Route::get('/contable/compensacion-14/excel', [\App\Http\Controllers\Contable\CompensacionCuentas14Controller::class, 'exportarPlano'])->name('contable.compensacion-14.excel');
+        Route::post('/contable/compensacion-14/aplicar', [\App\Http\Controllers\Contable\CompensacionCuentas14Controller::class, 'aplicar'])->name('contable.compensacion-14.aplicar');
+
         // Redistribución por % de la mano de obra del personal especial (Grupo B).
         Route::get('/contable/redistribucion-mo', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'index'])->name('contable.redistribucion-mo.index');
         Route::get('/contable/redistribucion-mo/detalle', [\App\Http\Controllers\Contable\RedistribucionMoEspecialController::class, 'detalle'])->name('contable.redistribucion-mo.detalle');
