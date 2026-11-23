@@ -1837,7 +1837,7 @@ document.addEventListener('DOMContentLoaded', function(){
     // Clave del respaldo local por período + departamento + borrador.
     const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
 
-    let dirty = false, saving = false, submitting = false, stale = false, tmr = null;
+    let dirty = false, saving = false, submitting = false, stale = false, pausado = false, tmr = null;
 
     const statusEl = document.getElementById('autosave-status');
     function setStatus(txt, color) { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = color || '#9CA3AF'; } }
@@ -1857,7 +1857,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
     // ── Autoguardado en el SERVIDOR (borrador real en la BD) ──
     function autoguardarServidor() {
-        if (saving || submitting || stale || !dirty) return;
+        if (saving || submitting || stale || pausado || !dirty) return;
         saving = true;
         setStatus('Autoguardando…', '#9CA3AF');
         const fd = new FormData(form);
@@ -1896,10 +1896,21 @@ document.addEventListener('DOMContentLoaded', function(){
               setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
           })
           .catch((err) => {
-              // Otra persona guardó entretanto: NO se pisó su trabajo. Se avisa y se deja de autoguardar.
-              if (err && err.payload && err.payload.stale) {
+              const payload = err && err.payload;
+              const motivo  = payload && payload.error;
+              if (payload && payload.stale) {
+                  // Otra persona guardó entretanto: NO se pisó su trabajo. Se avisa y se deja de autoguardar.
                   stale = true; clearTimeout(tmr);
-                  setStatus('⚠ ' + (err.payload.error || 'Otra persona guardó cambios. Recarga la página.'), '#B45309');
+                  setStatus('⚠ ' + (motivo || 'Otra persona guardó cambios. Recarga la página.'), '#B45309');
+              } else if (err && err.status === 419) {
+                  // Sesión vencida: se detiene el autoguardado y se pide recargar.
+                  stale = true; clearTimeout(tmr);
+                  setStatus('⚠ Tu sesión expiró. Recargá la página para seguir guardando.', '#B45309');
+              } else if (err && err.status === 422) {
+                  // No se pudo determinar el departamento (vacío o mezcla): pausa discreta, sin spam.
+                  // Se reanuda cuando el usuario cambia algo (p. ej. elige departamento en el filtro).
+                  pausado = true; clearTimeout(tmr);
+                  setStatus('⏸ Autoguardado en pausa: ' + (motivo || 'elegí un departamento en el filtro de arriba'), '#B45309');
               } else {
                   setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309');
               }
@@ -1909,6 +1920,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
     function alCambiar() {
         dirty = true;
+        pausado = false;                                  // un cambio reanuda el autoguardado en pausa
         guardarLocal();                                   // respaldo local inmediato
         setStatus('Cambios sin guardar…', '#B45309');
         clearTimeout(tmr);

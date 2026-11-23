@@ -1434,6 +1434,34 @@ class DistribucionCostosController extends Controller
             ->first();
     }
 
+    /**
+     * Departamentos DISTINTOS deducibles de las obras que vienen con datos en el envío (claves de
+     * aplicar / estado_obra / provision / asignacion_bolsa / mano_obra), según la regla de prefijos
+     * (User::departamentoDeCodigo). Ignora los códigos que no mapean a ningún departamento.
+     *
+     * @return list<string>  subconjunto de ['mantenimiento','instalaciones']
+     */
+    private function departamentosEnPayload(Request $request): array
+    {
+        $codigos = array_merge(
+            array_keys((array) $request->input('aplicar', [])),
+            array_keys((array) $request->input('estado_obra', [])),
+            array_keys((array) $request->input('provision', [])),
+            array_keys((array) $request->input('asignacion_bolsa', [])),
+            array_keys((array) $request->input('mano_obra', [])),
+        );
+
+        $deps = [];
+        foreach (array_unique($codigos) as $cod) {
+            $d = User::departamentoDeCodigo((string) $cod);
+            if ($d !== null) {
+                $deps[$d] = true;
+            }
+        }
+
+        return array_keys($deps);
+    }
+
     public function guardar(Request $request)
 {
     abort_unless($request->user()->puedeEditarModulo('operacion'), 403,
@@ -1485,14 +1513,30 @@ class DistribucionCostosController extends Controller
 
         // Determinar el departamento del plano:
         // - supervisor: su propio departamento
-        // - director/admin: el que venga del formulario (campo 'departamento')
+        // - director/admin: el que venga del filtro (campo 'departamento')
         $usuario = $request->user();
         $departamento = $usuario?->departamentoUnico() ?: $request->input('departamento');
 
-        if (!$distribucion && !in_array($departamento, ['mantenimiento', 'instalaciones'])) {
-            return $esAuto
-                ? response()->json(['ok' => false, 'error' => 'Falta el departamento del plano.'], 422)
-                : back()->with('error', 'Debes indicar el departamento del plano (mantenimiento o instalaciones).')->withInput();
+        // Fallback (admin/director sin filtro): NO obligar a filtrar. Deducir el departamento
+        // (1) del borrador existente si ya lo tiene, o (2) de las obras que vienen con datos en el
+        // envío, con la regla de prefijos (User::departamentoDeCodigo). Solo se usa cuando queda
+        // vacío: supervisor y admin-con-filtro siguen igual. No cambia el reparto ni el cálculo.
+        if (!in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
+            if ($distribucion && in_array($distribucion->departamento, ['mantenimiento', 'instalaciones'], true)) {
+                $departamento = $distribucion->departamento;
+            } else {
+                $deps = $this->departamentosEnPayload($request);
+                if (count($deps) === 1) {
+                    $departamento = $deps[0]; // caso típico: el admin trabaja un departamento a la vez
+                } elseif (count($deps) >= 2) {
+                    return $responderError('Estás distribuyendo obras de mantenimiento y de instalaciones al mismo tiempo. El plano se guarda por departamento: elegí uno en el filtro de arriba para separar el guardado.');
+                }
+                // count 0 (no deducible): queda vacío y lo resuelve el chequeo de abajo.
+            }
+        }
+
+        if (!$distribucion && !in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
+            return $responderError('No pude determinar el departamento del plano. Elegí mantenimiento o instalaciones en el filtro de arriba para guardar.');
         }
 
         // ── Mano de obra directa asignada DENTRO de cada obra (líneas mano_obra[obra][]) ──
