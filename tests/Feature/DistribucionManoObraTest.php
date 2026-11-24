@@ -185,7 +185,7 @@ class DistribucionManoObraTest extends TestCase
         // Dos valores separados + total en la tarjeta de la bolsa.
         $this->assertStringContainsString('Otros costos', $html);
         $this->assertStringContainsString('Mano de obra', $html);
-        $this->assertStringContainsString('Total bolsa', $html);
+        $this->assertStringContainsString('Total del área', $html);
         // Otros costos neto 200.000 (materiales, sin reversado); MO 600.000; total 800.000.
         $this->assertStringContainsString('$200.000', $html);
         $this->assertStringContainsString('$600.000', $html);
@@ -243,10 +243,10 @@ class DistribucionManoObraTest extends TestCase
         $this->assertStringContainsString('mo-obra-sec" data-cod="C-500"', $html);
         $this->assertStringContainsString("asignarMo('C-500')", $html);
         $this->assertStringContainsString('data-mo-sel', $html);
-        // Va DESPUÉS de "Asignar desde bolsa de área".
+        // Va DESPUÉS de "Asignar desde Otros costos".
         $this->assertLessThan(
             strpos($html, 'mo-obra-sec" data-cod="C-500"'),
-            strpos($html, 'Asignar desde bolsa de área')
+            strpos($html, 'Asignar desde Otros costos')
         );
         // "Costo aplicado del mes" tiene id para recalcularse en vivo al asignar (ya no queda estático).
         $this->assertStringContainsString('id="costomes-C-500"', $html);

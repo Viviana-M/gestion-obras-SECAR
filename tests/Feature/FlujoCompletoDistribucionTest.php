@@ -63,7 +63,7 @@ class FlujoCompletoDistribucionTest extends TestCase
         $dist->assertOk()
             ->assertSee('Otros costos', false)
             ->assertSee('Mano de obra', false)
-            ->assertSee('Total bolsa', false)
+            ->assertSee('Total del área', false)
             ->assertSee('id="bolsa-box-mantenimiento"', false)
             ->assertSee('id="card-C-700"', false);          // la obra aparece como tarjeta
 
