@@ -846,7 +846,6 @@ function actualizarOtrosCostosTopCard(c){
         elSal.style.color = saldo < -0.5 ? '#DC2626' : (saldo <= 0.5 ? '#15803D' : '#1B4C7A');
     }
 }
-Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial
 
 // Expandir/colapsar el detalle por cuenta de una bolsa grande.
 function toggleBolsaDetalle(c){
@@ -1822,6 +1821,8 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
     moRecalcGlobal();
     refrescarDispObras();   // disponible por bolsa dentro de cada obra
+    Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial Otros costos (fmt ya existe)
+    actualizarBarraGlobal(); // asegura el total de la barra al cargar (lee los inputs ya renderizados)
     bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 
