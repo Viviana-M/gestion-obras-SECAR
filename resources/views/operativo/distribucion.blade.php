@@ -1821,6 +1821,17 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
     moRecalcGlobal();
     refrescarDispObras();   // disponible por bolsa dentro de cada obra
+    // "Iniciaste con" verdadero (congelado) = saldo actual + lo YA distribuido (guardado) desde esa
+    // área. dispBolsa arranca neto de las asignaciones guardadas, así que hay que re-sumarlas aquí
+    // (los mismos inputs que suma la barra), o "Distribuido" daría 0 al abrir un borrador ya repartido.
+    const yaDistribuidoBolsa = {};
+    document.querySelectorAll('#form-dist input[data-tipo="bolsa"]').forEach(i => {
+        const b = i.dataset.bolsa; if (!b) return;
+        yaDistribuidoBolsa[b] = (yaDistribuidoBolsa[b] || 0) + (parseFloat(i.value) || 0);
+    });
+    Object.keys(BOLSAS).forEach(c => {
+        dispBolsaInicial[c] = (Number(dispBolsa[c]) || 0) + (yaDistribuidoBolsa[c] || 0);
+    });
     Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial Otros costos (fmt ya existe)
     actualizarBarraGlobal(); // asegura el total de la barra al cargar (lee los inputs ya renderizados)
     bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)
