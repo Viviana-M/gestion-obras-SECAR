@@ -2283,12 +2283,14 @@ class DistribucionCostosController extends Controller
             $tipos = ['obras' => 'Obras', 'contrato' => 'Contratos', 'reparacion' => 'Reparaciones', 'garantia' => 'Garantías'];
             $prefijos = ['C', 'R', 'MO', 'GM'];
         }
-        // Categorías propias para provisión y mano de obra: se suman al costo del resumen (igual que
-        // en la tarjeta "En esta distribución") y aparecen como filas al final, sin alterar las
-        // estructurales. La clave es también su etiqueta (así se lee en el Excel).
-        $catProvision = 'Provisiones (14→26)';
-        $catManoObra  = 'Mano de obra';
-        $categorias = $this->categorias + [$catProvision => $catProvision, $catManoObra => $catManoObra];
+        // El costo del resumen se presenta en tres buckets diferenciados (la clave es también la
+        // etiqueta que se lee en el Excel): el costo base ya en cuenta 6, lo distribuido por
+        // operaciones (inventario + otros costos + MO + provisión) y los ajustes de contabilidad
+        // (reversos/compensaciones). Así se distingue lo que distribuyó operaciones de los ajustes.
+        $CAT_BASE   = 'Costo base (cuenta 6)';
+        $CAT_DIST   = 'Distribuido por operaciones';
+        $CAT_AJUSTE = 'Ajustes de contabilidad (reversos)';
+        $categorias = [$CAT_BASE => $CAT_BASE, $CAT_DIST => $CAT_DIST, $CAT_AJUSTE => $CAT_AJUSTE];
 
         $esDelDepto = function ($cod) use ($prefijos) {
             $c = strtoupper((string) $cod);
@@ -2314,11 +2316,11 @@ class DistribucionCostosController extends Controller
 
         $ingresoMes = $this->sumaMes('Ingreso', $anio, $mes);
 
-        // Costo ya en cuenta 6: traemos proyecto, cuenta_contable (la 61 real) y descripción (trae la 14)
+        // Costo ya en cuenta 6, con el origen para separar base vs. ajuste contable (reverso).
         $costoC6Cat = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
             ->where('anio', $anio)->where('mes', $mes)
-            ->selectRaw('codigo_proyecto, cuenta_contable, descripcion, SUM(estado_er) as total')
-            ->groupBy('codigo_proyecto', 'cuenta_contable', 'descripcion')
+            ->selectRaw('codigo_proyecto, origen, cuenta_contable, descripcion, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto', 'origen', 'cuenta_contable', 'descripcion')
             ->get();
 
         $tabla = [];
@@ -2338,15 +2340,14 @@ class DistribucionCostosController extends Controller
             $tabla[$tk]['ingreso'] += (float) $val;
         }
 
-        // 2) Costo ya en cuenta 6 (triangulando por la 14 de la descripción)
+        // 2) Costo ya en cuenta 6: base (operaciones) vs. ajuste contable (reverso/compensación).
         foreach ($costoC6Cat as $r) {
             if (!$esDelDepto($r->codigo_proyecto)) continue;
             $tk = $this->tipoObra((string) $r->codigo_proyecto);
             if (!isset($tabla[$tk])) continue;
+            $esAjuste = in_array($r->origen, ['reverso_plano', 'ajuste_plano'], true);
+            $ck = $esAjuste ? $CAT_AJUSTE : $CAT_BASE;
             $c14 = $extraer14($r->descripcion);
-            $h   = $c14 ? ($mapa14[$c14] ?? null) : null;
-            $ck  = $h->estructura ?? 'OTROS COSTO';
-            if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
             $monto = abs((float) $r->total);
             $tabla[$tk]['cat'][$ck] += $monto;
             $tabla[$tk]['detalle'][$ck][] = [
@@ -2354,7 +2355,7 @@ class DistribucionCostosController extends Controller
                 'cuenta_14' => $c14 ?: '—',
                 'cuenta_61' => (string) $r->cuenta_contable,
                 'monto'    => $monto,
-                'origen'   => 'ya6',   // ya estaba en la cuenta 6
+                'origen'   => $esAjuste ? 'ajuste' : 'ya6',
             ];
         }
 
@@ -2367,15 +2368,13 @@ class DistribucionCostosController extends Controller
                 $monto = (float) $monto;
                 if ($monto <= 0) continue;
                 $h  = $mapa14[(string) $c14] ?? null;
-                $ck = $h->estructura ?? 'OTROS COSTO';
-                if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
-                $tabla[$tk]['cat'][$ck] += $monto;
-                $tabla[$tk]['detalle'][$ck][] = [
+                $tabla[$tk]['cat'][$CAT_DIST] += $monto;
+                $tabla[$tk]['detalle'][$CAT_DIST][] = [
                     'proyecto' => (string) $cod,
                     'cuenta_14' => (string) $c14,
                     'cuenta_61' => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
                     'monto'    => $monto,
-                    'origen'   => 'aplic',  // se aplica ahora
+                    'origen'   => 'aplic',  // inventario en tránsito aplicado ahora
                 ];
             }
         }
@@ -2405,10 +2404,8 @@ class DistribucionCostosController extends Controller
                         if ($m <= 0.005) continue;
                         $c14 = $p['cuenta_14'];
                         $h  = $mapa14[(string) $c14] ?? null;
-                        $ck = $h->estructura ?? 'OTROS COSTO';
-                        if (!isset($categorias[$ck])) $ck = 'OTROS COSTO';
-                        $tabla[$tk]['cat'][$ck] += $m;
-                        $tabla[$tk]['detalle'][$ck][] = [
+                        $tabla[$tk]['cat'][$CAT_DIST] += $m;
+                        $tabla[$tk]['detalle'][$CAT_DIST][] = [
                             'proyecto'  => (string) $cod,
                             'cuenta_14' => (string) $c14,
                             'cuenta_61' => (string) ($h->cuenta_61 ?? 'SIN HOMOLOGAR'),
@@ -2428,8 +2425,8 @@ class DistribucionCostosController extends Controller
             if (!isset($tabla[$tk])) continue;
             $monto = (float) $p->monto;
             if ($monto == 0) continue;
-            $tabla[$tk]['cat'][$catProvision] += $monto;
-            $tabla[$tk]['detalle'][$catProvision][] = [
+            $tabla[$tk]['cat'][$CAT_DIST] += $monto;
+            $tabla[$tk]['detalle'][$CAT_DIST][] = [
                 'proyecto'  => $cod,
                 'cuenta_14' => (string) $p->cuenta_14,
                 'cuenta_61' => (string) $p->cuenta_26,
@@ -2444,8 +2441,8 @@ class DistribucionCostosController extends Controller
             if (!$esDelDepto($cod) || $monto == 0) continue;
             $tk = $this->tipoObra($cod);
             if (!isset($tabla[$tk])) continue;
-            $tabla[$tk]['cat'][$catManoObra] += (float) $monto;
-            $tabla[$tk]['detalle'][$catManoObra][] = [
+            $tabla[$tk]['cat'][$CAT_DIST] += (float) $monto;
+            $tabla[$tk]['detalle'][$CAT_DIST][] = [
                 'proyecto'  => $cod,
                 'cuenta_14' => '—',
                 'cuenta_61' => '—',
@@ -2587,16 +2584,29 @@ class DistribucionCostosController extends Controller
         $nombreMov = RegistroFinanciero::whereIn('codigo_proyecto', $codigos)->pluck('nombre_proyecto', 'codigo_proyecto');
         $estados   = ObraEstado::whereIn('codigo_proyecto', $codigos)->pluck('estado', 'codigo_proyecto');
 
+        // Costo del mes en cuenta 6 separado por origen: base (operaciones: biable, envíos previos)
+        // vs. AJUSTE CONTABLE (reversos/compensaciones aplicados por contabilidad). El ajuste no es
+        // distribución de operaciones, pero sí afecta el costo total del mes (ej. OC008666).
+        $ORIGEN_AJUSTE = ['reverso_plano', 'ajuste_plano'];
+        $costoBaseMes = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
+            ->where('anio', $anio)->where('mes', $mes)->whereNotIn('origen', $ORIGEN_AJUSTE)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+        $ajusteMes = RegistroFinanciero::where('cuenta_mayor', 'Costos aplicados')
+            ->where('anio', $anio)->where('mes', $mes)->whereIn('origen', $ORIGEN_AJUSTE)
+            ->selectRaw('codigo_proyecto, SUM(estado_er) as total')
+            ->groupBy('codigo_proyecto')->pluck('total', 'codigo_proyecto');
+
         // Números CRUDOS en las columnas de valores (el formato de miles lo pone Excel);
         // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
         // Los COMPONENTES distribuidos (propio, otros costos, MO, provisión) van ANTES del margen
         // y afectan el costo total → el margen baja con MO/provisión, igual que la tarjeta.
-        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso del mes', 'Costo del mes (cta 6)',
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso del mes', 'Costo base cta 6 (operaciones)',
             'Inventario en tránsito aplicado al costo', 'Otros Costos', 'Costos MO', 'Provisión',
-            'TOTAL distribuido en la OT', 'Costo total del mes', 'Margen del mes ($)', 'Margen del mes (%)',
-            'Inv. tránsito (14) pendiente', 'Saldo Inventario en Tránsito'];
+            'TOTAL distribuido en la OT', 'Ajuste contable (reverso)', 'Costo total del mes',
+            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Saldo Inventario en Tránsito'];
         $filas  = [$head];
-        $pintar = [];       // celdas de "Margen del mes (%)" (col N) a pintar con el semáforo
+        $pintar = [];       // celdas de "Margen del mes (%)" (col O) a pintar con el semáforo
         $fila   = 1;        // fila 1 = encabezado; los datos arrancan en la 2
         $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
         $hex    = fn ($nivel) => [
@@ -2604,22 +2614,24 @@ class DistribucionCostosController extends Controller
             ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][1], '#'),
         ];
 
-        $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'mo' => 0.0, 'prov' => 0.0,
-              'distTot' => 0.0, 'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
+        $t = ['ing' => 0.0, 'c6base' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'mo' => 0.0, 'prov' => 0.0,
+              'distTot' => 0.0, 'ajuste' => 0.0, 'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
 
         foreach ($codigos as $cod) {
             $a = $porObra[$cod] ?? ['propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0];
-            $ing = (float) ($ingMes[$cod] ?? 0);
-            $c6  = abs((float) ($costoMes[$cod] ?? 0));
+            $ing   = (float) ($ingMes[$cod] ?? 0);
+            $c6base = abs((float) ($costoBaseMes[$cod] ?? 0)); // costo base en cta 6 (sin reversos)
+            $ajuste = abs((float) ($ajusteMes[$cod] ?? 0));    // ajuste contable (reverso/compensación)
             $saldo = (float) ($pend14[$cod] ?? 0);
             $pend = $saldo < 0 ? abs($saldo) : 0.0;   // saldo negativo = pendiente por aplicar
             $rest = max(0.0, $pend - $a['propio']);   // lo que queda en la 14 propia de la obra
 
             $prov = (float) ($provPorObra[$cod] ?? 0);
             $mo   = (float) ($moPorObra[$cod] ?? 0);
-            // TODOS los componentes distribuidos entran al costo (y reducen el margen), como la tarjeta.
+            // TOTAL distribuido por operaciones (NO incluye el ajuste contable).
             $distTot  = $a['propio'] + $a['bolsa'] + $mo + $prov;
-            $costoTot = $c6 + $distTot;
+            // Costo total del mes = base cta 6 + lo distribuido + ajuste contable (todo reduce margen).
+            $costoTot = $c6base + $distTot + $ajuste;
             $mc       = $ing - $costoTot;
             $mcPct    = $ing != 0 ? ($mc / $ing * 100) : null;
 
@@ -2630,30 +2642,31 @@ class DistribucionCostosController extends Controller
             $fila++;
             $nivel = \App\Services\DistribucionService::nivelMargen($mcPct, \App\Models\User::departamentoDeCodigo($cod));
             [$b, $f] = $hex($nivel);
-            $pintar[] = ['fila' => $fila, 'col' => 'N', 'bg' => $b, 'fg' => $f];
+            $pintar[] = ['fila' => $fila, 'col' => 'O', 'bg' => $b, 'fg' => $f];
 
             $filas[] = [
                 $cod,
                 $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
                 $fichas[$cod]->cliente ?? '',
                 ucfirst($estado),
-                round($ing), round($c6), round($a['propio']), round($a['bolsa']), round($mo), round($prov),
-                round($distTot), round($costoTot), round($mc), $fmtPct($mcPct),
+                round($ing), round($c6base), round($a['propio']), round($a['bolsa']), round($mo), round($prov),
+                round($distTot), round($ajuste), round($costoTot), round($mc), $fmtPct($mcPct),
                 round($pend), round($rest),
             ];
 
-            $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio']; $t['bolsa'] += $a['bolsa'];
-            $t['mo'] += $mo; $t['prov'] += $prov; $t['distTot'] += $distTot; $t['costoTot'] += $costoTot;
-            $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
+            $t['ing'] += $ing; $t['c6base'] += $c6base; $t['propio'] += $a['propio']; $t['bolsa'] += $a['bolsa'];
+            $t['mo'] += $mo; $t['prov'] += $prov; $t['distTot'] += $distTot; $t['ajuste'] += $ajuste;
+            $t['costoTot'] += $costoTot; $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
         }
 
         $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
-        $filas[] = ['TOTAL', '', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
+        $filas[] = ['TOTAL', '', '', '', round($t['ing']), round($t['c6base']), round($t['propio']),
             round($t['bolsa']), round($t['mo']), round($t['prov']), round($t['distTot']),
-            round($t['costoTot']), round($t['mc']), $fmtPct($mcPctTot), round($t['pend']), round($t['rest'])];
+            round($t['ajuste']), round($t['costoTot']), round($t['mc']), $fmtPct($mcPctTot),
+            round($t['pend']), round($t['rest'])];
 
-        // Columnas de dinero (número crudo); la N (Margen %) va como texto y pintada con el semáforo.
-        $moneyCols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'O', 'P'];
+        // Columnas de dinero (número crudo); la O (Margen %) va como texto y pintada con el semáforo.
+        $moneyCols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'P', 'Q'];
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);

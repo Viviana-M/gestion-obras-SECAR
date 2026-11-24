@@ -1293,7 +1293,12 @@ function actualizarBarraGlobal(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(i => t += soloDigitos(i.value));
     document.querySelectorAll('#form-dist input[data-tipo="bolsa"]').forEach(i => t += parseFloat(i.value||0));
     document.querySelectorAll('#form-dist .mo-obra-sec [data-mo-monto]').forEach(i => t += soloDigitos(i.value));
-    for (const cod in DATOS) { t += Number((DATOS[cod]||{}).prov || 0); }
+    // Provisión: SOLO de las obras realmente mostradas (del departamento en foco), no de todo DATOS
+    // (que puede traer obras de ambos departamentos e inflar el total).
+    document.querySelectorAll('[id^="card-"]').forEach(c => {
+        const cod = c.id.slice(5);
+        if (cod) t += Number((DATOS[cod] || {}).prov || 0);
+    });
     el.textContent = fmt(t);
 }
 
