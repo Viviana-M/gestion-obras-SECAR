@@ -103,18 +103,65 @@ class TotalDistribuidoPorObraTest extends TestCase
         $ss  = IOFactory::load($resp->getFile()->getPathname());
         $sh  = $ss->getActiveSheet();
 
-        // Encabezados nuevos (columnas O, P, Q).
-        $this->assertSame('Provisión del mes (14→26)', $sh->getCell('O1')->getValue());
-        $this->assertSame('Mano de obra distribuida', $sh->getCell('P1')->getValue());
-        $this->assertSame('TOTAL distribuido en la OT', $sh->getCell('Q1')->getValue());
+        // Encabezados nuevos, con "Costos MO" ANTES del margen.
+        $this->assertSame('Inventario en tránsito aplicado al costo', $sh->getCell('G1')->getValue());
+        $this->assertSame('Otros Costos', $sh->getCell('H1')->getValue());
+        $this->assertSame('Costos MO', $sh->getCell('I1')->getValue());
+        $this->assertSame('Provisión', $sh->getCell('J1')->getValue());
+        $this->assertSame('TOTAL distribuido en la OT', $sh->getCell('K1')->getValue());
+        $this->assertSame('Costo total del mes', $sh->getCell('L1')->getValue());
+        $this->assertSame('Margen del mes ($)', $sh->getCell('M1')->getValue());
+        $this->assertSame('Margen del mes (%)', $sh->getCell('N1')->getValue());
+        $this->assertSame('Saldo Inventario en Tránsito', $sh->getCell('P1')->getValue());
 
-        // Fila de la obra (row 2): provisión 1000, MO 2000, TOTAL = 600+400+2000+1000 = 4000.
-        $this->assertEquals(1000, (float) $sh->getCell('O2')->getValue());
-        $this->assertEquals(2000, (float) $sh->getCell('P2')->getValue());
-        $this->assertEquals(4000, (float) $sh->getCell('Q2')->getValue());
+        // Fila de la obra (row 2): propio 600, bolsa 400, MO 2000, provisión 1000.
+        $this->assertEquals(600,  (float) $sh->getCell('G2')->getValue());
+        $this->assertEquals(400,  (float) $sh->getCell('H2')->getValue());
+        $this->assertEquals(2000, (float) $sh->getCell('I2')->getValue());
+        $this->assertEquals(1000, (float) $sh->getCell('J2')->getValue());
+        // TOTAL distribuido = 600+400+2000+1000 = 4000; Costo total = c6(0) + 4000 = 4000.
+        $this->assertEquals(4000, (float) $sh->getCell('K2')->getValue());
+        $this->assertEquals(4000, (float) $sh->getCell('L2')->getValue());
+        // Margen $ = 5.000.000 − 4000 = 4.996.000 (MO y provisión YA bajan el margen).
+        $this->assertEquals(4996000, (float) $sh->getCell('M2')->getValue());
 
-        // Fila TOTAL (row 3) también suma el total distribuido.
+        // El margen % va pintado con el semáforo (99,9% → verde para mantenimiento, umbral 30).
+        $fill = $sh->getStyle('N2')->getFill();
+        $this->assertSame('16A34A', $fill->getStartColor()->getRGB());
+
+        // Fila TOTAL también suma el total distribuido.
         $this->assertSame('TOTAL', $sh->getCell('A3')->getValue());
-        $this->assertEquals(4000, (float) $sh->getCell('Q3')->getValue());
+        $this->assertEquals(4000, (float) $sh->getCell('K3')->getValue());
+    }
+
+    #[Test]
+    public function incluye_las_ot_cerradas_aunque_distribuyan_cero(): void
+    {
+        // OT cerrada del departamento SIN ninguna aplicación/provisión/MO.
+        \App\Models\ObraEstado::create(['codigo_proyecto' => 'C-999', 'estado' => 'cerrada',
+            'user_id' => $this->operador()->id]);
+
+        // Otra obra con algo distribuido, para que la distribución exista.
+        $this->rf('C-700', 'Costos por aplicar', -5000, 6, 2026, '14200105');
+        $dist = Distribucion::create([
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento', 'tipo' => 'obras',
+            'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false, 'reemplazada' => false,
+        ]);
+        AplicacionCosto::create(['distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026,
+            'codigo_proyecto' => 'C-700', 'cuenta_14' => '14200105', 'cuenta_61' => '61300105',
+            'categoria' => 'MAT', 'nombre' => 'c', 'monto_aplicar' => 600, 'es_provision' => false,
+            'estado' => 'ok', 'user_id' => $this->operador()->id]);
+
+        $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.reporte-obras', $dist));
+        $resp->assertOk();
+
+        $ss = IOFactory::load($resp->getFile()->getPathname());
+        $filas = $ss->getActiveSheet()->toArray();
+        $codigos = array_column($filas, 0);
+
+        $this->assertContains('C-999', $codigos); // la cerrada aparece aunque distribuya 0
+        $rowCerrada = collect($filas)->firstWhere(0, 'C-999');
+        $this->assertSame('Cerrada', $rowCerrada[3]);     // columna Estado
+        $this->assertEquals(0, (float) $rowCerrada[10]);  // TOTAL distribuido en la OT = 0
     }
 }
