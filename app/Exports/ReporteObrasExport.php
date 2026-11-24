@@ -34,7 +34,8 @@ class ReporteObrasExport implements FromArray, WithTitle, WithEvents, WithColumn
     {
         $fmt = '#,##0';
         return ['D' => $fmt, 'E' => $fmt, 'F' => $fmt, 'G' => $fmt, 'H' => $fmt,
-                'I' => $fmt, 'J' => $fmt, 'L' => $fmt, 'M' => $fmt];
+                'I' => $fmt, 'J' => $fmt, 'L' => $fmt, 'M' => $fmt,
+                'O' => $fmt, 'P' => $fmt, 'Q' => $fmt];
     }
 
     public function registerEvents(): array

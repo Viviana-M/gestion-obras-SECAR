@@ -1228,7 +1228,7 @@ function recalc(cod){
     const moC  = sumMoObra(cod);              // mano de obra directa aplicada a esta obra
     const aplicado14a6 = sumA + sumB;         // lo que se aplica 14→6
 
-    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov);
+    const tot=document.getElementById('aplicar-tot-'+cod); if(tot) tot.textContent=fmt(aplicado14a6 + prov + moC);
     // "Costos por llevar a este proyecto": el inventario propio que aún no se ha aplicado (baja al
     // escribir montos). sumA = lo aplicado 14→6 del propio proyecto (la bolsa viene de otra UN).
     const porll=document.getElementById('porllevar-'+cod); if(porll) porll.textContent=fmt(Math.max(0, (d.pend||0) - sumA));

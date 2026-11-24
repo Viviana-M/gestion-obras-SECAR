@@ -774,6 +774,13 @@ class DistribucionCostosController extends Controller
         }
         $moAsigPorObra = array_map('array_values', $moAsigPorObra);
 
+        // MO distribuida por obra (lo guardado) → se suma al total "En esta distribución" de la tarjeta,
+        // para que el número coincida con su tooltip (inventario + provisiones + bolsa + mano de obra).
+        foreach ($obras as $cod => &$oMo) {
+            $oMo['sum_mo'] = round((float) array_sum(array_column($moAsigPorObra[$cod] ?? [], 'monto')), 2);
+        }
+        unset($oMo);
+
         [$moMesAnt, $moAnioAnt] = $mes <= 1 ? [12, $anio - 1] : [$mes - 1, $anio];
         $moHayMesAnterior = ! empty($moUns) && ManoObraAsignacion::whereIn('bolsa_un', $moUns)
             ->where('mes', $moMesAnt)->where('anio', $moAnioAnt)->exists();
@@ -2222,6 +2229,33 @@ class DistribucionCostosController extends Controller
 
     // Lógica compartida: arma la tabla del resumen para un departamento concreto.
     // $asignBolsa = [cod => [bolsa => monto]] (costo asignado desde bolsas de área).
+    /**
+     * MO distribuida (guardada) por obra en un período/departamento: suma de ManoObraAsignacion de
+     * las UN de bolsa del departamento. MISMA fuente que la pantalla (moAsigPorObra), de modo que la
+     * tarjeta, el Excel por obra y el resumen den el mismo número por OT.
+     *
+     * @return array<string,float>  [codigo_proyecto => monto]
+     */
+    private function manoObraDistribuidaPorObra(int $mes, int $anio, ?string $departamento): array
+    {
+        $deptos = $departamento ? [$departamento] : array_keys(DistribucionService::DEPARTAMENTOS);
+        $moUns  = UnBolsa::where('activo', true)->whereIn('departamento', $deptos)->pluck('codigo')->all();
+        if (empty($moUns)) {
+            return [];
+        }
+
+        $out = [];
+        foreach (ManoObraAsignacion::whereIn('bolsa_un', $moUns)->where('mes', $mes)->where('anio', $anio)->get() as $a) {
+            $obra = (string) $a->obra_destino;
+            if ($obra === '') {
+                continue;
+            }
+            $out[$obra] = ($out[$obra] ?? 0) + (float) $a->monto;
+        }
+
+        return array_map(fn ($v) => round($v, 2), $out);
+    }
+
     private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = [], array $asignBolsa = []): array
     {
         if ($departamento === 'instalaciones') {
@@ -2231,7 +2265,12 @@ class DistribucionCostosController extends Controller
             $tipos = ['obras' => 'Obras', 'contrato' => 'Contratos', 'reparacion' => 'Reparaciones', 'garantia' => 'Garantías'];
             $prefijos = ['C', 'R', 'MO', 'GM'];
         }
-        $categorias = $this->categorias;
+        // Categorías propias para provisión y mano de obra: se suman al costo del resumen (igual que
+        // en la tarjeta "En esta distribución") y aparecen como filas al final, sin alterar las
+        // estructurales. La clave es también su etiqueta (así se lee en el Excel).
+        $catProvision = 'Provisiones (14→26)';
+        $catManoObra  = 'Mano de obra';
+        $categorias = $this->categorias + [$catProvision => $catProvision, $catManoObra => $catManoObra];
 
         $esDelDepto = function ($cod) use ($prefijos) {
             $c = strtoupper((string) $cod);
@@ -2363,6 +2402,40 @@ class DistribucionCostosController extends Controller
             }
         }
 
+        // 5) Provisiones del mes (14→26): costo "sin aplicar" pero parte del total distribuido de la OT.
+        foreach (\App\Models\Provision::activasEn($mes, $anio)->get() as $p) {
+            $cod = (string) $p->codigo_proyecto;
+            if (!$esDelDepto($cod)) continue;
+            $tk = $this->tipoObra($cod);
+            if (!isset($tabla[$tk])) continue;
+            $monto = (float) $p->monto;
+            if ($monto == 0) continue;
+            $tabla[$tk]['cat'][$catProvision] += $monto;
+            $tabla[$tk]['detalle'][$catProvision][] = [
+                'proyecto'  => $cod,
+                'cuenta_14' => (string) $p->cuenta_14,
+                'cuenta_61' => (string) $p->cuenta_26,
+                'monto'     => $monto,
+                'origen'    => 'provision',
+            ];
+        }
+
+        // 6) Mano de obra distribuida (guardada del período/departamento): misma fuente que la tarjeta.
+        foreach ($this->manoObraDistribuidaPorObra($mes, $anio, $departamento) as $cod => $monto) {
+            $cod = (string) $cod;
+            if (!$esDelDepto($cod) || $monto == 0) continue;
+            $tk = $this->tipoObra($cod);
+            if (!isset($tabla[$tk])) continue;
+            $tabla[$tk]['cat'][$catManoObra] += (float) $monto;
+            $tabla[$tk]['detalle'][$catManoObra][] = [
+                'proyecto'  => $cod,
+                'cuenta_14' => '—',
+                'cuenta_61' => '—',
+                'monto'     => (float) $monto,
+                'origen'    => 'mo',
+            ];
+        }
+
         foreach ($tabla as $tk => &$t) {
             $t['costo_total'] = array_sum($t['cat']);
             $t['mc_pesos']    = $t['ingreso'] - $t['costo_total'];
@@ -2450,7 +2523,22 @@ class DistribucionCostosController extends Controller
             $l->origen_bolsa ? $porObra[$cod]['bolsa'] += $m : $porObra[$cod]['propio'] += $m;
             $porObra[$cod]['total'] += $m;
         }
-        $codigos = array_keys($porObra);
+
+        // Provisión (14→26) y mano de obra distribuida por obra, del mismo período/departamento.
+        // Misma definición que la tarjeta y el resumen → el "TOTAL distribuido" cuadra entre los tres.
+        $esDep = fn ($cod) => \App\Models\User::departamentoDeCodigo((string) $cod) === $dep;
+        $provPorObra = \App\Models\Provision::activasEn($mes, $anio)->get()
+            ->groupBy('codigo_proyecto')->map(fn ($g) => (float) $g->sum('monto'))
+            ->filter(fn ($v, $cod) => $esDep($cod))->all();
+        $moPorObra = array_filter(
+            $this->manoObraDistribuidaPorObra($mes, $anio, $dep),
+            fn ($v, $cod) => $esDep($cod), ARRAY_FILTER_USE_BOTH
+        );
+
+        // Incluir también obras que solo tienen provisión o MO (sin aplicación 14→6/bolsa).
+        $codigos = array_values(array_unique(array_merge(
+            array_keys($porObra), array_keys($provPorObra), array_keys($moPorObra)
+        )));
         sort($codigos);
 
         $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
@@ -2471,14 +2559,16 @@ class DistribucionCostosController extends Controller
         // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
         $head = ['Código', 'Proyecto', 'Cliente', 'Ingreso del mes', 'Costo del mes (cta 6)',
             'Aplicado 14→6', 'Aplicado desde bolsas', 'Aplicado total', 'Costo total del mes',
-            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Restante 14', 'Estado'];
+            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Restante 14', 'Estado',
+            'Provisión del mes (14→26)', 'Mano de obra distribuida', 'TOTAL distribuido en la OT'];
         $filas = [$head];
 
         $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0,
-              'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
+              'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0,
+              'prov' => 0.0, 'mo' => 0.0, 'distTot' => 0.0];
 
         foreach ($codigos as $cod) {
-            $a = $porObra[$cod];
+            $a = $porObra[$cod] ?? ['propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0];
             $ing = (float) ($ingMes[$cod] ?? 0);
             $c6  = abs((float) ($costoMes[$cod] ?? 0));
             $saldo = (float) ($pend14[$cod] ?? 0);
@@ -2488,6 +2578,11 @@ class DistribucionCostosController extends Controller
             $mcPct = $ing != 0 ? ($mc / $ing * 100) : null;
             $rest = max(0.0, $pend - $a['propio']);   // lo que queda en la 14 propia de la obra
 
+            $prov = (float) ($provPorObra[$cod] ?? 0);
+            $mo   = (float) ($moPorObra[$cod] ?? 0);
+            // TOTAL distribuido en la OT = propio + bolsa + MO + provisión (misma def. que la tarjeta).
+            $distTot = $a['propio'] + $a['bolsa'] + $mo + $prov;
+
             $filas[] = [
                 $cod,
                 $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
@@ -2496,18 +2591,21 @@ class DistribucionCostosController extends Controller
                 round($costoTot), round($mc),
                 $mcPct === null ? '—' : number_format($mcPct, 1, ',', '.').'%',
                 round($pend), round($rest), ucfirst($estados[$cod] ?? 'abierta'),
+                round($prov), round($mo), round($distTot),
             ];
 
             $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio'];
             $t['bolsa'] += $a['bolsa']; $t['total'] += $a['total']; $t['costoTot'] += $costoTot;
             $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
+            $t['prov'] += $prov; $t['mo'] += $mo; $t['distTot'] += $distTot;
         }
 
         $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
         $filas[] = ['TOTAL', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
             round($t['bolsa']), round($t['total']), round($t['costoTot']), round($t['mc']),
             $mcPctTot === null ? '—' : number_format($mcPctTot, 1, ',', '.').'%',
-            round($t['pend']), round($t['rest']), ''];
+            round($t['pend']), round($t['rest']), '',
+            round($t['prov']), round($t['mo']), round($t['distTot'])];
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);

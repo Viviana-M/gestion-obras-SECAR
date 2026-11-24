@@ -55,7 +55,7 @@
         </div>
         <div class="endist-box" onclick="event.stopPropagation()" title="Lo que estás llevando al costo de este proyecto en esta distribución (inventario + provisiones + bolsa + mano de obra).">
             <div class="k">✎ En esta distribución</div>
-            <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov']) }}</div>
+            <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov'] + ($o['sum_mo'] ?? 0)) }}</div>
         </div>
         {{-- Acción PRINCIPAL de la tarjeta: abre/despliega la zona de distribución (inventario, bolsa,
              mano de obra, provisiones). Mientras está cerrada solo se ve el resumen.
