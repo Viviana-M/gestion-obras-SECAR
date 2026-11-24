@@ -93,10 +93,16 @@ class DistribucionCostosController extends Controller
                 ];
             } else {
                 $t = $totales[$d->id] ?? null;
+                // Provisión y MO desde su fuente real (no desde el flag obsoleto es_provision de
+                // AplicacionCosto). Así el total grande = aplicado + MO + provisión cuadra con el Excel.
+                $aplicado  = (float) ($t->aplicado ?? 0); // propio + bolsa (AplicacionCosto)
+                $provision = $this->provisionDistribuidaPorDepartamento((int) $d->mes, (int) $d->anio, $d->departamento);
+                $mo        = (float) array_sum($this->manoObraDistribuidaPorObra((int) $d->mes, (int) $d->anio, $d->departamento));
                 $grupos[$k]['obras'] = [
                     'id' => $d->id, 'version' => $d->version, 'estado' => $d->estado,
                     'habilitada' => $d->edicion_habilitada,
-                    'aplicado' => (float) ($t->aplicado ?? 0), 'provision' => (float) ($t->provision ?? 0),
+                    'aplicado' => $aplicado, 'provision' => $provision, 'mo' => $mo,
+                    'total' => $aplicado + $mo + $provision, // total distribuido (incluye provisión y MO)
                     'obras' => (int) ($t->obras ?? 0),
                     'guardado_at' => $d->updated_at, 'guardado_por' => $usuarios[$d->guardado_por] ?? '—',
                     'enviado_at' => $d->enviado_at, 'version_final_id' => $finales[$d->id]->id ?? null,
@@ -2254,6 +2260,18 @@ class DistribucionCostosController extends Controller
         }
 
         return array_map(fn ($v) => round($v, 2), $out);
+    }
+
+    /**
+     * Provisión distribuida (14→26) de un período/departamento: suma de Provision::activasEn de las
+     * obras cuyo prefijo pertenece al departamento. MISMA fuente que el Excel por obra y el resumen.
+     */
+    private function provisionDistribuidaPorDepartamento(int $mes, int $anio, ?string $departamento): float
+    {
+        return (float) \App\Models\Provision::activasEn($mes, $anio)->get()
+            ->filter(fn ($p) => $departamento === null
+                || User::departamentoDeCodigo((string) $p->codigo_proyecto) === $departamento)
+            ->sum('monto');
     }
 
     private function construirResumen(int $mes, int $anio, string $departamento, array $aplicar = [], array $asignBolsa = []): array

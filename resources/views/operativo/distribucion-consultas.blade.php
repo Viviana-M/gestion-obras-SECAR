@@ -70,7 +70,9 @@
                 </td>
                 <td style="padding:10px 14px;text-align:right;white-space:nowrap">
                     @if($o)
-                        <div>{{ $o['obras'] }} obra(s) · <b>{{ $fmt($o['aplicado']) }}</b></div>
+                        <div>{{ $o['obras'] }} obra(s) · <b>{{ $fmt($o['total'] ?? $o['aplicado']) }}</b></div>
+                        <div style="font-size:11px;color:#9CA3AF">Distribuido {{ $fmt($o['aplicado']) }}</div>
+                        @if(($o['mo'] ?? 0) > 0)<div style="font-size:11px;color:#B45309">Mano de obra {{ $fmt($o['mo']) }}</div>@endif
                         @if($o['provision'] > 0)<div style="font-size:11px;color:#B45309">Provisión {{ $fmt($o['provision']) }}</div>@endif
                     @endif
                     @if($a)<div style="font-size:11px;color:#B45309">Otros costos {{ $fmt($a['a_distribuir']) }} · {{ $a['cuentas'] }} cta(s)</div>@endif
