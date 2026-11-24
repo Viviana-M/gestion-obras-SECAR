@@ -2481,7 +2481,12 @@ class DistribucionCostosController extends Controller
         ];
     }
 
-    private function armarSnapshotResumen(Distribucion $distribucion): array
+    /**
+     * Arma el snapshot del resumen de una distribución (público para poder regenerar snapshots
+     * históricos desde el comando distribucion:regenerar-snapshots). Reutiliza construirResumen,
+     * de modo que el snapshot nuevo ya incluye provisión y mano de obra en el costo.
+     */
+    public function armarSnapshotResumen(Distribucion $distribucion): array
     {
         $mes  = (int) $distribucion->mes;
         $anio = (int) $distribucion->anio;
