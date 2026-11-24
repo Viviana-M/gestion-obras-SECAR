@@ -67,12 +67,16 @@ class DistribucionBolsasTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('Otros costos', false);                   // subtema 1
         $resp->assertSee('Mano de obra', false);                   // subtema 2
-        $resp->assertSee('Total bolsa', false);                    // total = otros (neto) + MO
+        $resp->assertSee('Total del área', false);                 // total = otros (neto) + MO
         $resp->assertSee('id="bolsa-box-mantenimiento"', false);   // bolsa grande por departamento
         $resp->assertSee('id="bolsa-otros-mantenimiento"', false); // valor de otros costos (neto)
         $resp->assertSee('Ver detalle por cuenta', false);
         $resp->assertSee('MTO00099', false);                        // la UN aparece en el detalle
-        $resp->assertSee('Asignar desde bolsa de área', false);
+        $resp->assertSee('Asignar desde Otros costos', false);
+        // Progreso en vivo de Otros costos (Iniciaste con / Distribuido / Saldo por distribuir).
+        $resp->assertSee('Iniciaste con', false);
+        $resp->assertSee('Saldo por distribuir', false);
+        $resp->assertSee('id="otros-saldo-mantenimiento"', false);
         $resp->assertSee('id="asignbolsa-cta-C-700"', false);
         $resp->assertDontSee('id="card-MTO00099"', false);          // la bolsa no es una obra
     }
@@ -377,7 +381,7 @@ class DistribucionBolsasTest extends TestCase
         $this->assertStringContainsString('ANTERIOR', $html);
 
         // 3) Conciliación en el footer: Disponible − Reversado = Saldo de la bolsa (neto).
-        $this->assertStringContainsString('= Saldo de la bolsa (neto)', $html);
+        $this->assertStringContainsString('= Saldo de Otros costos (neto)', $html);
         $this->assertStringContainsString('(−) Reversado de más / por revisar', $html);
         // El footer recalcula a "Total filtrado" con filtros activos (ids + función).
         $this->assertStringContainsString('id="ftNetoLbl-mantenimiento"', $html);

@@ -25,7 +25,7 @@
                     <span style="font-size:11px;color:#6B7280;word-break:break-word" title="{{ $o['cliente'] }}">· 🏢 {{ $o['cliente'] }}</span>
                 @endif
                 @if($o['sin_ingreso'] ?? false)
-                    <span onclick="event.stopPropagation()" title="Sin ingreso este mes: recibe costo desde la bolsa de área de su unidad de negocio." style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280">Sin ingreso</span>
+                    <span onclick="event.stopPropagation()" title="Sin ingreso este mes: recibe costo desde Otros costos de su unidad de negocio." style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#F3F4F6;color:#6B7280">Sin ingreso</span>
                 @endif
             </div>
         </div>
@@ -53,7 +53,7 @@
             <div class="k">Costos por llevar a este proyecto</div>
             <div class="v" id="porllevar-{{ $cod }}">{{ $fmt(max(0, $o['total_pendiente'] - $o['sum_aplicar'])) }}</div>
         </div>
-        <div class="endist-box" onclick="event.stopPropagation()" title="Lo que estás llevando al costo de este proyecto en esta distribución (inventario + provisiones + bolsa + mano de obra).">
+        <div class="endist-box" onclick="event.stopPropagation()" title="Lo que estás llevando al costo de este proyecto en esta distribución (inventario + provisiones + otros costos + mano de obra).">
             <div class="k">✎ En esta distribución</div>
             <div class="v" id="aplicar-tot-{{ $cod }}">{{ $fmt($o['sum_aplicar'] + ($o['sum_bolsa'] ?? 0) + $o['sum_prov'] + ($o['sum_mo'] ?? 0)) }}</div>
         </div>
@@ -62,7 +62,7 @@
              En la consulta de ingenieros (solo lectura) no existe: no se distribuye desde ahí. --}}
         @unless($readonly)
         <button type="button" id="distbtn-{{ $cod }}" onclick="event.stopPropagation(); toggleObra('{{ $cod }}')"
-                title="Abrir la distribución de este proyecto (inventario, bolsa, mano de obra, provisiones)"
+                title="Abrir la distribución de este proyecto (inventario, otros costos, mano de obra, provisiones)"
                 style="flex:1 1 200px;min-width:190px;align-self:stretch;background:#1B3F6E;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 7px rgba(27,63,110,.28);padding:10px 16px">
             <span id="distbtn-ico-{{ $cod }}" style="font-size:18px">⊕</span> <span id="distbtn-txt-{{ $cod }}">Distribuir costos</span>
         </button>
@@ -246,8 +246,8 @@
             <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:4px">Sin ingreso este mes</div>
             <p style="font-size:11.5px;color:#6B7280;line-height:1.5;margin:0">
                 Esta orden abierta no tuvo ingreso, pero puedes cargarle costo igual (por ejemplo, mano de obra
-                del supervisor) <b>sin necesidad de autorización</b>. Asígnalo desde la <b>bolsa de área</b> más abajo:
-                el costo se traslada desde la bolsa del área hacia este proyecto.
+                del supervisor) <b>sin necesidad de autorización</b>. Asígnalo desde <b>Otros costos</b> más abajo:
+                el costo se traslada desde Otros costos del área hacia este proyecto.
             </p>
         </div>
         @endif
@@ -290,7 +290,7 @@
                                 data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="aplicarInput(this, '{{ $cod }}')"
-                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso este mes: no se lleva costo directo aquí. Cárgalo desde la bolsa del área, más abajo." @endif
+                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso este mes: no se lleva costo directo aquí. Cárgalo desde Otros costos, más abajo." @endif
                                 style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right;{{ ($o['sin_ingreso'] ?? false) ? 'background:#F9FAFB;color:#9CA3AF' : '' }}">
                         </td>
                     </tr>
@@ -441,7 +441,7 @@
         <div style="margin-top:14px;border-top:1px dashed #FDE68A;padding-top:10px">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
                 <span style="width:9px;height:9px;border-radius:2px;background:#D97706;display:inline-block"></span>
-                <span style="font-size:12px;font-weight:600;color:#854D0E">Asignar desde bolsa de área</span>
+                <span style="font-size:12px;font-weight:600;color:#854D0E">Asignar desde Otros costos</span>
             </div>
 
             <div id="asigns-{{ $cod }}">
@@ -467,9 +467,9 @@
             @if($puedeEditar)
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
                 <div style="flex:2;min-width:200px">
-                    <label style="font-size:10px;color:#6B7280;display:block">Bolsa</label>
+                    <label style="font-size:10px;color:#6B7280;display:block">Otros costos</label>
                     <select id="asignbolsa-cta-{{ $cod }}" onchange="actualizarDispObra('{{ $cod }}')" style="width:100%;padding:6px;border:1px solid #FDE68A;border-radius:6px;font-size:11px">
-                        <option value="">— Elegir bolsa —</option>
+                        <option value="">— Elegir Otros costos —</option>
                         @foreach($bolsas as $b)
                             <option value="{{ $b['codigo'] }}">{{ $b['nombre'] }}</option>
                         @endforeach

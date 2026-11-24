@@ -212,6 +212,13 @@
                         · <span style="color:#A52020">Reversado de más ${{ number_format($b['total_reversado'], 0, ',', '.') }}</span>
                         @endif
                     </div>
+                    {{-- Progreso en vivo al distribuir: con cuánto inició (congelado), cuánto se distribuyó y
+                         cuánto queda. Se actualiza desde fmtBolsaDisp() cada vez que cambia dispBolsa. --}}
+                    <div style="font-size:9.5px;margin-top:5px;line-height:1.7;border-top:1px dashed #E5E9F0;padding-top:4px">
+                        <div style="color:#6B7686">Iniciaste con <b id="otros-inicial-{{ $b['codigo'] }}" style="color:#1B4C7A">$0</b></div>
+                        <div style="color:#6B7686">Distribuido <b id="otros-distribuido-{{ $b['codigo'] }}" style="color:#1B4C7A">$0</b></div>
+                        <div style="color:#6B7686">Saldo por distribuir <b id="otros-saldo-{{ $b['codigo'] }}" style="color:#1B4C7A">$0</b></div>
+                    </div>
                 </div>
                 {{-- Mano de obra del personal (pool distinto): se reparte por persona a los proyectos.
                      Al pulsarla se abre, dentro de la tarjeta, el personal con su valor "por aplicar". --}}
@@ -229,7 +236,7 @@
 
             {{-- Total bolsa = Otros costos (neto) + Mano de obra = saldo neto de la cuenta 14 (cuadra con contabilidad). --}}
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding:7px 10px;background:#F3F8F4;border:1px solid #CDE9D6;border-radius:9px">
-                <span style="font-size:10.5px;font-weight:800;color:#15803D;text-transform:uppercase;letter-spacing:.03em">Total bolsa</span>
+                <span style="font-size:10.5px;font-weight:800;color:#15803D;text-transform:uppercase;letter-spacing:.03em" title="Otros costos (neto) + Mano de obra = saldo neto de la cuenta 14">Total del área</span>
                 <b style="font-size:17px;font-weight:800;color:#15803D" title="Otros costos (neto) + Mano de obra = saldo neto de la cuenta 14; cuadra con contabilidad">${{ number_format($b['neto'] ?? $b['total'], 0, ',', '.') }}</b>
             </div>
 
@@ -479,7 +486,7 @@
                             @endif
                         </tr>
                         @empty
-                        <tr><td colspan="13" style="padding:14px;text-align:center;color:#95A0AF">Esta bolsa no tiene saldo por distribuir.</td></tr>
+                        <tr><td colspan="13" style="padding:14px;text-align:center;color:#95A0AF">Estos Otros costos no tienen saldo por distribuir.</td></tr>
                         @endforelse
                         </tbody>
                         <tfoot>
@@ -496,7 +503,7 @@
                             <td colspan="3"></td>
                         </tr>
                         <tr>
-                            <td colspan="9" id="ftNetoLbl-{{ $b['codigo'] }}" style="text-align:right;font-weight:800;color:#15803D;background:#EAF7EE">= Saldo de la bolsa (neto) · cuadra con contabilidad</td>
+                            <td colspan="9" id="ftNetoLbl-{{ $b['codigo'] }}" style="text-align:right;font-weight:800;color:#15803D;background:#EAF7EE">= Saldo de Otros costos (neto) · cuadra con contabilidad</td>
                             <td class="n" id="ftNeto-{{ $b['codigo'] }}" data-neto="{{ round($netoBolsa) }}" style="color:#15803D;background:#EAF7EE">${{ number_format($netoBolsa, 0, ',', '.') }}</td>
                             <td colspan="3" style="background:#EAF7EE"></td>
                         </tr>
@@ -812,15 +819,34 @@ function pintarSemaforo(el, pct, dep){
 // Disponible en vivo por bolsa (arranca en lo que dejó el servidor, ya descontadas
 // las asignaciones guardadas). Se decrementa al asignar y se repone al quitar.
 const dispBolsa = {};
+// Disponible INICIAL (congelado) de cada área: el punto de partida de la sesión. No cambia al asignar.
+const dispBolsaInicial = {};
 // Pool de saldo RESTANTE por cuenta 14 de cada bolsa (para el consumo FIFO en vivo).
 const poolBolsa = {};
 Object.keys(BOLSAS).forEach(c => {
     dispBolsa[c] = Number(BOLSAS[c].disponible || 0);
+    dispBolsaInicial[c] = dispBolsa[c];
     poolBolsa[c] = (BOLSAS[c].pool || []).map(l => ({
         un_codigo: l.un_codigo, cuenta_14: l.cuenta_14, cuenta_61: l.cuenta_61,
         periodo: Number(l.periodo || 0), pendiente: Number(l.pendiente || 0),
     }));
 });
+
+// Progreso de "Otros costos" en la tarjeta de arriba: Iniciaste con · Distribuido · Saldo por distribuir.
+function actualizarOtrosCostosTopCard(c){
+    const ini = Number(dispBolsaInicial[c] || 0);
+    const saldo = Number(dispBolsa[c] || 0);
+    const dist = ini - saldo;
+    const elIni  = document.getElementById('otros-inicial-'+c);     if (elIni)  elIni.textContent  = fmt(ini);
+    const elDist = document.getElementById('otros-distribuido-'+c); if (elDist) elDist.textContent = fmt(dist);
+    const elSal  = document.getElementById('otros-saldo-'+c);
+    if (elSal) {
+        elSal.textContent = fmt(saldo);
+        // Verde cuando se distribuyó todo ($0); rojo si por error quedara negativo; azul normal.
+        elSal.style.color = saldo < -0.5 ? '#DC2626' : (saldo <= 0.5 ? '#15803D' : '#1B4C7A');
+    }
+}
+Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial
 
 // Expandir/colapsar el detalle por cuenta de una bolsa grande.
 function toggleBolsaDetalle(c){
@@ -1411,6 +1437,7 @@ function fmtBolsaDisp(c){
     const dispEl = document.getElementById('bolsa-disp-'+c); if(dispEl) dispEl.textContent = fmt(disp);
     const barEl  = document.getElementById('bolsa-bar-'+c);  if(barEl)  barEl.style.width = pct + '%';
     const doneEl = document.getElementById('bolsa-done-'+c); if(doneEl) doneEl.style.display = disp <= 0.5 ? 'inline-block' : 'none';
+    actualizarOtrosCostosTopCard(c);   // refresca Iniciaste/Distribuido/Saldo en la tarjeta de arriba
     // El disponible cambió: refrescar el indicador dentro de cada obra que muestre esta bolsa.
     refrescarDispObras();
 }
