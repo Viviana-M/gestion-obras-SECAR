@@ -2558,17 +2558,23 @@ class DistribucionCostosController extends Controller
             fn ($v, $cod) => $esDep($cod), ARRAY_FILTER_USE_BOTH
         );
 
-        // Universo: obras con aplicación en la distribución, con provisión o MO del período, y
-        // además las OT CERRADAS del departamento (aunque su distribución sea 0).
+        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
+        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
+
+        // Universo = el MISMO que el resumen (obras del departamento con movimiento del mes), para que
+        // el Excel cuadre con él. Toda obra del departamento con cualquiera de: aplicación en la
+        // distribución, provisión, MO, estado cerrada, ingreso del mes o costo del mes (cta 6).
+        // Ej. OC008666: ingreso + un reverso en la 6 pero distribución 0 → igual debe aparecer.
         $cerradasDep = ObraEstado::where('estado', 'cerrada')->pluck('codigo_proyecto')
             ->filter(fn ($c) => $esDep($c))->values()->all();
+        $ingDep   = collect($ingMes)->keys()->filter($esDep)->values()->all();
+        $costoDep = collect($costoMes)->keys()->filter($esDep)->values()->all();
         $codigos = array_values(array_unique(array_merge(
-            array_keys($porObra), array_keys($provPorObra), array_keys($moPorObra), $cerradasDep
+            array_keys($porObra), array_keys($provPorObra), array_keys($moPorObra),
+            $cerradasDep, $ingDep, $costoDep
         )));
         sort($codigos);
 
-        $ingMes   = $this->sumaMes('Ingreso', $anio, $mes);
-        $costoMes = $this->sumaMes('Costos aplicados', $anio, $mes);
         $pend14 = RegistroFinanciero::where('cuenta_mayor', 'Costos por aplicar')
             ->whereIn('codigo_proyecto', $codigos)
             ->where(function ($q) use ($anio, $mes) {

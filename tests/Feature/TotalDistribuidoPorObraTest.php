@@ -135,6 +135,39 @@ class TotalDistribuidoPorObraTest extends TestCase
     }
 
     #[Test]
+    public function incluye_obras_con_ingreso_o_costo_del_mes_sin_distribucion(): void
+    {
+        // OC008666 (instalaciones): ingreso del mes + un reverso en la 6, pero distribución 0.
+        $this->rf('OC008666', 'Ingreso', 10260554, 7, 2026, '41350100');
+        $this->rf('OC008666', 'Costos aplicados', -301502, 7, 2026, '61300105'); // reverso en cta 6
+
+        // Otra obra de instalaciones con algo distribuido, para que la distribución exista.
+        $this->rf('O-100', 'Costos por aplicar', -5000, 6, 2026, '14200105');
+        $dist = Distribucion::create([
+            'mes' => 7, 'anio' => 2026, 'departamento' => 'instalaciones', 'tipo' => 'obras',
+            'version' => 1, 'estado' => 'borrador', 'edicion_habilitada' => false, 'reemplazada' => false,
+        ]);
+        AplicacionCosto::create(['distribucion_id' => $dist->id, 'mes' => 7, 'anio' => 2026,
+            'codigo_proyecto' => 'O-100', 'cuenta_14' => '14200105', 'cuenta_61' => '61300105',
+            'categoria' => 'MAT', 'nombre' => 'c', 'monto_aplicar' => 600, 'es_provision' => false,
+            'estado' => 'ok', 'user_id' => $this->operador()->id]);
+
+        $resp = $this->actingAs($this->operador())->get(route('operativo.distribucion.reporte-obras', $dist));
+        $resp->assertOk();
+
+        $ss = IOFactory::load($resp->getFile()->getPathname());
+        $filas = $ss->getActiveSheet()->toArray(null, true, false); // valores crudos (sin formato de miles)
+        $row = collect($filas)->firstWhere(0, 'OC008666');
+
+        $this->assertNotNull($row); // aparece aunque no se distribuyó
+        $this->assertEquals(10260554, (float) $row[4]); // E Ingreso del mes
+        $this->assertEquals(301502,   (float) $row[5]); // F Costo del mes (cta 6), el reverso
+        $this->assertEquals(0,        (float) $row[10]); // K TOTAL distribuido en la OT = 0
+        $this->assertEquals(301502,   (float) $row[11]); // L Costo total del mes = c6 + 0
+        $this->assertEquals(9959052,  (float) $row[12]); // M Margen = 10.260.554 − 301.502
+    }
+
+    #[Test]
     public function incluye_las_ot_cerradas_aunque_distribuyan_cero(): void
     {
         // OT cerrada del departamento SIN ninguna aplicación/provisión/MO.
