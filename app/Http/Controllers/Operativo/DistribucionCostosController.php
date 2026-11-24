@@ -2535,9 +2535,12 @@ class DistribucionCostosController extends Controller
             fn ($v, $cod) => $esDep($cod), ARRAY_FILTER_USE_BOTH
         );
 
-        // Incluir también obras que solo tienen provisión o MO (sin aplicación 14→6/bolsa).
+        // Universo: obras con aplicación en la distribución, con provisión o MO del período, y
+        // además las OT CERRADAS del departamento (aunque su distribución sea 0).
+        $cerradasDep = ObraEstado::where('estado', 'cerrada')->pluck('codigo_proyecto')
+            ->filter(fn ($c) => $esDep($c))->values()->all();
         $codigos = array_values(array_unique(array_merge(
-            array_keys($porObra), array_keys($provPorObra), array_keys($moPorObra)
+            array_keys($porObra), array_keys($provPorObra), array_keys($moPorObra), $cerradasDep
         )));
         sort($codigos);
 
@@ -2557,15 +2560,23 @@ class DistribucionCostosController extends Controller
 
         // Números CRUDOS en las columnas de valores (el formato de miles lo pone Excel);
         // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
-        $head = ['Código', 'Proyecto', 'Cliente', 'Ingreso del mes', 'Costo del mes (cta 6)',
-            'Aplicado 14→6', 'Aplicado desde bolsas', 'Aplicado total', 'Costo total del mes',
-            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Restante 14', 'Estado',
-            'Provisión del mes (14→26)', 'Mano de obra distribuida', 'TOTAL distribuido en la OT'];
-        $filas = [$head];
+        // Los COMPONENTES distribuidos (propio, otros costos, MO, provisión) van ANTES del margen
+        // y afectan el costo total → el margen baja con MO/provisión, igual que la tarjeta.
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso del mes', 'Costo del mes (cta 6)',
+            'Inventario en tránsito aplicado al costo', 'Otros Costos', 'Costos MO', 'Provisión',
+            'TOTAL distribuido en la OT', 'Costo total del mes', 'Margen del mes ($)', 'Margen del mes (%)',
+            'Inv. tránsito (14) pendiente', 'Saldo Inventario en Tránsito'];
+        $filas  = [$head];
+        $pintar = [];       // celdas de "Margen del mes (%)" (col N) a pintar con el semáforo
+        $fila   = 1;        // fila 1 = encabezado; los datos arrancan en la 2
+        $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
+        $hex    = fn ($nivel) => [
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][0], '#'),
+            ltrim(\App\Services\DistribucionService::COLORES_SEMAFORO[$nivel][1], '#'),
+        ];
 
-        $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0,
-              'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0,
-              'prov' => 0.0, 'mo' => 0.0, 'distTot' => 0.0];
+        $t = ['ing' => 0.0, 'c6' => 0.0, 'propio' => 0.0, 'bolsa' => 0.0, 'mo' => 0.0, 'prov' => 0.0,
+              'distTot' => 0.0, 'costoTot' => 0.0, 'mc' => 0.0, 'pend' => 0.0, 'rest' => 0.0];
 
         foreach ($codigos as $cod) {
             $a = $porObra[$cod] ?? ['propio' => 0.0, 'bolsa' => 0.0, 'total' => 0.0];
@@ -2573,43 +2584,51 @@ class DistribucionCostosController extends Controller
             $c6  = abs((float) ($costoMes[$cod] ?? 0));
             $saldo = (float) ($pend14[$cod] ?? 0);
             $pend = $saldo < 0 ? abs($saldo) : 0.0;   // saldo negativo = pendiente por aplicar
-            $costoTot = $c6 + $a['total'];
-            $mc = $ing - $costoTot;
-            $mcPct = $ing != 0 ? ($mc / $ing * 100) : null;
             $rest = max(0.0, $pend - $a['propio']);   // lo que queda en la 14 propia de la obra
 
             $prov = (float) ($provPorObra[$cod] ?? 0);
             $mo   = (float) ($moPorObra[$cod] ?? 0);
-            // TOTAL distribuido en la OT = propio + bolsa + MO + provisión (misma def. que la tarjeta).
-            $distTot = $a['propio'] + $a['bolsa'] + $mo + $prov;
+            // TODOS los componentes distribuidos entran al costo (y reducen el margen), como la tarjeta.
+            $distTot  = $a['propio'] + $a['bolsa'] + $mo + $prov;
+            $costoTot = $c6 + $distTot;
+            $mc       = $ing - $costoTot;
+            $mcPct    = $ing != 0 ? ($mc / $ing * 100) : null;
+
+            $estado = ($estados[$cod] ?? null) === 'cerrada'
+                ? 'cerrada'
+                : (abs($ing) >= 0.5 ? 'parcial' : 'abierta');
+
+            $fila++;
+            $nivel = \App\Services\DistribucionService::nivelMargen($mcPct, \App\Models\User::departamentoDeCodigo($cod));
+            [$b, $f] = $hex($nivel);
+            $pintar[] = ['fila' => $fila, 'col' => 'N', 'bg' => $b, 'fg' => $f];
 
             $filas[] = [
                 $cod,
                 $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
                 $fichas[$cod]->cliente ?? '',
-                round($ing), round($c6), round($a['propio']), round($a['bolsa']), round($a['total']),
-                round($costoTot), round($mc),
-                $mcPct === null ? '—' : number_format($mcPct, 1, ',', '.').'%',
-                round($pend), round($rest), ucfirst($estados[$cod] ?? 'abierta'),
-                round($prov), round($mo), round($distTot),
+                ucfirst($estado),
+                round($ing), round($c6), round($a['propio']), round($a['bolsa']), round($mo), round($prov),
+                round($distTot), round($costoTot), round($mc), $fmtPct($mcPct),
+                round($pend), round($rest),
             ];
 
-            $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio'];
-            $t['bolsa'] += $a['bolsa']; $t['total'] += $a['total']; $t['costoTot'] += $costoTot;
+            $t['ing'] += $ing; $t['c6'] += $c6; $t['propio'] += $a['propio']; $t['bolsa'] += $a['bolsa'];
+            $t['mo'] += $mo; $t['prov'] += $prov; $t['distTot'] += $distTot; $t['costoTot'] += $costoTot;
             $t['mc'] += $mc; $t['pend'] += $pend; $t['rest'] += $rest;
-            $t['prov'] += $prov; $t['mo'] += $mo; $t['distTot'] += $distTot;
         }
 
         $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
-        $filas[] = ['TOTAL', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
-            round($t['bolsa']), round($t['total']), round($t['costoTot']), round($t['mc']),
-            $mcPctTot === null ? '—' : number_format($mcPctTot, 1, ',', '.').'%',
-            round($t['pend']), round($t['rest']), '',
-            round($t['prov']), round($t['mo']), round($t['distTot'])];
+        $filas[] = ['TOTAL', '', '', '', round($t['ing']), round($t['c6']), round($t['propio']),
+            round($t['bolsa']), round($t['mo']), round($t['prov']), round($t['distTot']),
+            round($t['costoTot']), round($t['mc']), $fmtPct($mcPctTot), round($t['pend']), round($t['rest'])];
+
+        // Columnas de dinero (número crudo); la N (Margen %) va como texto y pintada con el semáforo.
+        $moneyCols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'O', 'P'];
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);
-        return Excel::download(new \App\Exports\ReporteObrasExport($filas), 'Distribucion_por_obra_'.$periodo.'.xlsx');
+        return Excel::download(new \App\Exports\ReporteObrasExport($filas, $pintar, $moneyCols), 'Distribucion_por_obra_'.$periodo.'.xlsx');
     }
 
     /**

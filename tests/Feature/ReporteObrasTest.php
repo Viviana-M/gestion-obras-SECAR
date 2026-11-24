@@ -57,7 +57,8 @@ class ReporteObrasTest extends TestCase
         Excel::assertDownloaded('Distribucion_por_obra_Julio_2026_Mantenimiento.xlsx', function ($export) {
             $plano = json_encode($export->array());
             return str_contains($plano, 'MO4501')
-                && str_contains($plano, 'Aplicado total')
+                && str_contains($plano, 'Costos MO')
+                && str_contains($plano, 'TOTAL distribuido en la OT')
                 && str_contains($plano, 'Margen del mes ($)')
                 && str_contains($plano, 'TOTAL');
         });
