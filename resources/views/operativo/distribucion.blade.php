@@ -160,7 +160,7 @@
 @if($distId)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <span>📝 Retomando tu borrador guardado del <b>{{ optional($envio->updated_at)->format('d/m/Y H:i') ?: '—' }}</b> ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza <b>este mismo borrador</b>, no se crea uno nuevo.</span>
-    <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
+    <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" onclick="return confirmarNuevoBorrador(this.href)" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
 </div>
 @endif
 
@@ -1067,6 +1067,26 @@ let ultimaAlerta = { perdida: [], bajo: [], periodo: '' };
 
 const fmt = n => '$' + Math.round(n).toLocaleString('es-CO');
 
+// "+ Empezar un borrador nuevo": confirmación fuerte indicando que reemplaza el borrador actual.
+function confirmarNuevoBorrador(url){
+    let obras = 0, total = 0;
+    document.querySelectorAll('[id^="card-"]').forEach(function(c){
+        const cod = c.id.slice(5); if (!cod) return;
+        let s = 0;
+        c.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => s += soloDigitos(i.value));
+        c.querySelectorAll('input[data-tipo="bolsa"]').forEach(i => s += parseFloat(i.value || 0));
+        c.querySelectorAll('.mo-obra-sec [data-mo-monto]').forEach(i => s += soloDigitos(i.value));
+        s += Number(((window.DATOS || {})[cod] || {}).prov || 0);
+        if (s > 0.5) { obras++; total += s; }
+    });
+    const detalle = obras ? ' de ' + obras + ' obra(s) (' + fmt(total) + ')' : ' actual';
+    const msg = 'Vas a empezar un borrador NUEVO en blanco.\n\nEl borrador' + detalle
+        + ' quedará reemplazado. ¿Continuar?';
+    if (confirm(msg)) window.location.href = url;
+    return false;
+}
+window.DATOS = DATOS;
+
 /* ===== Filtro: al cambiar el departamento se recarga solo =====
    El servidor es el que sabe qué tipos de obra corresponden a cada departamento,
    así que reiniciamos el tipo a "todos" y enviamos el formulario de inmediato. */
@@ -1944,10 +1964,20 @@ document.addEventListener('DOMContentLoaded', function(){
           .catch((err) => {
               const payload = err && err.payload;
               const motivo  = payload && payload.error;
-              if (payload && payload.stale) {
-                  // Otra persona guardó entretanto: NO se pisó su trabajo. Se avisa y se deja de autoguardar.
+              if (payload && payload.shrink) {
+                  // El autoguardado NUNCA aplica un encogimiento drástico: pausa discreta (sin spam).
+                  pausado = true; clearTimeout(tmr);
+                  setStatus('⏸ Autoguardado en pausa: ' + (motivo || 'el borrador quedaría más chico. Retomá desde «Mis distribuciones».'), '#B45309');
+              } else if (payload && payload.stale) {
+                  // Otra persona guardó entretanto: NO se pisó su trabajo. Se avisa con un modal claro.
                   stale = true; clearTimeout(tmr);
-                  setStatus('⚠ ' + (motivo || 'Otra persona guardó cambios. Recarga la página.'), '#B45309');
+                  setStatus('⚠ ' + (motivo || 'Otra persona guardó cambios. Recargá la página.'), '#B45309');
+                  mostrarModal({
+                      titulo: 'Otra persona guardó cambios',
+                      mensaje: 'Otra persona guardó cambios en este borrador. Tus cambios NO se guardaron.\n\nRecargá para ver la versión actual (vas a perder lo que tengas sin guardar) o copiá tus valores antes.',
+                      confirmTexto: 'Recargar', cancelTexto: 'Seguir editando',
+                      onConfirm: function(){ window.onbeforeunload = null; location.reload(); },
+                  });
               } else if (err && err.status === 419) {
                   // Sesión vencida: se detiene el autoguardado y se pide recargar.
                   stale = true; clearTimeout(tmr);
@@ -1986,9 +2016,30 @@ document.addEventListener('DOMContentLoaded', function(){
         } catch (e) {}
     }
 
+    // Modal sencillo (overlay) para confirmaciones/avisos bloqueantes (reemplazo, candado).
+    function mostrarModal(opts){
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(16,32,54,.45);display:flex;align-items:center;justify-content:center;padding:16px';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:14px;max-width:460px;width:100%;padding:20px 22px;box-shadow:0 12px 40px rgba(16,32,54,.25)';
+        const conCancel = opts.cancelTexto !== null;
+        box.innerHTML = '<div style="font-size:15px;font-weight:700;color:#B45309;margin-bottom:8px">' + opts.titulo + '</div>'
+            + '<div style="font-size:13px;color:#374151;line-height:1.55;white-space:pre-line;margin-bottom:16px">' + opts.mensaje + '</div>'
+            + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+            + (conCancel ? '<button type="button" id="md-cancel" style="padding:8px 14px;border:1px solid #E5E7EB;background:#fff;color:#374151;border-radius:8px;font-size:13px;cursor:pointer">' + (opts.cancelTexto || 'Cancelar') + '</button>' : '')
+            + '<button type="button" id="md-ok" style="padding:8px 14px;border:none;background:' + (opts.peligro ? '#D97706' : '#1B3F6E') + ';color:#fff;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">' + (opts.confirmTexto || 'Aceptar') + '</button>'
+            + '</div>';
+        ov.appendChild(box); document.body.appendChild(ov);
+        const cerrar = () => ov.remove();
+        const btnC = box.querySelector('#md-cancel'); if (btnC) btnC.addEventListener('click', cerrar);
+        box.querySelector('#md-ok').addEventListener('click', function(){ cerrar(); if (opts.onConfirm) opts.onConfirm(); });
+        if (conCancel) ov.addEventListener('click', function(e){ if (e.target === ov) cerrar(); });
+    }
+
     // "Guardar cambios" SIN recargar: mismo fetch que el autoguardado pero manual, con aviso visible.
     // El usuario queda EXACTAMENTE en la misma OT y posición. "Enviar · generar plano" sigue con submit.
-    function guardarManual(){
+    // confirmarReemplazo=true reenvía aceptando reemplazar un borrador más grande (guard anti-pérdida).
+    function guardarManual(confirmarReemplazo){
         if (saving || submitting || stale) return;
         saving = true;
         setStatus('Guardando…', '#9CA3AF');
@@ -1997,6 +2048,7 @@ document.addEventListener('DOMContentLoaded', function(){
         form.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => { if (i.name) fd.set(i.name, String(soloDigitos(i.value))); });
         fd.set('auto', '0');
         fd.set('accion', 'guardar');
+        if (confirmarReemplazo) fd.set('confirmar_reemplazo', '1');
         fetch(URL_GUARDAR, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
@@ -2024,14 +2076,33 @@ document.addEventListener('DOMContentLoaded', function(){
           })
           .catch((err) => {
               const payload = err && err.payload; const motivo = payload && payload.error;
-              if (payload && payload.stale) {
+              if (payload && payload.shrink) {
+                  // Guardaría un borrador mucho más chico: pedir confirmación explícita antes de reemplazar.
+                  setStatus('⚠ El borrador quedaría más chico.', '#B45309');
+                  mostrarModal({
+                      titulo: '¿Reemplazar el borrador existente?',
+                      mensaje: motivo || 'Esto dejaría el borrador mucho más chico que el actual.',
+                      confirmTexto: 'Sí, reemplazar', cancelTexto: 'Cancelar', peligro: true,
+                      onConfirm: function(){ guardarManual(true); },
+                  });
+              } else if (payload && payload.stale) {
                   stale = true; clearTimeout(tmr);
-                  mostrarToast('⚠ ' + (motivo || 'Otra persona guardó cambios. Recargá la página para no pisar su trabajo.'), 'warn');
                   setStatus('⚠ Otra persona guardó cambios. Recargá.', '#B45309');
+                  mostrarModal({
+                      titulo: 'Otra persona guardó cambios',
+                      mensaje: 'Otra persona guardó cambios en este borrador. Tus cambios NO se guardaron.\n\nRecargá para ver la versión actual (vas a perder lo que tengas sin guardar) o copiá tus valores antes.',
+                      confirmTexto: 'Recargar', cancelTexto: 'Seguir editando',
+                      onConfirm: function(){ window.onbeforeunload = null; location.reload(); },
+                  });
               } else if (err && err.status === 419) {
                   stale = true; clearTimeout(tmr);
-                  mostrarToast('⚠ Tu sesión expiró. Recargá la página para seguir guardando.', 'warn');
                   setStatus('⚠ Tu sesión expiró. Recargá.', '#B45309');
+                  mostrarModal({
+                      titulo: 'Tu sesión expiró',
+                      mensaje: 'Tu sesión expiró. Recargá la página para seguir guardando.',
+                      confirmTexto: 'Recargar', cancelTexto: null,
+                      onConfirm: function(){ window.onbeforeunload = null; location.reload(); },
+                  });
               } else if (err && err.status === 422) {
                   mostrarToast('No se pudo guardar: ' + (motivo || 'elegí un departamento en el filtro de arriba.'), 'error');
                   setStatus('⚠ ' + (motivo || 'Falta el departamento.'), '#B45309');

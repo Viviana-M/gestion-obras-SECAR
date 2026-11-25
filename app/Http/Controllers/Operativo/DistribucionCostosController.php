@@ -1465,14 +1465,25 @@ class DistribucionCostosController extends Controller
      */
     private function borradorAbierto(int $mes, int $anio, string $departamento): ?Distribucion
     {
-        return Distribucion::where('mes', $mes)->where('anio', $anio)
-            ->where('departamento', $departamento)
-            ->where('tipo', 'obras')
-            ->where('reemplazada', false)
+        $base = fn () => Distribucion::where('mes', $mes)->where('anio', $anio)
+            ->where('departamento', $departamento)->where('tipo', 'obras');
+
+        // 1) El vigente (no reemplazado) editable: borrador, o enviado con edición habilitada.
+        $vigente = $base()->where('reemplazada', false)
             ->where(function ($q) {
                 $q->where('estado', 'borrador')
                   ->orWhere(fn ($s) => $s->where('estado', 'enviado')->where('edicion_habilitada', true));
             })
+            ->orderByDesc('version')->orderByDesc('created_at')
+            ->first();
+        if ($vigente) {
+            return $vigente;
+        }
+
+        // 2) Sin vigente: retomar la ÚLTIMA versión de borrador aunque esté reemplazada=1, para NO
+        //    abrir base vacía y perder el trabajo (caso real: todas las versiones quedaron
+        //    reemplazadas y se arrancaba de cero). No se reabren los 'enviado' (son finales).
+        return $base()->where('estado', 'borrador')
             ->orderByDesc('version')->orderByDesc('created_at')
             ->first();
     }
@@ -1682,6 +1693,59 @@ class DistribucionCostosController extends Controller
                 $asignFinal[$cod][$bolsa] = round($usar, 2);
                 $restanteBolsa[$bolsa]    = $disp - $usar;
             }
+        }
+
+        // ── GUARD anti-pérdida: que un guardado chico no borre un borrador grande por accidente ──
+        // Se compara lo ENTRANTE contra el MAYOR borrador conocido del (mes, año, departamento), sea
+        // el vigente o una versión ya reemplazada (caso real: 1 obra encima de 30). El autoguardado
+        // NUNCA aplica un encogimiento drástico; el manual lo exige con confirmar_reemplazo.
+        $limpiarMontoG = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
+
+        $distIdsGrupo = Distribucion::where('mes', $mes)->where('anio', $anio)
+            ->where('departamento', $departamento)->where('tipo', 'obras')->pluck('id');
+        $prevAgg = $distIdsGrupo->isEmpty() ? collect()
+            : AplicacionCosto::whereIn('distribucion_id', $distIdsGrupo)
+                ->selectRaw('distribucion_id, COUNT(DISTINCT codigo_proyecto) as obras, SUM(monto_aplicar) as total')
+                ->groupBy('distribucion_id')->get();
+        $obrasPrevias = (int) ($prevAgg->max('obras') ?? 0);
+        $totalPrevio  = (float) ($prevAgg->max('total') ?? 0);
+
+        $codsEntrantes = [];
+        $totalNuevo = 0.0;
+        foreach ((array) $aplicar as $cod => $cuentas) {
+            $s = array_sum(array_map($limpiarMontoG, (array) $cuentas));
+            if ($s > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $s; }
+        }
+        foreach ((array) $request->input('asignacion_bolsa', []) as $cod => $lineas) {
+            foreach ((array) $lineas as $l) {
+                $m = $limpiarMontoG($l['monto'] ?? 0);
+                if ($m > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $m; }
+            }
+        }
+        $obrasNuevas = count($codsEntrantes);
+
+        $hayTrabajoPrevio = $obrasPrevias >= 3 || $totalPrevio > 0.5;
+        $encoge = $hayTrabajoPrevio && (
+            ($obrasPrevias > 0 && $obrasNuevas < $obrasPrevias * 0.5) ||
+            ($totalPrevio > 0.5 && $totalNuevo < $totalPrevio * 0.5)
+        );
+
+        // El autoguardado jamás aplica el encogimiento; el manual solo con confirmación explícita.
+        if ($encoge && ($esAuto || ! $request->boolean('confirmar_reemplazo'))) {
+            $aviso = "No se guardó: este borrador quedaría con {$obrasNuevas} obra(s) (\$"
+                . number_format($totalNuevo, 0, ',', '.') . ") cuando el actual tiene {$obrasPrevias} obra(s) (\$"
+                . number_format($totalPrevio, 0, ',', '.') . "). "
+                . ($esAuto
+                    ? "Retomá el borrador existente desde «Mis distribuciones»."
+                    : "¿Seguro que querés reemplazarlo?");
+            if ($esAuto || $request->wantsJson()) {
+                return response()->json([
+                    'ok' => false, 'error' => $aviso, 'shrink' => true,
+                    'obras_nuevas' => $obrasNuevas, 'obras_previas' => $obrasPrevias,
+                    'total_nuevo'  => round($totalNuevo), 'total_previo' => round($totalPrevio),
+                ], 409);
+            }
+            return back()->with('error', $aviso)->withInput();
         }
 
         // Todo el guardado (crear/actualizar el borrador, estados de obra, borrar y
