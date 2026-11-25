@@ -76,9 +76,26 @@ class DistribucionCostosController extends Controller
             $k = $d->mes.'|'.$d->anio.'|'.($d->departamento ?? '');
             if (! isset($grupos[$k])) {
                 $grupos[$k] = ['mes' => (int) $d->mes, 'anio' => (int) $d->anio, 'departamento' => $d->departamento,
-                    'obras' => null, 'areas' => null];
+                    'obras' => null, 'areas' => null, 'historial' => []];
             }
             $tipo = ($d->tipo ?? 'obras') === 'areas' ? 'areas' : 'obras';
+
+            // Historial: TODAS las versiones de obras del grupo (incluidas las reemplazadas), para que
+            // el trabajo de versiones anteriores no quede oculto detrás del vigente. Usa los totales ya
+            // cargados (sin consultas pesadas por versión); provisión/MO son del período, no por versión.
+            if ($tipo === 'obras') {
+                $th = $totales[$d->id] ?? null;
+                $grupos[$k]['historial'][] = [
+                    'id' => $d->id, 'version' => (int) $d->version, 'estado' => $d->estado,
+                    'reemplazada' => (bool) $d->reemplazada,
+                    'usuario' => $usuarios[$d->guardado_por] ?? '—',
+                    'guardado_at' => $d->updated_at,
+                    'obras' => (int) ($th->obras ?? 0),
+                    'total' => (float) ($th->aplicado ?? 0),
+                    'version_final_id' => $finales[$d->id]->id ?? null,
+                ];
+            }
+
             if ($grupos[$k][$tipo] !== null) continue; // ya tomamos el vigente (mayor versión) de este tipo
 
             if ($tipo === 'areas') {
@@ -118,9 +135,22 @@ class DistribucionCostosController extends Controller
             if ($o && $a && $a['guardado_at'] && (! $o['guardado_at'] || $a['guardado_at'] > $o['guardado_at'])) {
                 $guardadoAt = $a['guardado_at']; $guardadoPor = $a['guardado_por'];
             }
+
+            $historial = $g['historial'];
+            $maxObrasHist = empty($historial) ? 0 : max(array_column($historial, 'obras'));
+            // Aviso ámbar: el vigente luce incompleto si tiene bastantes menos obras que una versión
+            // anterior del mismo grupo (menos de la mitad del máximo histórico y ≥ 3 obras de diferencia).
+            $obrasVigente = $o['obras'] ?? 0;
+            $incompleto = $o !== null && $maxObrasHist > 0
+                && $obrasVigente < $maxObrasHist * 0.5
+                && ($maxObrasHist - $obrasVigente) >= 3;
+
             return [
                 'mes' => $g['mes'], 'anio' => $g['anio'], 'departamento' => $g['departamento'],
                 'obras' => $o, 'areas' => $a,
+                'historial' => $historial,
+                'max_obras_historial' => $maxObrasHist,
+                'incompleto' => $incompleto,
                 'tiene_costos' => $o !== null,
                 'tiene_otros'  => $a !== null,
                 'guardado_at'  => $guardadoAt, 'guardado_por' => $guardadoPor,

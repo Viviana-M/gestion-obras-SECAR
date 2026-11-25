@@ -99,6 +99,35 @@
                     @endif
                 </td>
             </tr>
+            @if($f['incompleto'] || count($f['historial']) > 1)
+            <tr style="border-bottom:1px solid #E5E7EB;background:#FCFCFD">
+                <td colspan="5" style="padding:4px 14px 12px">
+                    @if($f['incompleto'])
+                    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400E;margin-bottom:8px">
+                        ⚠ El borrador vigente tiene <b>{{ $o['obras'] }}</b> obra(s), pero una versión anterior tuvo <b>{{ $f['max_obras_historial'] }}</b>. Revisá el historial por si quedó incompleto.
+                    </div>
+                    @endif
+                    @if(count($f['historial']) > 1)
+                    <details>
+                        <summary style="cursor:pointer;font-size:12px;color:#4338CA;font-weight:600">Ver historial de borradores ({{ count($f['historial']) }} versiones)</summary>
+                        <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+                            @foreach($f['historial'] as $h)
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11.5px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;background:{{ $h['reemplazada'] ? '#fff' : '#F0FDF4' }}">
+                                <b style="color:#1B3F6E">v{{ $h['version'] }}</b>
+                                <span style="color:#6B7280">{{ $h['usuario'] }}</span>
+                                <span style="color:#9CA3AF">{{ $h['guardado_at']?->format('d/m/Y H:i') }}</span>
+                                <span style="color:#374151">{{ $h['obras'] }} obra(s)</span>
+                                <b style="color:#15803D">{{ $fmt($h['total']) }}</b>
+                                <span style="font-size:10px;padding:2px 8px;border-radius:8px;{{ $h['reemplazada'] ? 'background:#F3F4F6;color:#6B7280' : 'background:#DCFCE7;color:#15803D;font-weight:600' }}">{{ $h['reemplazada'] ? 'Reemplazada' : 'Vigente' }}</span>
+                                <a href="{{ route('operativo.distribucion.trazabilidad', $h['id']) }}" style="margin-left:auto;font-size:11px;padding:4px 10px;border:1px solid #6366F1;color:#4338CA;border-radius:6px;text-decoration:none">Ver</a>
+                            </div>
+                            @endforeach
+                        </div>
+                    </details>
+                    @endif
+                </td>
+            </tr>
+            @endif
             @endforeach
         </tbody>
     </table>
