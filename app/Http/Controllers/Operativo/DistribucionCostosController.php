@@ -2754,12 +2754,14 @@ class DistribucionCostosController extends Controller
         // escribir texto "600.000" haría que Excel lo lea como 600. El % va como texto.
         // Los COMPONENTES distribuidos (propio, otros costos, MO, provisión) van ANTES del margen
         // y afectan el costo total → el margen baja con MO/provisión, igual que la tarjeta.
-        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso del mes', 'Costo base cta 6 (operaciones)',
+        // El "Costo base cta 6" se omite como columna (siempre $0 dentro del mes: el borrador aún no
+        // está posteado a la 6), pero SIGUE sumado dentro de "Costo total del mes" por si fuera > 0.
+        $head = ['Código', 'Proyecto', 'Cliente', 'Estado', 'Ingreso del mes',
             'Inventario en tránsito aplicado al costo', 'Otros Costos', 'Costos MO', 'Provisión',
             'TOTAL distribuido en la OT', 'Ajuste contable (reverso)', 'Costo total del mes',
-            'Margen del mes ($)', 'Margen del mes (%)', 'Inv. tránsito (14) pendiente', 'Saldo Inventario en Tránsito'];
+            'Margen del mes ($)', 'Margen del mes (%)', 'Inventario en transito por aplicar', 'Saldo Inventario en Tránsito'];
         $filas  = [$head];
-        $pintar = [];       // celdas de "Margen del mes (%)" (col O) a pintar con el semáforo
+        $pintar = [];       // celdas de "Margen del mes (%)" (col N) a pintar con el semáforo
         $fila   = 1;        // fila 1 = encabezado; los datos arrancan en la 2
         $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1, ',', '.').'%';
         $hex    = fn ($nivel) => [
@@ -2795,14 +2797,14 @@ class DistribucionCostosController extends Controller
             $fila++;
             $nivel = \App\Services\DistribucionService::nivelMargen($mcPct, \App\Models\User::departamentoDeCodigo($cod));
             [$b, $f] = $hex($nivel);
-            $pintar[] = ['fila' => $fila, 'col' => 'O', 'bg' => $b, 'fg' => $f];
+            $pintar[] = ['fila' => $fila, 'col' => 'N', 'bg' => $b, 'fg' => $f];
 
             $filas[] = [
                 $cod,
                 $fichas[$cod]->nombre_obra ?? $nombreMov[$cod] ?? '',
                 $fichas[$cod]->cliente ?? '',
                 ucfirst($estado),
-                round($ing), round($c6base), round($a['propio']), round($a['bolsa']), round($mo), round($prov),
+                round($ing), round($a['propio']), round($a['bolsa']), round($mo), round($prov),
                 round($distTot), round($ajuste), round($costoTot), round($mc), $fmtPct($mcPct),
                 round($pend), round($rest),
             ];
@@ -2813,13 +2815,13 @@ class DistribucionCostosController extends Controller
         }
 
         $mcPctTot = $t['ing'] != 0 ? ($t['mc'] / $t['ing'] * 100) : null;
-        $filas[] = ['TOTAL', '', '', '', round($t['ing']), round($t['c6base']), round($t['propio']),
+        $filas[] = ['TOTAL', '', '', '', round($t['ing']), round($t['propio']),
             round($t['bolsa']), round($t['mo']), round($t['prov']), round($t['distTot']),
             round($t['ajuste']), round($t['costoTot']), round($t['mc']), $fmtPct($mcPctTot),
             round($t['pend']), round($t['rest'])];
 
-        // Columnas de dinero (número crudo); la O (Margen %) va como texto y pintada con el semáforo.
-        $moneyCols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'P', 'Q'];
+        // Columnas de dinero (número crudo); la N (Margen %) va como texto y pintada con el semáforo.
+        $moneyCols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'O', 'P'];
 
         $nombresMes = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
         $periodo = ($nombresMes[$mes] ?? $mes).'_'.$anio.'_'.ucfirst((string) $dep);
