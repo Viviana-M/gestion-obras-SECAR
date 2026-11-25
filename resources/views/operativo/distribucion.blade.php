@@ -1854,6 +1854,8 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial Otros costos (fmt ya existe)
     actualizarBarraGlobal(); // asegura el total de la barra al cargar (lee los inputs ya renderizados)
+    // Base por obra (lo cargado): referencia para el merge y la detección de conflictos.
+    document.querySelectorAll('[id^="card-"]').forEach(function(c){ const cod = c.id.slice(5); if (cod) baseTotalObra[cod] = totalObraCard(c); });
     bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
 
@@ -1908,6 +1910,38 @@ document.addEventListener('DOMContentLoaded', function(){
     const statusEl = document.getElementById('autosave-status');
     function setStatus(txt, color) { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = color || '#9CA3AF'; } }
 
+    // ── Guardado COLABORATIVO (merge por obra) ──
+    // Total GUARDADO de una obra (aplicar + bolsa + MO), para marcar lo editado y detectar conflictos.
+    const baseTotalObra = {};   // {cod: total tal como se cargó} — base para comparar contra el servidor
+    function totalObraCard(c){
+        let s = 0;
+        c.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => s += soloDigitos(i.value));
+        c.querySelectorAll('input[data-tipo="bolsa"]').forEach(i => s += parseFloat(i.value || 0));
+        c.querySelectorAll('.mo-obra-sec [data-mo-monto]').forEach(i => s += soloDigitos(i.value));
+        return s;
+    }
+    function marcarEditada(el){
+        const card = el && el.closest ? el.closest('[id^="card-"]') : null;
+        if (card) card.setAttribute('data-editada', '1');
+    }
+    // Anexa al envío las obras que el usuario tocó (merge) y su base cargada (para detectar conflictos).
+    function anexarEditadas(fd){
+        document.querySelectorAll('[id^="card-"][data-editada="1"]').forEach(function(c){
+            const cod = c.id.slice(5); if (!cod) return;
+            fd.append('obras_editadas[]', cod);
+            fd.set('obras_base[' + cod + ']', String(Math.round(baseTotalObra[cod] || 0)));
+        });
+    }
+    // Tras guardar OK: las obras guardadas (no en conflicto) dejan de estar "editadas" y su base se
+    // actualiza a lo recién guardado; las en conflicto quedan marcadas para que el usuario las revise.
+    function postGuardado(j){
+        const conf = (j && j.conflictos) || [];
+        document.querySelectorAll('[id^="card-"][data-editada="1"]').forEach(function(c){
+            const cod = c.id.slice(5);
+            if (conf.indexOf(cod) === -1) { c.removeAttribute('data-editada'); baseTotalObra[cod] = totalObraCard(c); }
+        });
+    }
+
     // Respaldo local (ligero): montos "a aplicar" y estado por obra.
     function serializar() {
         const data = {};
@@ -1931,6 +1965,7 @@ document.addEventListener('DOMContentLoaded', function(){
         form.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => { if (i.name) fd.set(i.name, String(soloDigitos(i.value))); });
         fd.set('auto', '1');
         fd.set('accion', 'guardar');
+        anexarEditadas(fd);   // merge por obra: solo lo que el usuario tocó
         fetch(URL_GUARDAR, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
@@ -1958,8 +1993,13 @@ document.addEventListener('DOMContentLoaded', function(){
                   if (lv) lv.value = j.lock_version;
               }
               dirty = false;
+              postGuardado(j);                                     // limpia marcas de lo guardado (merge)
               try { localStorage.removeItem(KEY); } catch (e) {}   // el servidor ya lo tiene
-              setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
+              if (j.conflictos && j.conflictos.length) {
+                  setStatus('⚠ ' + j.conflictos.join(', ') + ' las cambió otra persona (no se sobreescribieron). Revisalas.', '#B45309');
+              } else {
+                  setStatus('✔ Autoguardado ' + (j.hora || ''), '#15803D');
+              }
           })
           .catch((err) => {
               const payload = err && err.payload;
@@ -2049,6 +2089,7 @@ document.addEventListener('DOMContentLoaded', function(){
         fd.set('auto', '0');
         fd.set('accion', 'guardar');
         if (confirmarReemplazo) fd.set('confirmar_reemplazo', '1');
+        anexarEditadas(fd);   // merge por obra: solo lo que el usuario tocó
         fetch(URL_GUARDAR, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
@@ -2069,10 +2110,20 @@ document.addEventListener('DOMContentLoaded', function(){
                   const lv = form.querySelector('input[name="lock_version"]'); if (lv) lv.value = j.lock_version;
               }
               dirty = false;
+              postGuardado(j);                          // limpia marcas de lo guardado (merge)
               try { localStorage.removeItem(KEY); } catch (e) {}
               const hora = j.hora || '';
               setStatus('✔ Borrador guardado ' + hora, '#15803D');
-              mostrarToast('✔ Borrador guardado ' + hora + (j.msg ? '\n' + j.msg : ''), 'ok');
+              if (j.conflictos && j.conflictos.length) {
+                  mostrarModal({
+                      titulo: 'Obras modificadas por otra persona',
+                      mensaje: 'Estas obras las cambió otra persona y NO se sobreescribieron:\n\n' + j.conflictos.join(', ')
+                          + '\n\nRevisalas antes de volver a guardarlas. El resto de tu trabajo sí se guardó.',
+                      confirmTexto: 'Entendido', cancelTexto: null,
+                  });
+              } else {
+                  mostrarToast('✔ Borrador guardado ' + hora + (j.msg ? '\n' + j.msg : ''), 'ok');
+              }
           })
           .catch((err) => {
               const payload = err && err.payload; const motivo = payload && payload.error;
@@ -2121,9 +2172,10 @@ document.addEventListener('DOMContentLoaded', function(){
         if (card && card.id) recordarUltimaObra(card.id.slice(5));
     });
 
-    function alCambiar() {
+    function alCambiar(e) {
         dirty = true;
         pausado = false;                                  // un cambio reanuda el autoguardado en pausa
+        if (e && e.target) marcarEditada(e.target);       // la obra tocada entra al merge
         guardarLocal();                                   // respaldo local inmediato
         setStatus('Cambios sin guardar…', '#B45309');
         clearTimeout(tmr);

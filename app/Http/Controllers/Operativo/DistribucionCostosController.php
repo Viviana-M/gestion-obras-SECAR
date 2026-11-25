@@ -1289,7 +1289,7 @@ class DistribucionCostosController extends Controller
      *
      * @param  array  $manoObra  [ obra => [ {cedula,nombre,monto}, … ] ]
      */
-    private function guardarManoObra(string $departamento, int $mes, int $anio, array $manoObra, ?int $userId): void
+    private function guardarManoObra(string $departamento, int $mes, int $anio, array $manoObra, ?int $userId, ?array $soloObras = null): void
     {
         $codigos  = UnBolsa::where('activo', true)->where('departamento', $departamento)->pluck('codigo')->all();
         $personas = $this->svc->manoObraDirectaPorPersona($codigos, $anio, $mes, $departamento);
@@ -1315,9 +1315,20 @@ class DistribucionCostosController extends Controller
             }
         }
 
-        DB::transaction(function () use ($codigos, $mes, $anio, $personas, $mapa, $userId) {
-            ManoObraAsignacion::whereIn('bolsa_un', $codigos)->where('mes', $mes)->where('anio', $anio)->delete();
+        DB::transaction(function () use ($codigos, $mes, $anio, $personas, $mapa, $userId, $soloObras) {
+            // Merge por obra: si $soloObras viene, solo se reemplaza la MO de ESAS obras (se conserva la
+            // del resto). En legacy ($soloObras === null) se reemplaza toda la MO del período/depto.
+            $del = ManoObraAsignacion::whereIn('bolsa_un', $codigos)->where('mes', $mes)->where('anio', $anio);
+            if ($soloObras !== null) {
+                $del->whereIn('obra_destino', $soloObras ?: ['__none__']);
+            }
+            $del->delete();
+
             $filas = $this->svc->filasAsignacionMo($personas, $mapa, $mes, $anio, 'manual', $userId);
+            if ($soloObras !== null) {
+                $permit = array_flip($soloObras);
+                $filas = array_values(array_filter($filas, fn ($f) => isset($permit[(string) ($f['obra_destino'] ?? '')])));
+            }
             if (! empty($filas)) ManoObraAsignacion::insert($filas);
         });
     }
@@ -1553,12 +1564,20 @@ class DistribucionCostosController extends Controller
             return $responderError('Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
         }
 
-        // Candado optimista (anti-pisado): el formulario trae el contador lock_version del borrador tal
-        // como estaba al cargarlo. Si en el servidor subió (otra persona guardó entretanto), NO se guarda,
-        // para no sobrescribir su trabajo en silencio. Solo aplica al editar un borrador ya existente.
+        // Guardado COLABORATIVO (merge por obra): el front manda las obras que el usuario tocó. Se
+        // guardan SOLO esas y se conserva el resto, para que dos personas en obras distintas no se
+        // pisen. En 'enviar' (plano final) o si el front no manda la lista, se usa el guardado completo
+        // de siempre (legacy).
+        $editadas  = array_values(array_unique(array_map('strval', (array) $request->input('obras_editadas', []))));
+        $mergeMode = ! empty($editadas) && $accion !== 'enviar';
+
+        // Candado optimista: el formulario trae el lock_version del borrador tal como estaba al cargarlo.
         $lockCliente = $request->input('lock_version');
-        if ($distribucion && $lockCliente !== null && $lockCliente !== ''
-            && (int) $distribucion->lock_version !== (int) $lockCliente) {
+        $lockStale = $distribucion && $lockCliente !== null && $lockCliente !== ''
+            && (int) $distribucion->lock_version !== (int) $lockCliente;
+        // En modo legacy se BLOQUEA para no pisar. En modo COLABORATIVO NO se bloquea: se mergea por
+        // obra y solo se avisa de las obras editadas que otra persona también cambió (se calcula abajo).
+        if ($lockStale && ! $mergeMode) {
             $m = 'Otra persona guardó cambios en este borrador. Recarga la página para no sobrescribir su trabajo.';
             return $esAuto
                 ? response()->json(['ok' => false, 'error' => $m, 'stale' => true], 409)
@@ -1593,11 +1612,82 @@ class DistribucionCostosController extends Controller
             return $responderError('No pude determinar el departamento del plano. Elegí mantenimiento o instalaciones en el filtro de arriba para guardar.');
         }
 
+        // ── Candado colaborativo: conflicto SOLO si una obra editada también la cambió otra persona ──
+        // Se compara el total GUARDADO de cada obra editada contra la "base" que el front cargó
+        // (obras_base[cod]); si difiere y el lock está desfasado, esa obra la tocó alguien más: se
+        // excluye del guardado (se conserva lo del otro) y se avisa puntual. El resto sí se guarda.
+        $moUnsDep = UnBolsa::where('activo', true)->where('departamento', $departamento)->pluck('codigo')->all();
+        $conflictos = [];
+        if ($mergeMode && $lockStale && $distribucion) {
+            $base = (array) $request->input('obras_base', []);
+            foreach ($editadas as $cod) {
+                if (! array_key_exists($cod, $base)) continue; // sin base no se compara
+                $savedTotal = (float) AplicacionCosto::where('distribucion_id', $distribucion->id)
+                    ->where('codigo_proyecto', $cod)->sum('monto_aplicar');
+                if (! empty($moUnsDep)) {
+                    $savedTotal += (float) ManoObraAsignacion::whereIn('bolsa_un', $moUnsDep)
+                        ->where('mes', $mes)->where('anio', $anio)->where('obra_destino', $cod)->sum('monto');
+                }
+                if (abs($savedTotal - (float) $base[$cod]) > 1) {
+                    $conflictos[] = $cod;
+                }
+            }
+        }
+        // Conjunto que SÍ se guarda (merge): las editadas menos las en conflicto. En legacy: null = todo.
+        $editadasSet = $mergeMode ? array_values(array_diff($editadas, $conflictos)) : null;
+
+        // ── GUARD anti-pérdida (SOLO en legacy "reemplazar todo"): un guardado chico no debe borrar un
+        // borrador grande. En modo merge no aplica: el merge conserva las obras que no se editaron. ──
+        if (! $mergeMode) {
+            $limpiarMontoG = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
+            $distIdsGrupo = Distribucion::where('mes', $mes)->where('anio', $anio)
+                ->where('departamento', $departamento)->where('tipo', 'obras')->pluck('id');
+            $prevAgg = $distIdsGrupo->isEmpty() ? collect()
+                : AplicacionCosto::whereIn('distribucion_id', $distIdsGrupo)
+                    ->selectRaw('distribucion_id, COUNT(DISTINCT codigo_proyecto) as obras, SUM(monto_aplicar) as total')
+                    ->groupBy('distribucion_id')->get();
+            $obrasPrevias = (int) ($prevAgg->max('obras') ?? 0);
+            $totalPrevio  = (float) ($prevAgg->max('total') ?? 0);
+
+            $codsEntrantes = [];
+            $totalNuevo = 0.0;
+            foreach ((array) $aplicar as $cod => $cuentas) {
+                $s = array_sum(array_map($limpiarMontoG, (array) $cuentas));
+                if ($s > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $s; }
+            }
+            foreach ((array) $request->input('asignacion_bolsa', []) as $cod => $lineas) {
+                foreach ((array) $lineas as $l) {
+                    $m = $limpiarMontoG($l['monto'] ?? 0);
+                    if ($m > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $m; }
+                }
+            }
+            $obrasNuevas = count($codsEntrantes);
+
+            $hayTrabajoPrevio = $obrasPrevias >= 3 || $totalPrevio > 0.5;
+            $encoge = $hayTrabajoPrevio && (
+                ($obrasPrevias > 0 && $obrasNuevas < $obrasPrevias * 0.5) ||
+                ($totalPrevio > 0.5 && $totalNuevo < $totalPrevio * 0.5)
+            );
+            if ($encoge && ($esAuto || ! $request->boolean('confirmar_reemplazo'))) {
+                $aviso = "No se guardó: este borrador quedaría con {$obrasNuevas} obra(s) (\$"
+                    . number_format($totalNuevo, 0, ',', '.') . ") cuando el actual tiene {$obrasPrevias} obra(s) (\$"
+                    . number_format($totalPrevio, 0, ',', '.') . "). "
+                    . ($esAuto ? "Retomá el borrador existente desde «Mis distribuciones»." : "¿Seguro que querés reemplazarlo?");
+                if ($esAuto || $request->wantsJson()) {
+                    return response()->json([
+                        'ok' => false, 'error' => $aviso, 'shrink' => true,
+                        'obras_nuevas' => $obrasNuevas, 'obras_previas' => $obrasPrevias,
+                        'total_nuevo'  => round($totalNuevo), 'total_previo' => round($totalPrevio),
+                    ], 409);
+                }
+                return back()->with('error', $aviso)->withInput();
+            }
+        }
+
         // ── Mano de obra directa asignada DENTRO de cada obra (líneas mano_obra[obra][]) ──
-        // Se persiste junto con la distribución (reemplaza lo del período del departamento). El tope
-        // por persona se capa en silencio a su costo total (el front ya lo controla).
+        // Se persiste junto con la distribución. En modo merge, solo las obras editadas (sin conflicto).
         if ($request->has('mano_obra_activa') && in_array($departamento, ['mantenimiento', 'instalaciones'], true)) {
-            $this->guardarManoObra($departamento, $mes, $anio, (array) $request->input('mano_obra', []), $request->user()?->id);
+            $this->guardarManoObra($departamento, $mes, $anio, (array) $request->input('mano_obra', []), $request->user()?->id, $editadasSet);
         }
 
         // La aplicación directa 14→61 reconoce costo contra la facturación, así que solo
@@ -1695,59 +1785,6 @@ class DistribucionCostosController extends Controller
             }
         }
 
-        // ── GUARD anti-pérdida: que un guardado chico no borre un borrador grande por accidente ──
-        // Se compara lo ENTRANTE contra el MAYOR borrador conocido del (mes, año, departamento), sea
-        // el vigente o una versión ya reemplazada (caso real: 1 obra encima de 30). El autoguardado
-        // NUNCA aplica un encogimiento drástico; el manual lo exige con confirmar_reemplazo.
-        $limpiarMontoG = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
-
-        $distIdsGrupo = Distribucion::where('mes', $mes)->where('anio', $anio)
-            ->where('departamento', $departamento)->where('tipo', 'obras')->pluck('id');
-        $prevAgg = $distIdsGrupo->isEmpty() ? collect()
-            : AplicacionCosto::whereIn('distribucion_id', $distIdsGrupo)
-                ->selectRaw('distribucion_id, COUNT(DISTINCT codigo_proyecto) as obras, SUM(monto_aplicar) as total')
-                ->groupBy('distribucion_id')->get();
-        $obrasPrevias = (int) ($prevAgg->max('obras') ?? 0);
-        $totalPrevio  = (float) ($prevAgg->max('total') ?? 0);
-
-        $codsEntrantes = [];
-        $totalNuevo = 0.0;
-        foreach ((array) $aplicar as $cod => $cuentas) {
-            $s = array_sum(array_map($limpiarMontoG, (array) $cuentas));
-            if ($s > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $s; }
-        }
-        foreach ((array) $request->input('asignacion_bolsa', []) as $cod => $lineas) {
-            foreach ((array) $lineas as $l) {
-                $m = $limpiarMontoG($l['monto'] ?? 0);
-                if ($m > 0.5) { $codsEntrantes[$cod] = true; $totalNuevo += $m; }
-            }
-        }
-        $obrasNuevas = count($codsEntrantes);
-
-        $hayTrabajoPrevio = $obrasPrevias >= 3 || $totalPrevio > 0.5;
-        $encoge = $hayTrabajoPrevio && (
-            ($obrasPrevias > 0 && $obrasNuevas < $obrasPrevias * 0.5) ||
-            ($totalPrevio > 0.5 && $totalNuevo < $totalPrevio * 0.5)
-        );
-
-        // El autoguardado jamás aplica el encogimiento; el manual solo con confirmación explícita.
-        if ($encoge && ($esAuto || ! $request->boolean('confirmar_reemplazo'))) {
-            $aviso = "No se guardó: este borrador quedaría con {$obrasNuevas} obra(s) (\$"
-                . number_format($totalNuevo, 0, ',', '.') . ") cuando el actual tiene {$obrasPrevias} obra(s) (\$"
-                . number_format($totalPrevio, 0, ',', '.') . "). "
-                . ($esAuto
-                    ? "Retomá el borrador existente desde «Mis distribuciones»."
-                    : "¿Seguro que querés reemplazarlo?");
-            if ($esAuto || $request->wantsJson()) {
-                return response()->json([
-                    'ok' => false, 'error' => $aviso, 'shrink' => true,
-                    'obras_nuevas' => $obrasNuevas, 'obras_previas' => $obrasPrevias,
-                    'total_nuevo'  => round($totalNuevo), 'total_previo' => round($totalPrevio),
-                ], 409);
-            }
-            return back()->with('error', $aviso)->withInput();
-        }
-
         // Todo el guardado (crear/actualizar el borrador, estados de obra, borrar y
         // reinsertar las líneas de AplicacionCosto, observaciones y la versión) va en
         // una sola transacción: si algo falla a mitad, no queda un plano parcial.
@@ -1757,8 +1794,11 @@ class DistribucionCostosController extends Controller
         DB::transaction(function () use (
             &$distribucion, &$noCerradas, &$msg,
             $departamento, $mes, $anio, $estadoObra, $aplicar, $provision, $accion, $request, $sinIngreso,
-            $asignFinal, $poolBolsa, $infoGrande, $esAuto
+            $asignFinal, $poolBolsa, $infoGrande, $esAuto, $mergeMode, $editadasSet
         ) {
+            // En modo merge solo se tocan las obras editadas (sin conflicto); el resto se conserva.
+            $guardaObra = fn ($cod) => ! $mergeMode || in_array((string) $cod, $editadasSet, true);
+            $editadasScope = $mergeMode ? ($editadasSet ?: ['__none__']) : null;
             if (!$distribucion) {
                 // Sin ?dist: en vez de crear un borrador NUEVO cada vez (que generaba duplicados del
                 // mismo mes/departamento), se REUTILIZA el borrador existente si ya hay uno. Solo se
@@ -1807,6 +1847,7 @@ class DistribucionCostosController extends Controller
             $limpiarMonto = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
 
             foreach ($estadoObra as $cod => $est) {
+                if (! $guardaObra($cod)) continue; // merge: solo las obras editadas
                 if (!in_array($est, ['abierta', 'parcial', 'cerrada'])) continue;
                 if ($est === 'cerrada') {
                     $saldo     = (float) ($pendientePorObra[$cod] ?? 0);
@@ -1829,9 +1870,13 @@ class DistribucionCostosController extends Controller
             $periodo = Homologacion::periodo($anio, $mes);
             $homol   = Homologacion::mapaEn($periodo);
 
-            AplicacionCosto::where('distribucion_id', $distribucion->id)->delete();
+            // Merge: borra solo las líneas de las obras editadas; legacy: borra todas.
+            $delAC = AplicacionCosto::where('distribucion_id', $distribucion->id);
+            if ($editadasScope !== null) $delAC->whereIn('codigo_proyecto', $editadasScope);
+            $delAC->delete();
 
             foreach ($aplicar as $cod => $cuentas) {
+                if (! $guardaObra($cod)) continue; // merge: solo las obras editadas
                 if ($sinIngreso($cod)) continue; // sin ingreso: no hay aplicación directa 14→61 (usa bolsa)
                 foreach ($cuentas as $c14 => $monto) {
                     $monto = (float) $monto;
@@ -1856,9 +1901,12 @@ class DistribucionCostosController extends Controller
             //  general de arriba). Cada asignación se baja a las cuentas 14 reales de la
             //  bolsa (FIFO, drenando el pool) para que el plano acredite las cuentas
             //  correctas y el resumen la cuente como costo del mes de la obra.
-            BolsaAsignacion::where('distribucion_id', $distribucion->id)->delete();
+            $delBA = BolsaAsignacion::where('distribucion_id', $distribucion->id);
+            if ($editadasScope !== null) $delBA->whereIn('codigo_proyecto', $editadasScope);
+            $delBA->delete();
 
             foreach ($asignFinal as $cod => $porBolsa) {
+                if (! $guardaObra($cod)) continue; // merge: solo las obras editadas
                 foreach ($porBolsa as $bolsa => $monto) { // $bolsa = departamento (bolsa grande)
                     $info = $infoGrande[$bolsa] ?? [];
                     // Consumo FIFO real (más antiguo primero) sobre el pool de la bolsa grande:
@@ -1913,6 +1961,7 @@ class DistribucionCostosController extends Controller
             // Guardar observaciones del coordinador (por obra, mes y año)
             $observacionesInput = $request->input('observacion', []);
             foreach ($observacionesInput as $cod => $texto) {
+                if (! $guardaObra($cod)) continue; // merge: solo las obras editadas
                 $texto = trim((string) $texto);
                 ObservacionObra::updateOrCreate(
                     ['codigo_proyecto' => $cod, 'mes' => $mes, 'anio' => $anio],
@@ -1961,6 +2010,10 @@ class DistribucionCostosController extends Controller
         if (!empty($recortes)) {
             $msg .= ' Nota: se recortaron asignaciones que superaban el saldo disponible de la(s) bolsa(s): ' . implode(', ', array_keys($recortes)) . '.';
         }
+        if (! empty($conflictos)) {
+            $msg .= ' Atención: la(s) obra(s) ' . implode(', ', $conflictos)
+                . ' las modificó otra persona desde que cargaste; NO se sobreescribieron (revisalas). El resto sí se guardó.';
+        }
 
         // AJAX: el autoguardado y el "Guardar cambios" manual responden JSON (sin recargar), para que
         // el usuario quede en la misma OT. "Enviar · generar plano" (accion=enviar) sigue con redirect
@@ -1973,7 +2026,8 @@ class DistribucionCostosController extends Controller
                 // Nuevo contador del candado optimista, para que el cliente lo refresque y no se
                 // auto-rechace en el siguiente guardado.
                 'lock_version' => (int) $distribucion->lock_version,
-                'msg'  => $msg,      // mensaje de éxito + notas (no cerradas / recortes)
+                'msg'  => $msg,      // mensaje de éxito + notas (no cerradas / recortes / conflicto)
+                'conflictos' => $conflictos, // obras que modificó otra persona (no se sobreescribieron)
                 'auto' => $esAuto,
             ]);
         }
