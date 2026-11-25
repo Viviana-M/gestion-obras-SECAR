@@ -103,37 +103,38 @@ class TotalDistribuidoPorObraTest extends TestCase
         $ss  = IOFactory::load($resp->getFile()->getPathname());
         $sh  = $ss->getActiveSheet();
 
-        // Encabezados nuevos, con "Costos MO" ANTES del margen y el "Ajuste contable" separado.
-        $this->assertSame('Inventario en tránsito aplicado al costo', $sh->getCell('G1')->getValue());
-        $this->assertSame('Otros Costos', $sh->getCell('H1')->getValue());
-        $this->assertSame('Costos MO', $sh->getCell('I1')->getValue());
-        $this->assertSame('Provisión', $sh->getCell('J1')->getValue());
-        $this->assertSame('TOTAL distribuido en la OT', $sh->getCell('K1')->getValue());
-        $this->assertSame('Ajuste contable (reverso)', $sh->getCell('L1')->getValue());
-        $this->assertSame('Costo total del mes', $sh->getCell('M1')->getValue());
-        $this->assertSame('Margen del mes ($)', $sh->getCell('N1')->getValue());
-        $this->assertSame('Margen del mes (%)', $sh->getCell('O1')->getValue());
-        $this->assertSame('Saldo Inventario en Tránsito', $sh->getCell('Q1')->getValue());
+        // Encabezados (sin la columna "Costo base cta 6"): corridos una posición a la izquierda.
+        $this->assertSame('Inventario en tránsito aplicado al costo', $sh->getCell('F1')->getValue());
+        $this->assertSame('Otros Costos', $sh->getCell('G1')->getValue());
+        $this->assertSame('Costos MO', $sh->getCell('H1')->getValue());
+        $this->assertSame('Provisión', $sh->getCell('I1')->getValue());
+        $this->assertSame('TOTAL distribuido en la OT', $sh->getCell('J1')->getValue());
+        $this->assertSame('Ajuste contable (reverso)', $sh->getCell('K1')->getValue());
+        $this->assertSame('Costo total del mes', $sh->getCell('L1')->getValue());
+        $this->assertSame('Margen del mes ($)', $sh->getCell('M1')->getValue());
+        $this->assertSame('Margen del mes (%)', $sh->getCell('N1')->getValue());
+        $this->assertSame('Inventario en transito por aplicar', $sh->getCell('O1')->getValue());
+        $this->assertSame('Saldo Inventario en Tránsito', $sh->getCell('P1')->getValue());
 
         // Fila de la obra (row 2): propio 600, bolsa 400, MO 2000, provisión 1000.
-        $this->assertEquals(600,  (float) $sh->getCell('G2')->getValue());
-        $this->assertEquals(400,  (float) $sh->getCell('H2')->getValue());
-        $this->assertEquals(2000, (float) $sh->getCell('I2')->getValue());
-        $this->assertEquals(1000, (float) $sh->getCell('J2')->getValue());
+        $this->assertEquals(600,  (float) $sh->getCell('F2')->getValue());
+        $this->assertEquals(400,  (float) $sh->getCell('G2')->getValue());
+        $this->assertEquals(2000, (float) $sh->getCell('H2')->getValue());
+        $this->assertEquals(1000, (float) $sh->getCell('I2')->getValue());
         // TOTAL distribuido = 600+400+2000+1000 = 4000; ajuste 0; Costo total = base(0)+4000+0 = 4000.
-        $this->assertEquals(4000, (float) $sh->getCell('K2')->getValue());
-        $this->assertEquals(0,    (float) $sh->getCell('L2')->getValue());
-        $this->assertEquals(4000, (float) $sh->getCell('M2')->getValue());
+        $this->assertEquals(4000, (float) $sh->getCell('J2')->getValue());
+        $this->assertEquals(0,    (float) $sh->getCell('K2')->getValue());
+        $this->assertEquals(4000, (float) $sh->getCell('L2')->getValue());
         // Margen $ = 5.000.000 − 4000 = 4.996.000 (MO y provisión YA bajan el margen).
-        $this->assertEquals(4996000, (float) $sh->getCell('N2')->getValue());
+        $this->assertEquals(4996000, (float) $sh->getCell('M2')->getValue());
 
         // El margen % va pintado con el semáforo (99,9% → verde para mantenimiento, umbral 30).
-        $fill = $sh->getStyle('O2')->getFill();
+        $fill = $sh->getStyle('N2')->getFill();
         $this->assertSame('16A34A', $fill->getStartColor()->getRGB());
 
         // Fila TOTAL también suma el total distribuido.
         $this->assertSame('TOTAL', $sh->getCell('A3')->getValue());
-        $this->assertEquals(4000, (float) $sh->getCell('K3')->getValue());
+        $this->assertEquals(4000, (float) $sh->getCell('J3')->getValue());
     }
 
     #[Test]
@@ -194,11 +195,10 @@ class TotalDistribuidoPorObraTest extends TestCase
 
         $this->assertNotNull($row); // aparece aunque no se distribuyó
         $this->assertEquals(10260554, (float) $row[4]);  // E Ingreso del mes
-        $this->assertEquals(0,        (float) $row[5]);  // F Costo base cta 6 = 0 (el reverso NO es base)
-        $this->assertEquals(0,        (float) $row[10]); // K TOTAL distribuido en la OT = 0
-        $this->assertEquals(301502,   (float) $row[11]); // L Ajuste contable (reverso)
-        $this->assertEquals(301502,   (float) $row[12]); // M Costo total del mes = 0 + 0 + 301.502
-        $this->assertEquals(9959052,  (float) $row[13]); // N Margen = 10.260.554 − 301.502
+        $this->assertEquals(0,        (float) $row[9]);  // J TOTAL distribuido en la OT = 0
+        $this->assertEquals(301502,   (float) $row[10]); // K Ajuste contable (reverso)
+        $this->assertEquals(301502,   (float) $row[11]); // L Costo total del mes = distribuido(0) + ajuste
+        $this->assertEquals(9959052,  (float) $row[12]); // M Margen = 10.260.554 − 301.502
     }
 
     #[Test]
@@ -228,7 +228,7 @@ class TotalDistribuidoPorObraTest extends TestCase
 
         $this->assertContains('C-999', $codigos); // la cerrada aparece aunque distribuya 0
         $rowCerrada = collect($filas)->firstWhere(0, 'C-999');
-        $this->assertSame('Cerrada', $rowCerrada[3]);     // columna Estado
-        $this->assertEquals(0, (float) $rowCerrada[10]);  // TOTAL distribuido en la OT = 0
+        $this->assertSame('Cerrada', $rowCerrada[3]);    // columna Estado
+        $this->assertEquals(0, (float) $rowCerrada[9]);  // J TOTAL distribuido en la OT = 0
     }
 }
