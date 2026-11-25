@@ -661,7 +661,7 @@
         @endif
         @if($puedeEditar)
         <button type="button" onclick="descartarCambios()" style="padding:9px 16px;background:white;border:1px solid #E5E7EB;color:#374151;border-radius:9px;font-size:13px;cursor:pointer">Descartar cambios</button>
-        <button type="submit" name="accion" value="guardar" style="padding:9px 18px;background:#6B7280;color:white;border:none;border-radius:9px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
+        <button type="button" onclick="guardarManual()" style="padding:9px 18px;background:#6B7280;color:white;border:none;border-radius:9px;font-size:13px;cursor:pointer">{{ $distId ? 'Guardar cambios' : 'Guardar borrador' }}</button>
         <button type="submit" name="accion" value="enviar" onclick="return confirm('¿Enviar toda la distribución del mes a contabilidad? La hoja quedará en solo lectura.')" style="padding:9px 18px;background:#15803D;color:white;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">💾 Guardar · generar plano</button>
         @endif
     </div>
@@ -1880,6 +1880,8 @@ document.addEventListener('DOMContentLoaded', function(){
     const URL_GUARDAR = @json(route('operativo.distribucion.guardar'));
     // Clave del respaldo local por período + departamento + borrador.
     const KEY = 'secar_dist_draft_v1|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}|{{ $distId ?? 'new' }}';
+    // Última OT revisada (para retomarla al reabrir), por período + departamento.
+    const KEY_ULT = 'secar_dist_ultimaobra|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}';
 
     let dirty = false, saving = false, submitting = false, stale = false, pausado = false, tmr = null;
 
@@ -1962,6 +1964,92 @@ document.addEventListener('DOMContentLoaded', function(){
           .finally(() => { saving = false; });
     }
 
+    // Toast visible (arriba a la derecha) para confirmar el guardado manual y mostrar notas/errores.
+    function mostrarToast(texto, tipo){
+        const bg = tipo === 'error' ? '#FEF2F2' : (tipo === 'warn' ? '#FFFBEB' : '#F0FDF4');
+        const bd = tipo === 'error' ? '#FECACA' : (tipo === 'warn' ? '#FDE68A' : '#BBF7D0');
+        const fg = tipo === 'error' ? '#DC2626' : (tipo === 'warn' ? '#92400E' : '#15803D');
+        const t = document.createElement('div');
+        t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:1000;max-width:420px;white-space:pre-line;'
+            + 'background:'+bg+';border:1px solid '+bd+';color:'+fg+';border-radius:10px;padding:11px 15px;'
+            + 'font-size:13px;box-shadow:0 4px 14px rgba(16,32,54,.14)';
+        t.textContent = texto;
+        document.body.appendChild(t);
+        setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 450); }, 4500);
+    }
+
+    // Recuerda la OT en foco (o la indicada) para retomarla al reabrir el borrador.
+    function recordarUltimaObra(cod){
+        try {
+            if (!cod) { const el = document.activeElement; const card = el && el.closest ? el.closest('[id^="card-"]') : null; cod = card ? card.id.slice(5) : null; }
+            if (cod) localStorage.setItem(KEY_ULT, cod);
+        } catch (e) {}
+    }
+
+    // "Guardar cambios" SIN recargar: mismo fetch que el autoguardado pero manual, con aviso visible.
+    // El usuario queda EXACTAMENTE en la misma OT y posición. "Enviar · generar plano" sigue con submit.
+    function guardarManual(){
+        if (saving || submitting || stale) return;
+        saving = true;
+        setStatus('Guardando…', '#9CA3AF');
+        recordarUltimaObra();
+        const fd = new FormData(form);
+        form.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => { if (i.name) fd.set(i.name, String(soloDigitos(i.value))); });
+        fd.set('auto', '0');
+        fd.set('accion', 'guardar');
+        fetch(URL_GUARDAR, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            body: fd,
+            credentials: 'same-origin',
+        }).then(async r => {
+              if (r.ok) return r.json();
+              let j = null; try { j = await r.json(); } catch (e) {}
+              const err = new Error('resp'); err.payload = j; err.status = r.status; throw err;
+          })
+          .then(j => {
+              if (!j || !j.ok) throw new Error('resp');
+              if (j.dist) {
+                  const di = form.querySelector('input[name="dist"]'); if (di && !di.value) di.value = j.dist;
+                  try { const u = new URL(window.location.href); if (!u.searchParams.get('dist')) { u.searchParams.set('dist', j.dist); history.replaceState(null, '', u.toString()); } } catch (e) {}
+              }
+              if (j.lock_version !== undefined && j.lock_version !== null) {
+                  const lv = form.querySelector('input[name="lock_version"]'); if (lv) lv.value = j.lock_version;
+              }
+              dirty = false;
+              try { localStorage.removeItem(KEY); } catch (e) {}
+              const hora = j.hora || '';
+              setStatus('✔ Borrador guardado ' + hora, '#15803D');
+              mostrarToast('✔ Borrador guardado ' + hora + (j.msg ? '\n' + j.msg : ''), 'ok');
+          })
+          .catch((err) => {
+              const payload = err && err.payload; const motivo = payload && payload.error;
+              if (payload && payload.stale) {
+                  stale = true; clearTimeout(tmr);
+                  mostrarToast('⚠ ' + (motivo || 'Otra persona guardó cambios. Recargá la página para no pisar su trabajo.'), 'warn');
+                  setStatus('⚠ Otra persona guardó cambios. Recargá.', '#B45309');
+              } else if (err && err.status === 419) {
+                  stale = true; clearTimeout(tmr);
+                  mostrarToast('⚠ Tu sesión expiró. Recargá la página para seguir guardando.', 'warn');
+                  setStatus('⚠ Tu sesión expiró. Recargá.', '#B45309');
+              } else if (err && err.status === 422) {
+                  mostrarToast('No se pudo guardar: ' + (motivo || 'elegí un departamento en el filtro de arriba.'), 'error');
+                  setStatus('⚠ ' + (motivo || 'Falta el departamento.'), '#B45309');
+              } else {
+                  mostrarToast('No se pudo guardar en el servidor. Tus cambios quedaron en este equipo; reintentá.', 'error');
+                  setStatus('⚠ Sin conexión: guardado solo en este equipo', '#B45309');
+              }
+          })
+          .finally(() => { saving = false; });
+    }
+    window.guardarManual = guardarManual;
+
+    // Recordar la OT en foco mientras se trabaja (para retomarla al reabrir).
+    form.addEventListener('focusin', function (e) {
+        const card = e.target.closest ? e.target.closest('[id^="card-"]') : null;
+        if (card && card.id) recordarUltimaObra(card.id.slice(5));
+    });
+
     function alCambiar() {
         dirty = true;
         pausado = false;                                  // un cambio reanuda el autoguardado en pausa
@@ -1997,6 +2085,23 @@ document.addEventListener('DOMContentLoaded', function(){
     let prev = null;
     try { prev = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
     if (prev && tieneTrabajo(prev.data)) mostrarBanner(prev);
+
+    // Retomar la ÚLTIMA OT trabajada: si se recordó una y existe en la página, bajar suave hacia ella.
+    try {
+        const ult = localStorage.getItem(KEY_ULT);
+        if (ult) {
+            const card = document.getElementById('card-' + ult);
+            if (card) {
+                setTimeout(function () {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    const prevBox = card.style.boxShadow;
+                    card.style.transition = 'box-shadow .3s';
+                    card.style.boxShadow = '0 0 0 3px #FDE68A';
+                    setTimeout(function () { card.style.boxShadow = prevBox; }, 1500);
+                }, 350);
+            }
+        }
+    } catch (e) {}
 
     function fechaCorta(ts) {
         try { return new Date(ts).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
