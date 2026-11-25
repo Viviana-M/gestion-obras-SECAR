@@ -1898,14 +1898,19 @@ class DistribucionCostosController extends Controller
             $msg .= ' Nota: se recortaron asignaciones que superaban el saldo disponible de la(s) bolsa(s): ' . implode(', ', array_keys($recortes)) . '.';
         }
 
-        if ($esAuto) {
+        // AJAX: el autoguardado y el "Guardar cambios" manual responden JSON (sin recargar), para que
+        // el usuario quede en la misma OT. "Enviar · generar plano" (accion=enviar) sigue con redirect
+        // (pasa a solo lectura: ahí sí corresponde recargar).
+        if ($esAuto || ($request->wantsJson() && $accion !== 'enviar')) {
             return response()->json([
                 'ok'   => true,
                 'dist' => $distribucion->id,
                 'hora' => now()->format('h:i a'),
                 // Nuevo contador del candado optimista, para que el cliente lo refresque y no se
-                // auto-rechace en el siguiente autoguardado.
+                // auto-rechace en el siguiente guardado.
                 'lock_version' => (int) $distribucion->lock_version,
+                'msg'  => $msg,      // mensaje de éxito + notas (no cerradas / recortes)
+                'auto' => $esAuto,
             ]);
         }
 
