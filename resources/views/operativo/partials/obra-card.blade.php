@@ -287,11 +287,11 @@
                                 value="{{ $sub['aplicar'] ? number_format($sub['aplicar'], 0, ',', '.') : '' }}"
                                 name="aplicar[{{ $cod }}][{{ $sub['cuenta_14'] }}]"
                                 onclick="event.stopPropagation()"
-                                data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="{{ ($o['sin_ingreso'] ?? false) ? '1' : '0' }}"
+                                data-cod="{{ $cod }}" data-tipo="aplicar" data-bloqueado="0"
                                 data-tope="{{ round($sub['tope'] ?? 0) }}" data-periodo="{{ $sub['periodo'] ?? 0 }}"
                                 oninput="aplicarInput(this, '{{ $cod }}')"
-                                @if($o['sin_ingreso'] ?? false) readonly title="Sin ingreso este mes: no se lleva costo directo aquí. Cárgalo desde Otros costos, más abajo." @endif
-                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right;{{ ($o['sin_ingreso'] ?? false) ? 'background:#F9FAFB;color:#9CA3AF' : '' }}">
+                                @if($o['sin_ingreso'] ?? false) title="Obra sin ingreso este mes: igual se distribuye el inventario (política de contabilidad); el margen del mes puede dar negativo." @endif
+                                style="width:100px;padding:3px 6px;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;text-align:right">
                         </td>
                     </tr>
                     @if($tieneItems)
