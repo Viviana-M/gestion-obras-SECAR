@@ -579,6 +579,68 @@
 </div>
 @endif
 
+{{-- ══════════ PANEL "ESTADO DEL CIERRE · EN VIVO" (columna derecha, fijo al hacer scroll) ══════════
+     Reutiliza el MISMO cálculo que "Ver resumen" (ingreso/costo por depto desde el controlador) y los
+     acumuladores del front (actualizarBarraGlobal/DATOS) para recalcular el depto filtrado en vivo.
+     En pantallas anchas va fijo a la derecha; en angostas pasa al flujo normal (abajo). --}}
+@if($kpiObras > 0 || !empty($bolsas))
+@php $ecDepLabel = $depEfectivo ? (\App\Services\DistribucionService::DEPARTAMENTOS[$depEfectivo] ?? ucfirst($depEfectivo)) : null; @endphp
+<style>
+  #estado-cierre-panel .ec-tab{ flex:1; font-size:11px; font-weight:700; padding:5px 8px; border:none; border-radius:7px; background:transparent; color:#1B3F6E; cursor:pointer }
+  #estado-cierre-panel .ec-tab.on{ background:#1B3F6E; color:#fff }
+  #estado-cierre-panel .ec-row{ display:flex; align-items:center; justify-content:space-between; gap:10px }
+  /* Ancho: el panel queda fijo a la derecha y se reserva su espacio (este estilo solo existe en esta pantalla). */
+  @media (min-width:1300px){
+    .content{ padding-right:340px; }
+    #estado-cierre-panel{ position:fixed; top:68px; right:20px; width:316px; max-height:calc(100vh - 86px); overflow:auto; z-index:40; margin-bottom:0; }
+  }
+</style>
+<div id="estado-cierre-panel" style="background:#fff;border:1px solid #E5E9F0;border-radius:13px;box-shadow:0 2px 12px rgba(16,32,54,.10);margin-bottom:1rem;overflow:hidden">
+    <div style="background:#1B3F6E;color:#fff;padding:9px 13px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:7px">
+            <span style="width:8px;height:8px;border-radius:50%;background:#34D399;box-shadow:0 0 0 3px rgba(52,211,153,.25)"></span>
+            Estado del cierre
+        </span>
+        <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.16);padding:2px 8px;border-radius:7px">● En vivo</span>
+    </div>
+    <div style="padding:11px 13px">
+        @if($ecDepLabel)
+        <div style="display:flex;gap:4px;background:#F1F5FA;border:1px solid #E5E9F0;border-radius:9px;padding:3px;margin-bottom:11px">
+            <button type="button" id="ec-tab-dep" class="ec-tab on" onclick="ecSetScope('dep')">{{ $ecDepLabel }}</button>
+            <button type="button" id="ec-tab-total" class="ec-tab" onclick="ecSetScope('total')">Total mes</button>
+        </div>
+        @endif
+        <div id="ec-scope" style="font-size:10px;color:#9CA3AF;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:9px">{{ $ecDepLabel ?? 'Total del mes (MT + IN)' }}</div>
+
+        <div class="ec-row" style="margin-bottom:7px">
+            <span style="font-size:12px;color:#6B7686;font-weight:600">Ingreso del mes</span>
+            <b id="ec-ingreso" style="font-size:15px;font-weight:800;color:#1E2A38">$0</b>
+        </div>
+        <div class="ec-row" style="margin-bottom:5px">
+            <span style="font-size:12px;color:#6B7686;font-weight:600">Costos distribuidos</span>
+            <b id="ec-costo" style="font-size:15px;font-weight:800;color:#1B4C7A">$0</b>
+        </div>
+        <div style="border:1px solid #EEF1F6;border-radius:9px;padding:7px 10px;margin:4px 0 11px;background:#FBFCFE">
+            <div class="ec-row" style="font-size:11px;color:#6B7686;margin:2px 0"><span>Inventario (14→6)</span><span id="ec-inv" style="font-weight:600;color:#1E2A38">$0</span></div>
+            <div class="ec-row" style="font-size:11px;color:#6B7686;margin:2px 0"><span>Otros costos</span><span id="ec-otros" style="font-weight:600;color:#1E2A38">$0</span></div>
+            <div class="ec-row" style="font-size:11px;color:#6B7686;margin:2px 0"><span>Mano de obra</span><span id="ec-mo" style="font-weight:600;color:#1E2A38">$0</span></div>
+            <div class="ec-row" style="font-size:11px;color:#6B7686;margin:2px 0"><span>Provisión</span><span id="ec-prov" style="font-weight:600;color:#1E2A38">$0</span></div>
+            <div class="ec-row" id="ec-base-row" style="font-size:11px;color:#6B7686;margin:2px 0;display:none"><span title="Costo ya en cuenta 6 + ajustes de contabilidad (no se edita en esta pantalla)">Costo base / ajustes</span><span id="ec-base" style="font-weight:600;color:#1E2A38">$0</span></div>
+        </div>
+        <div style="background:#15803D;color:#fff;border-radius:10px;padding:9px 12px">
+            <div class="ec-row" style="margin-bottom:3px">
+                <span style="font-size:11.5px;font-weight:700;opacity:.92">Margen de contribución</span>
+                <b id="ec-mc" style="font-size:16px;font-weight:800">$0</b>
+            </div>
+            <div class="ec-row">
+                <span style="font-size:11px;opacity:.85">MC %</span>
+                <b id="ec-mcpct" style="font-size:13px;font-weight:800">—</b>
+            </div>
+        </div>
+    </div>
+</div>
+@endif
+
 @php
     $colCat = ['EQU-MAT-SUM'=>'#378ADD','MOI'=>'#1D9E75','MOE'=>'#7F77DD','OTROS COSTO'=>'#EF9F27','MOFIJAOPER'=>'#D85A30'];
     $colEstado = ['abierta'=>['#F0FDF4','#15803D'],'parcial'=>['#FEF9C3','#854D0E'],'cerrada'=>['#EFF6FF','#1B3F6E']];
@@ -795,6 +857,16 @@
 const CTA = @json($ctaJs);
 const DATOS = @json($datosJs);
 const BOLSAS = @json(collect($bolsas)->keyBy('codigo'));
+
+// ===== Panel "Estado del cierre · en vivo" =====
+// Constantes del período (mismo origen que "Ver resumen"): ingreso y costo por depto, y el desglose
+// guardado. El depto FILTRADO (o ambos, si no hay filtro) se recalcula en vivo desde los inputs.
+const EC_ING    = @json($ingresoPorDepto ?? new stdClass);
+const EC_COSTO  = @json($costoGuardadoPorDepto ?? new stdClass);
+const EC_DET    = @json($costoDetPorDepto ?? new stdClass);
+const EC_DEP    = @json($depEfectivo);                       // depto filtrado o null (admin: ambos)
+const EC_LABELS = {mantenimiento:'Mantenimiento', instalaciones:'Instalaciones'};
+let   ecScope   = EC_DEP ? 'dep' : 'total';
 const PERIODO = @json($mesNombre);
 
 // Semáforo de márgenes (mismo criterio que el servidor): umbrales por departamento.
@@ -1345,6 +1417,69 @@ function actualizarBarraGlobal(){
         if (cod) t += Number((DATOS[cod] || {}).prov || 0);
     });
     el.textContent = fmt(t);
+    actualizarEstadoCierre();   // el panel "Estado del cierre" se recalcula en los MISMOS puntos
+}
+
+/* ===== Panel "Estado del cierre · en vivo" =====
+   REGLA DE ORO: el costo coincide con "Ver resumen". El depto filtrado (o ambos, sin filtro) se
+   recalcula en vivo con los MISMOS acumuladores de actualizarBarraGlobal (inventario + otros costos
+   + mano de obra + provisión); la parte fija (base + ajustes) viene del controlador. Los deptos que
+   no se están editando usan su costo ya guardado/enviado. */
+function ecLiveDepto(dep){ return EC_DEP === null || EC_DEP === dep; }
+
+function ecDetDepto(dep){
+    if (ecLiveDepto(dep)) {
+        // En vivo: suma de los inputs de las obras de ESE depto mostradas en pantalla.
+        let inv = 0, otros = 0, mo = 0, prov = 0;
+        document.querySelectorAll('[id^="card-"]').forEach(c => {
+            const cod = c.id.slice(5); const d = DATOS[cod]; if (!d || d.dep !== dep) return;
+            c.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => inv += soloDigitos(i.value));
+            c.querySelectorAll('input[data-tipo="bolsa"]').forEach(i => otros += parseFloat(i.value || 0));
+            mo += sumMoObra(cod); prov += Number(d.prov || 0);
+        });
+        const base = Number((EC_DET[dep] || {}).base || 0);
+        return { inv, otros, mo, prov, base, ingreso: Number(EC_ING[dep] || 0), costo: inv + otros + mo + prov + base };
+    }
+    // Guardado (depto que no se edita en esta pantalla): su desglose y total ya calculados.
+    const d = EC_DET[dep] || {};
+    return { inv:+d.inventario||0, otros:+d.otros||0, mo:+d.mano_obra||0, prov:+d.provision||0, base:+d.base||0,
+             ingreso: Number(EC_ING[dep] || 0), costo: Number(EC_COSTO[dep] || 0) };
+}
+
+function ecDatos(scope){
+    if (scope === 'dep' && EC_DEP) return ecDetDepto(EC_DEP);
+    const acc = { inv:0, otros:0, mo:0, prov:0, base:0, ingreso:0, costo:0 };
+    Object.keys(EC_LABELS).forEach(dep => {
+        const x = ecDetDepto(dep);
+        acc.inv+=x.inv; acc.otros+=x.otros; acc.mo+=x.mo; acc.prov+=x.prov; acc.base+=x.base;
+        acc.ingreso+=x.ingreso; acc.costo+=x.costo;
+    });
+    return acc;
+}
+
+function actualizarEstadoCierre(){
+    const panel = document.getElementById('estado-cierre-panel'); if (!panel) return;
+    const x = ecDatos(ecScope);
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = fmt(v); };
+    set('ec-ingreso', x.ingreso); set('ec-costo', x.costo);
+    set('ec-inv', x.inv); set('ec-otros', x.otros); set('ec-mo', x.mo); set('ec-prov', x.prov);
+    const baseRow = document.getElementById('ec-base-row');
+    if (baseRow) baseRow.style.display = Math.abs(x.base) > 0.5 ? '' : 'none';
+    set('ec-base', x.base);
+    const mc = x.ingreso - x.costo;
+    set('ec-mc', mc);
+    const mcEl = document.getElementById('ec-mc'); if (mcEl) mcEl.style.color = mc >= 0 ? '#fff' : '#FECACA';
+    const pctEl = document.getElementById('ec-mcpct');
+    if (pctEl) pctEl.textContent = x.ingreso ? (mc / x.ingreso * 100).toFixed(1).replace('.', ',') + '%' : '—';
+}
+
+function ecSetScope(s){
+    ecScope = s;
+    const td = document.getElementById('ec-tab-dep');   if (td) td.classList.toggle('on', s === 'dep');
+    const tt = document.getElementById('ec-tab-total'); if (tt) tt.classList.toggle('on', s === 'total');
+    const sc = document.getElementById('ec-scope');
+    if (sc) sc.textContent = (s === 'dep' && EC_DEP) ? (EC_LABELS[EC_DEP] || EC_DEP) : 'Total del mes (MT + IN)';
+    actualizarEstadoCierre();
 }
 
 /* "Descartar cambios": recarga la pantalla con lo último guardado (descarta lo que se esté
@@ -1854,6 +1989,7 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial Otros costos (fmt ya existe)
     actualizarBarraGlobal(); // asegura el total de la barra al cargar (lee los inputs ya renderizados)
+    ecSetScope(ecScope);     // pinta el panel "Estado del cierre" con el alcance inicial
     // Base por obra (lo cargado): referencia para el merge y la detección de conflictos.
     document.querySelectorAll('[id^="card-"]').forEach(function(c){ const cod = c.id.slice(5); if (cod) baseTotalObra[cod] = totalObraCard(c); });
     bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)

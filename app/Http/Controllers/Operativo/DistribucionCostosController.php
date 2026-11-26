@@ -834,9 +834,16 @@ class DistribucionCostosController extends Controller
             ];
         }
 
+        // Panel "Estado del cierre · en vivo": ingreso/costo por depto (y el total del mes),
+        // con el MISMO cálculo de "Ver resumen". El front recalcula el depto filtrado en vivo.
+        $estadoCierre = $this->estadoCierreMes($mes, $anio);
+
         return view('operativo.distribucion', [
             'obras'        => $obras,
             'bolsas'       => $bolsas,
+            'ingresoPorDepto'      => $estadoCierre['ingreso'],
+            'costoGuardadoPorDepto'=> $estadoCierre['costo'],
+            'costoDetPorDepto'     => $estadoCierre['det'],
             'detalleBolsas'=> $detalleBolsas,
             'destinos'     => $destinos,
             'categorias'   => $this->categorias,
@@ -2635,6 +2642,72 @@ class DistribucionCostosController extends Controller
             'tipos'      => $tipos,
             'categorias' => $categorias,
         ];
+    }
+
+    /**
+     * Estado del cierre (Ingreso, Costo y desglose) por DEPARTAMENTO para el panel "en vivo" de la
+     * pantalla de distribución. REGLA DE ORO: el total de costo es exactamente el de "Ver resumen"
+     * (reutiliza construirResumen con el aplicar GUARDADO). El desglose separa lo que el front edita
+     * en vivo (inventario + otros costos + mano de obra + provisión) de la parte fija (base + ajustes
+     * de contabilidad), para que: costo = inventario + otros + MO + provisión + base = costo_total.
+     *
+     * @return array{ingreso: array<string,float>, costo: array<string,float>, det: array<string,array>}
+     */
+    private function estadoCierreMes(int $mes, int $anio): array
+    {
+        $ingreso = [];
+        $costo   = [];
+        $det     = [];
+
+        foreach (array_keys(DistribucionService::DEPARTAMENTOS) as $dep) {
+            $prefijos = \App\Models\User::prefijosDeDepartamento($dep);
+
+            // Inventario (propio) + otros costos (bolsa) GUARDADOS en la última versión del depto.
+            $ultima = Distribucion::where('mes', $mes)->where('anio', $anio)
+                ->where('tipo', 'obras')->where('departamento', $dep)
+                ->orderByDesc('version')->first();
+            $aplicarSaved = [];
+            $invSaved = 0.0;
+            $otrosSaved = 0.0;
+            if ($ultima) {
+                foreach (AplicacionCosto::where('distribucion_id', $ultima->id)->get() as $l) {
+                    $cod = (string) $l->codigo_proyecto;
+                    $m   = (float) $l->monto_aplicar;
+                    if ($m <= 0 || ! $this->empiezaPorAlguno($cod, $prefijos)) continue;
+                    $c14 = (string) $l->cuenta_14;
+                    $aplicarSaved[$cod][$c14] = ($aplicarSaved[$cod][$c14] ?? 0) + $m;
+                    $l->origen_bolsa ? $otrosSaved += $m : $invSaved += $m;
+                }
+            }
+
+            // Mismo cálculo que "Ver resumen": con el aplicar guardado, el costo_total ya incluye base,
+            // ajustes de contabilidad, provisión y mano de obra. Es la cifra que NO puede diferir.
+            $r = $this->construirResumen($mes, $anio, $dep, $aplicarSaved, []);
+            $ingreso[$dep] = round((float) $r['todo']['ingreso'], 2);
+            $costo[$dep]   = round((float) $r['todo']['costo_total'], 2);
+
+            // Provisión y MO del depto (mismas fuentes que construirResumen), para el desglose.
+            $provSaved = (float) \App\Models\Provision::activasEn($mes, $anio)->get()
+                ->filter(fn ($p) => $this->empiezaPorAlguno((string) $p->codigo_proyecto, $prefijos))
+                ->sum('monto');
+            $moSaved = 0.0;
+            foreach ($this->manoObraDistribuidaPorObra($mes, $anio, $dep) as $cod => $m) {
+                if ($this->empiezaPorAlguno((string) $cod, $prefijos)) $moSaved += (float) $m;
+            }
+
+            // Base + ajustes = lo que NO se edita en vivo (costo ya en 6 + reversos de contabilidad).
+            $base = round($costo[$dep] - ($invSaved + $otrosSaved + $provSaved + $moSaved), 2);
+
+            $det[$dep] = [
+                'inventario' => round($invSaved, 2),
+                'otros'      => round($otrosSaved, 2),
+                'mano_obra'  => round($moSaved, 2),
+                'provision'  => round($provSaved, 2),
+                'base'       => $base,
+            ];
+        }
+
+        return ['ingreso' => $ingreso, 'costo' => $costo, 'det' => $det];
     }
 
     /**
