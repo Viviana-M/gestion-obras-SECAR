@@ -159,11 +159,14 @@ class AutorizacionDistribucionTest extends TestCase
     }
 
     #[Test]
-    public function guardar_ignora_costos_de_proyecto_sin_ingreso_sin_autorizacion(): void
+    public function guardar_distribuye_el_inventario_tambien_en_proyectos_sin_ingreso(): void
     {
+        // Política de costeo (decisión de contabilidad): se distribuye TODO el inventario 1420, también
+        // en obras SIN ingreso del mes (antes se ignoraban). El margen del mes puede dar negativo; el
+        // costo se reconoce igual. Lo que se ve al entrar = lo que se guarda.
         $op = $this->operador();
 
-        // Proyecto C-400 no tiene ingreso (no hay RegistroFinanciero) => bloqueado.
+        // Proyecto C-400 sin ingreso (no hay RegistroFinanciero de ingreso).
         $this->actingAs($op)->post(route('operativo.distribucion.guardar'), [
             'accion'       => 'guardar',
             'mes'          => 7,
@@ -172,8 +175,8 @@ class AutorizacionDistribucionTest extends TestCase
             'aplicar'      => ['C-400' => ['1435' => 500]],
         ])->assertRedirect();
 
-        $this->assertSame(0, AplicacionCosto::where('codigo_proyecto', 'C-400')->count(),
-            'No debe guardar costos de un proyecto sin ingreso ni autorización.');
+        $this->assertEqualsWithDelta(500, AplicacionCosto::where('codigo_proyecto', 'C-400')->sum('monto_aplicar'), 1,
+            'El inventario de una obra sin ingreso ahora se distribuye (política de costeo).');
     }
 
     #[Test]

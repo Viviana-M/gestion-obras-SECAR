@@ -1940,7 +1940,9 @@ class DistribucionCostosController extends Controller
 
             foreach ($aplicar as $cod => $cuentas) {
                 if (! $guardaObra($cod)) continue; // merge: solo las obras editadas
-                if ($sinIngreso($cod)) continue; // sin ingreso: no hay aplicación directa 14→61 (usa bolsa)
+                // Política de costeo (decisión de contabilidad): se distribuye TODO el inventario 1420,
+                // también en obras SIN ingreso del mes (se reconoce el costo ahora aunque el margen del
+                // mes dé negativo). Antes se saltaban las sin-ingreso y el borrador quedaba incompleto.
                 foreach ($cuentas as $c14 => $monto) {
                     $monto = (float) $monto;
                     if ($monto <= 0) continue;
