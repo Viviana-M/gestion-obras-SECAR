@@ -2166,7 +2166,9 @@ document.addEventListener('DOMContentLoaded', function(){
           .catch((err) => {
               const payload = err && err.payload;
               const motivo  = payload && payload.error;
-              if (payload && payload.shrink) {
+              if (manejarMotivoGuardado(payload)) {
+                  // Borrador borrado o conflicto de pestañas: ya se detuvo y se pidió recargar.
+              } else if (payload && payload.shrink) {
                   // El autoguardado NUNCA aplica un encogimiento drástico: pausa discreta (sin spam).
                   pausado = true; clearTimeout(tmr);
                   setStatus('⏸ Autoguardado en pausa: ' + (motivo || 'el borrador quedaría más chico. Retomá desde «Mis distribuciones».'), '#B45309');
@@ -2238,6 +2240,34 @@ document.addEventListener('DOMContentLoaded', function(){
         if (conCancel) ov.addEventListener('click', function(e){ if (e.target === ov) cerrar(); });
     }
 
+    // Detiene el guardado (auto y manual) y pide recargar: para un borrador que ya no existe o un
+    // conflicto entre pestañas. Evita revivir lo borrado y evita multiplicar/pisar versiones.
+    function detenerYRecargar(titulo, mensaje){
+        stale = true; clearTimeout(tmr);
+        setStatus('⚠ ' + titulo + ' Recargá.', '#B45309');
+        mostrarModal({
+            titulo: titulo, mensaje: mensaje,
+            confirmTexto: 'Recargar', cancelTexto: 'Seguir viendo',
+            onConfirm: function(){ window.onbeforeunload = null; location.reload(); },
+        });
+    }
+    // Clasifica la respuesta de error del servidor; devuelve true si ya la manejó (borrador borrado /
+    // conflicto de pestañas) y hay que detener el guardado.
+    function manejarMotivoGuardado(payload){
+        const motivo = payload && payload.error;
+        if (payload && payload.motivo === 'borrador_inexistente') {
+            detenerYRecargar('Este borrador ya no existe.',
+                'Este borrador se eliminó (en otra pestaña o por otra persona). El autoguardado se detuvo para no revivirlo.\n\nRecargá la página; si necesitás, podés empezar un borrador nuevo.');
+            return true;
+        }
+        if (payload && payload.motivo === 'conflicto') {
+            detenerYRecargar('Otra pestaña guardó.',
+                (motivo || 'Otra pestaña guardó cambios.') + '\n\nRecargá para no pisar su trabajo.');
+            return true;
+        }
+        return false;
+    }
+
     // "Guardar cambios" SIN recargar: mismo fetch que el autoguardado pero manual, con aviso visible.
     // El usuario queda EXACTAMENTE en la misma OT y posición. "Enviar · generar plano" sigue con submit.
     // confirmarReemplazo=true reenvía aceptando reemplazar un borrador más grande (guard anti-pérdida).
@@ -2289,7 +2319,9 @@ document.addEventListener('DOMContentLoaded', function(){
           })
           .catch((err) => {
               const payload = err && err.payload; const motivo = payload && payload.error;
-              if (payload && payload.shrink) {
+              if (manejarMotivoGuardado(payload)) {
+                  // Borrador borrado o conflicto de pestañas: ya se detuvo y se pidió recargar.
+              } else if (payload && payload.shrink) {
                   // Guardaría un borrador mucho más chico: pedir confirmación explícita antes de reemplazar.
                   setStatus('⚠ El borrador quedaría más chico.', '#B45309');
                   mostrarModal({
@@ -2346,6 +2378,29 @@ document.addEventListener('DOMContentLoaded', function(){
     form.addEventListener('input', alCambiar);
     form.addEventListener('change', alCambiar);
     setInterval(autoguardarServidor, 25000);              // respaldo periódico
+
+    // (D) Aviso NO bloqueante si ya hay OTRA pestaña editando el mismo mes/depto: así el usuario sabe
+    // que no debe guardar en dos a la vez (el candado del servidor igual impide pisar). Best-effort.
+    @if(($puedeEditar ?? false) && !($bloqueado ?? false))
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            const ch = new BroadcastChannel('secar_dist_edit|{{ $mes }}|{{ $anio }}|{{ $depEfectivo ?? '' }}');
+            let avisado = false;
+            const avisarOtraPestana = function(){
+                if (avisado) return; avisado = true;
+                try { mostrarToast('⚠ Hay otra pestaña editando este mismo mes/depto. Guardá en una sola para no duplicar versiones.', 'warn'); } catch (e) {}
+                setStatus('⚠ Otra pestaña edita este mes/depto.', '#B45309');
+            };
+            ch.onmessage = function(e){
+                const m = (e && e.data) || {};
+                if (m.t === 'hola') { avisarOtraPestana(); ch.postMessage({ t: 'aqui' }); }
+                else if (m.t === 'aqui') { avisarOtraPestana(); }
+            };
+            ch.postMessage({ t: 'hola' });   // anunciar presencia al cargar
+            window.addEventListener('beforeunload', function(){ try { ch.close(); } catch (e) {} });
+        }
+    } catch (e) {}
+    @endif
 
     // Guardar/Enviar a mano ya persiste en BD: limpiamos estado y respaldo local.
     // (El botón "Ver resumen" usa formaction/nuevo tab: no debe limpiar nada.)
