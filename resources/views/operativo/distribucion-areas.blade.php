@@ -12,7 +12,7 @@
 @section('content')
 
 <x-page-banner title="Distribución de costos de áreas" icon="🏢" :badge="$depEfectivo ? ($depLabel[$depEfectivo] ?? $depEfectivo) : null">
-    Reparte el costo de las <b>bolsas de área</b> entre los proyectos sin bajar el margen ofertado.
+    Reparte el costo de los <b>Otros costos de área</b> entre los proyectos sin bajar el margen ofertado.
 </x-page-banner>
 
 {{-- Filtros: departamento (si aplica), mes, año, bolsa --}}
@@ -29,9 +29,9 @@
         </div>
         @endif
         <div class="filtro-field" style="flex:2 1 260px">
-            <label class="filtro-label">Bolsa (UN) a repartir</label>
+            <label class="filtro-label">Otros costos (UN) a repartir</label>
             <select name="bolsa" onchange="this.form.submit()" class="filtro-select">
-                <option value="">— Elegir bolsa —</option>
+                <option value="">— Elegir Otros costos —</option>
                 @foreach($bolsas as $b)
                     <option value="{{ $b->codigo }}" {{ $bolsaSel==$b->codigo?'selected':'' }}>{{ $b->codigo }} · {{ $b->nombre }}</option>
                 @endforeach
@@ -56,7 +56,7 @@
 @if(is_null($depEfectivo))
     <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">Elige un departamento para empezar.</div>
 @elseif(!$bolsaSel)
-    <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">Elige una bolsa (UN) para ver su saldo a repartir.</div>
+    <div class="card" style="text-align:center;color:#9CA3AF;padding:2rem">Elige una UN de Otros costos para ver su saldo a repartir.</div>
 @else
 
 {{-- Saldo de la bolsa por cuenta 14 --}}
@@ -66,7 +66,7 @@
         <span style="font-size:15px;font-weight:700;color:#B45309">{{ $fmt($totalBolsa) }}</span>
     </div>
     @if(empty($saldoBolsa))
-        <div style="text-align:center;color:#9CA3AF;padding:1rem;font-size:13px">Esta bolsa no tiene saldo pendiente en cuenta 14 para repartir.</div>
+        <div style="text-align:center;color:#9CA3AF;padding:1rem;font-size:13px">Esta UN de Otros costos no tiene saldo pendiente en cuenta 14 para repartir.</div>
     @else
     <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>

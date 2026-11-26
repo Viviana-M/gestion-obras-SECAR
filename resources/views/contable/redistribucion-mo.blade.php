@@ -43,7 +43,7 @@
 {{-- Diagnóstico: terceros de MO en bolsas que NO cruzan con el maestro --}}
 @if(!empty($sinCruzar))
 <div class="card" style="padding:14px 16px;margin-bottom:1rem;border-left:4px solid #D97706">
-    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en bolsas que no están en la lista</h2>
+    <h2 style="font-size:13px;font-weight:700;color:#B45309;margin:0 0 4px">⚠ Terceros con mano de obra en Otros costos que no están en la lista</h2>
     <p style="font-size:11.5px;color:#6B7280;margin:0 0 8px">Si alguno de estos es mano de obra directa, agrégalo en <b>Administración → Mano de obra directa</b> (con su cédula o el mismo nombre) para que entre a la reclasificación.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="text-align:left;color:#6B7280;border-bottom:1px solid #E5E7EB">
@@ -119,7 +119,7 @@
     <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
         <thead>
             <tr style="background:#1B3F6E;color:white;text-align:right">
-                <th style="padding:9px 12px;text-align:left">Bolsa (UN)</th>
+                <th style="padding:9px 12px;text-align:left">Otros costos (UN)</th>
                 <th style="padding:9px 12px">MO cruda (cuenta 14)</th>
                 <th style="padding:9px 12px">Reclasificado a 61 (estas personas)</th>
                 <th style="padding:9px 12px">Queda en cuenta 14</th>
@@ -134,7 +134,7 @@
                 <td style="padding:8px 12px">{{ $fmt($f['queda']) }}</td>
             </tr>
             @empty
-            <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay mano de obra en bolsas para este período.</td></tr>
+            <tr><td colspan="4" style="padding:1.5rem;text-align:center;color:#9CA3AF">No hay mano de obra en Otros costos para este período.</td></tr>
             @endforelse
         </tbody>
         <tfoot>
@@ -174,7 +174,7 @@
             @endforeach
         </div>
         @else
-        <div style="margin-top:8px;font-size:11.5px;color:#9CA3AF">Sin mano de obra en bolsas para este período.</div>
+        <div style="margin-top:8px;font-size:11.5px;color:#9CA3AF">Sin mano de obra en Otros costos para este período.</div>
         @endif
     </div>
     @empty
