@@ -1486,21 +1486,37 @@ class DistribucionCostosController extends Controller
         $base = fn () => Distribucion::where('mes', $mes)->where('anio', $anio)
             ->where('departamento', $departamento)->where('tipo', 'obras');
 
-        // 1) El vigente (no reemplazado) editable: borrador, o enviado con edición habilitada.
-        $vigente = $base()->where('reemplazada', false)
+        // Candidato EDITABLE vigente (reemplazada=0): borrador, o enviado con edición habilitada.
+        $editable = $base()->where('reemplazada', false)
             ->where(function ($q) {
                 $q->where('estado', 'borrador')
                   ->orWhere(fn ($s) => $s->where('estado', 'enviado')->where('edicion_habilitada', true));
             })
             ->orderByDesc('version')->orderByDesc('created_at')
             ->first();
-        if ($vigente) {
-            return $vigente;
+
+        // Candidato ENVIADO congelado vigente (reemplazada=0, sin edición habilitada): solo lectura.
+        $enviada = $base()->where('reemplazada', false)
+            ->where('estado', 'enviado')->where('edicion_habilitada', false)
+            ->orderByDesc('version')->orderByDesc('created_at')
+            ->first();
+
+        // Lo ENVIADO es lo autoritativo: al entrar a un mes ya enviado NUNCA se retoma un borrador
+        // anterior. Si coexisten, gana el de MAYOR versión: un borrador nuevo tras reabrir (versión
+        // mayor que la enviada) se edita; un borrador viejo (versión menor) no se reabre y se muestra
+        // la enviada congelada (bug real: tras enviar v11 se retomaba el borrador v10).
+        if ($editable && $enviada) {
+            return $editable->version >= $enviada->version ? $editable : $enviada;
+        }
+        if ($editable) {
+            return $editable;
+        }
+        if ($enviada) {
+            return $enviada;
         }
 
-        // 2) Sin vigente: retomar la ÚLTIMA versión de borrador aunque esté reemplazada=1, para NO
-        //    abrir base vacía y perder el trabajo (caso real: todas las versiones quedaron
-        //    reemplazadas y se arrancaba de cero). No se reabren los 'enviado' (son finales).
+        // Sin vigente: retomar la ÚLTIMA versión de borrador aunque esté reemplazada=1, para NO abrir
+        // base vacía y perder el trabajo (caso real: todas las versiones quedaron reemplazadas).
         return $base()->where('estado', 'borrador')
             ->orderByDesc('version')->orderByDesc('created_at')
             ->first();
@@ -1997,15 +2013,16 @@ class DistribucionCostosController extends Controller
             $distribucion->lock_version = (int) ($distribucion->lock_version ?? 0) + 1;
             $distribucion->save();
 
-            // Reenvío: cualquier OTRA versión enviada del mismo mes/año/departamento queda
-            // reemplazada, para que el plano de contabilidad no tenga dudas de cuál es la
-            // vigente (evita que un reenvío se lea contra una versión anterior).
+            // Al enviar, cualquier OTRA versión del mismo mes/año/departamento (enviada anterior o
+            // borrador previo) queda reemplazada: el plano de contabilidad no tiene dudas de cuál es
+            // la vigente, y al entrar NUNCA se retoma un borrador anterior (solo se muestra la enviada).
             if ($accion === 'enviar') {
                 Distribucion::where('mes', $distribucion->mes)
                     ->where('anio', $distribucion->anio)
                     ->where('departamento', $distribucion->departamento)
+                    ->where('tipo', 'obras')
                     ->where('id', '!=', $distribucion->id)
-                    ->where('estado', 'enviado')
+                    ->whereIn('estado', ['borrador', 'enviado'])
                     ->update(['reemplazada' => true]);
             }
 
@@ -2662,10 +2679,14 @@ class DistribucionCostosController extends Controller
         foreach (array_keys(DistribucionService::DEPARTAMENTOS) as $dep) {
             $prefijos = \App\Models\User::prefijosDeDepartamento($dep);
 
-            // Inventario (propio) + otros costos (bolsa) GUARDADOS en la última versión del depto.
-            $ultima = Distribucion::where('mes', $mes)->where('anio', $anio)
-                ->where('tipo', 'obras')->where('departamento', $dep)
-                ->orderByDesc('version')->first();
+            // Inventario (propio) + otros costos (bolsa) de la versión VIGENTE del depto (reemplazada=0:
+            // el borrador abierto o la enviada congelada). Así el panel toma lo autoritativo, no un
+            // borrador reemplazado que quedó con una versión mayor.
+            $baseDist = fn () => Distribucion::where('mes', $mes)->where('anio', $anio)
+                ->where('tipo', 'obras')->where('departamento', $dep);
+            $ultima = $baseDist()->where('reemplazada', false)
+                    ->orderByDesc('version')->orderByDesc('created_at')->first()
+                ?? $baseDist()->orderByDesc('version')->orderByDesc('created_at')->first();
             $aplicarSaved = [];
             $invSaved = 0.0;
             $otrosSaved = 0.0;

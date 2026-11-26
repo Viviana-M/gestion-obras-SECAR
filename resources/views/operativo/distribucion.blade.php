@@ -157,7 +157,7 @@
 <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">{{ session('error') }}</div>
 @endif
 
-@if($distId)
+@if($distId && !$bloqueado)
 <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <span>📝 Retomando tu borrador guardado del <b>{{ optional($envio->updated_at)->format('d/m/Y H:i') ?: '—' }}</b> ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Al guardar se actualiza <b>este mismo borrador</b>, no se crea uno nuevo.</span>
     <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" onclick="return confirmarNuevoBorrador(this.href)" style="color:#1B3F6E;font-weight:500;text-decoration:none">+ Empezar un borrador nuevo</a>
@@ -165,8 +165,13 @@
 @endif
 
 @if($bloqueado)
-<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 14px;font-size:13px;color:#1B3F6E;margin-bottom:1rem">
-    🔒 Período enviado a contabilidad{{ $envio && $envio->enviado_at ? ' el '.$envio->enviado_at->format('d/m/Y H:i') : '' }}. Solo lectura — contabilidad debe habilitar la edición para modificarlo.
+{{-- Mes YA ENVIADO: se muestra la versión enviada CONGELADA (solo lectura). Editar es acción
+     explícita: que contabilidad habilite la edición, o empezar un borrador nuevo (no por defecto). --}}
+<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 14px;font-size:13px;color:#1B3F6E;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span>🔒 Período enviado a contabilidad{{ $envio && $envio->enviado_at ? ' el '.$envio->enviado_at->format('d/m/Y H:i') : '' }} ({{ $depPrefijo[$envio->departamento] ?? '' }}-v{{ $envio->version ?? '?' }}). Solo lectura — se muestran las cifras congeladas. Para modificarlo, contabilidad debe habilitar la edición.</span>
+    @if($puedeEditar)
+    <a href="{{ route('operativo.distribucion', ['nuevo' => 1, 'mes' => $mes, 'anio' => $anio, 'departamento' => $depEfectivo]) }}" onclick="return confirmarNuevoBorrador(this.href)" style="color:#1B3F6E;font-weight:600;text-decoration:none;white-space:nowrap">+ Empezar un borrador nuevo</a>
+    @endif
 </div>
 @endif
 
@@ -598,10 +603,14 @@
 <div id="estado-cierre-panel" style="background:#fff;border:1px solid #E5E9F0;border-radius:13px;box-shadow:0 2px 12px rgba(16,32,54,.10);margin-bottom:1rem;overflow:hidden">
     <div style="background:#1B3F6E;color:#fff;padding:9px 13px;display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span style="font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:7px">
-            <span style="width:8px;height:8px;border-radius:50%;background:#34D399;box-shadow:0 0 0 3px rgba(52,211,153,.25)"></span>
+            <span style="width:8px;height:8px;border-radius:50%;background:{{ $bloqueado ? '#9CA3AF' : '#34D399' }};box-shadow:0 0 0 3px {{ $bloqueado ? 'rgba(156,163,175,.25)' : 'rgba(52,211,153,.25)' }}"></span>
             Estado del cierre
         </span>
+        @if($bloqueado)
+        <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.16);padding:2px 8px;border-radius:7px" title="Versión enviada: cifras congeladas, iguales a 'Ver final (congelada)'">❄ Congelado · Enviado</span>
+        @else
         <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.16);padding:2px 8px;border-radius:7px">● En vivo</span>
+        @endif
     </div>
     <div style="padding:11px 13px">
         @if($ecDepLabel)
@@ -865,6 +874,7 @@ const EC_ING    = @json($ingresoPorDepto ?? new stdClass);
 const EC_COSTO  = @json($costoGuardadoPorDepto ?? new stdClass);
 const EC_DET    = @json($costoDetPorDepto ?? new stdClass);
 const EC_DEP    = @json($depEfectivo);                       // depto filtrado o null (admin: ambos)
+const EC_BLOQUEADO = @json((bool) ($bloqueado ?? false));    // versión enviada/congelada (solo lectura)
 const EC_LABELS = {mantenimiento:'Mantenimiento', instalaciones:'Instalaciones'};
 let   ecScope   = EC_DEP ? 'dep' : 'total';
 const PERIODO = @json($mesNombre);
@@ -1425,7 +1435,9 @@ function actualizarBarraGlobal(){
    recalcula en vivo con los MISMOS acumuladores de actualizarBarraGlobal (inventario + otros costos
    + mano de obra + provisión); la parte fija (base + ajustes) viene del controlador. Los deptos que
    no se están editando usan su costo ya guardado/enviado. */
-function ecLiveDepto(dep){ return EC_DEP === null || EC_DEP === dep; }
+// En modo congelado/enviado (solo lectura) NINGÚN depto se recalcula en vivo: se muestran las
+// cifras GUARDADAS de la versión enviada (idénticas a "Ver final (congelada)").
+function ecLiveDepto(dep){ return ! EC_BLOQUEADO && (EC_DEP === null || EC_DEP === dep); }
 
 function ecDetDepto(dep){
     if (ecLiveDepto(dep)) {
