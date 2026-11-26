@@ -529,6 +529,13 @@ class DistribucionCostosController extends Controller
             $g = $guardado[$cod] ?? collect();
             $savedAplicar = $g->where('es_provision', false)->keyBy('cuenta_14');
 
+            // La obra está "distribuida" si YA tiene filas guardadas en ESTE borrador. Si NO (obra nueva,
+            // o un borrador que nunca la distribuyó), se precarga el pendiente COMPLETO (requisito de
+            // negocio: la pantalla precarga todo el pendiente; operaciones ajusta hacia abajo). Una obra
+            // ya distribuida conserva lo guardado, incluidas las cuentas que el usuario dejó en 0.
+            $obraDistribuida   = $distribucion && $savedAplicar->isNotEmpty();
+            $o['precargada']   = ! $obraDistribuida;   // el front la marca "editada" para que el guardado la incluya
+
             // Proyecto sin ingreso en el mes: arranca en 0 (no se propone el pendiente),
             // salvo que ya tenga un valor guardado en el borrador.
             $sinIngreso = abs((float) $o['ingreso_mes']) < 0.5;
@@ -544,10 +551,11 @@ class DistribucionCostosController extends Controller
 
                     if (isset($savedAplicar[$sub['cuenta_14']])) {
                         $sub['aplicar'] = (float) $savedAplicar[$sub['cuenta_14']]->monto_aplicar;
-                    } elseif ($distribucion) {
+                    } elseif ($obraDistribuida) {
+                        // Obra ya distribuida: una cuenta sin fila = el usuario la dejó en 0.
                         $sub['aplicar'] = 0;
                     } else {
-                        // Nuevo borrador: precargar el total pendiente (tengan o no ingreso en el mes).
+                        // Obra nueva / no distribuida: precargar el total pendiente (tengan o no ingreso).
                         $sub['aplicar'] = (float) $sub['pendiente'];
                     }
                 }

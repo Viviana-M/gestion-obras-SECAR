@@ -859,6 +859,7 @@
             'cap'      => max(0, (float) $o['ingreso_mes'] - abs((float) $o['costo_apl_mes'])),
             'prov'     => (float) ($o['sum_prov'] ?? 0),   // provisiones (costo sin aplicar, 14→26)
             'dep'      => $o['depto_margen'] ?? null,       // depto para el semáforo de márgenes
+            'precargada' => (bool) ($o['precargada'] ?? false), // obra no distribuida con el pendiente precargado
         ];
     }
 @endphp
@@ -2021,6 +2022,19 @@ document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
         row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
     });
+
+    // Precarga de negocio: las obras NO distribuidas vienen con el pendiente YA precargado en pantalla.
+    // Se marcan "editadas" para que el guardado (merge) las incluya y la distribución persista COMPLETA,
+    // sin apretar "Aplicar todo" ni tocar obra por obra. Las obras ya distribuidas NO se marcan: quedan
+    // protegidas por el merge (edición colaborativa) hasta que alguien las toque.
+    @if(($puedeEditar ?? false) && !($bloqueado ?? false))
+    for (const cod in DATOS) {
+        if (DATOS[cod] && DATOS[cod].precargada) {
+            const card = document.getElementById('card-' + cod);
+            if (card) card.setAttribute('data-editada', '1');
+        }
+    }
+    @endif
 
     for (const cod in DATOS) { evaluarCerrable(cod); }
     document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
