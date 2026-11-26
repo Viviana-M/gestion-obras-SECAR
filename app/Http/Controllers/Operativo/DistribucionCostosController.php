@@ -1583,6 +1583,16 @@ class DistribucionCostosController extends Controller
 
         $distribucion = $distId ? Distribucion::find($distId) : null;
 
+        // El cliente edita un borrador CONCRETO (dist) que ya no existe: lo eliminaron. NO se recrea
+        // —eso "revivía" lo borrado y multiplicaba versiones—: se detiene el guardado y se pide
+        // recargar. Solo un alta explícita (sin dist) puede crear una distribución nueva.
+        if ($distId && ! $distribucion) {
+            $m = 'Este borrador ya no existe (se eliminó). Recargá la página para seguir.';
+            return $esAuto || $request->wantsJson()
+                ? response()->json(['ok' => false, 'error' => $m, 'motivo' => 'borrador_inexistente'], 409)
+                : back()->with('error', $m);
+        }
+
         if ($distribucion && $distribucion->estado === 'enviado' && !$distribucion->edicion_habilitada) {
             return $responderError('Este borrador ya fue enviado a contabilidad. Pídele a contabilidad que habilite la edición.');
         }
@@ -1598,6 +1608,16 @@ class DistribucionCostosController extends Controller
         $lockCliente = $request->input('lock_version');
         $lockStale = $distribucion && $lockCliente !== null && $lockCliente !== ''
             && (int) $distribucion->lock_version !== (int) $lockCliente;
+
+        // AUTOGUARDADO: es una red de seguridad en segundo plano, NO un guardado colaborativo. Si otra
+        // pestaña/persona ya guardó (candado desfasado), no se mergea por detrás: se rechaza y se pide
+        // recargar, para no multiplicar versiones ni pisar un borrador más completo. El guardado MANUAL
+        // sí conserva el merge colaborativo por obra (abajo).
+        if ($esAuto && $lockStale) {
+            $m = 'Otra pestaña guardó cambios. Recargá para no pisar su trabajo.';
+            return response()->json(['ok' => false, 'error' => $m, 'motivo' => 'conflicto', 'stale' => true], 409);
+        }
+
         // En modo legacy se BLOQUEA para no pisar. En modo COLABORATIVO NO se bloquea: se mergea por
         // obra y solo se avisa de las obras editadas que otra persona también cambió (se calcula abajo).
         if ($lockStale && ! $mergeMode) {
