@@ -40,7 +40,7 @@
 
 <p style="font-size:12px;color:#6B7280;margin-bottom:1rem">
     Por tipo de proyecto: <b>Ingreso</b> = facturación del mes · <b>Costos</b> = todo lo distribuido al costo
-    (inventario + bolsa + mano de obra + provisión) · <b>Rentabilidad %</b> = margen de contribución.
+    (inventario + Otros costos + mano de obra + provisión) · <b>Rentabilidad %</b> = margen de contribución.
 </p>
 
 <div class="card" style="overflow-x:auto">

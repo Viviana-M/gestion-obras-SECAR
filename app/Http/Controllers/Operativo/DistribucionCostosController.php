@@ -1264,12 +1264,12 @@ class DistribucionCostosController extends Controller
             }
         }
 
-        $nombreBolsa = DistribucionService::DEPARTAMENTOS[$departamento] ?? 'Todas las bolsas';
+        $nombreBolsa = DistribucionService::DEPARTAMENTOS[$departamento] ?? 'Todos los Otros costos';
         $usuario = (string) ($u->name ?: $u->email ?: 'Usuario');
 
         $export = new \App\Exports\DetalleBolsaExport(
             titulo: 'Detalle de Otros Costos por Cuenta',
-            subtitulo: 'Bolsa: '.$nombreBolsa.'   ·   Saldos en Libro 1 (PCGA)',
+            subtitulo: 'Otros costos: '.$nombreBolsa.'   ·   Saldos en Libro 1 (PCGA)',
             headers: $headers,
             filas: $filas,
             totales: ['saldo' => $sumSaldo, 'distribuir' => $sumDist, 'queda' => $sumQueda],

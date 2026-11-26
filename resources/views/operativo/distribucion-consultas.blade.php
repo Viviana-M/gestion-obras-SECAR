@@ -71,7 +71,7 @@
                 <td style="padding:10px 14px;text-align:right;white-space:nowrap">
                     @if($o)
                         <div><b>{{ $fmt($o['total'] ?? $o['aplicado']) }}</b> <span style="font-size:10px;color:#9CA3AF">distribuido por operaciones</span></div>
-                        <div style="font-size:11px;color:#9CA3AF">{{ $o['obras'] }} obra(s) · inventario+bolsa {{ $fmt($o['aplicado']) }}</div>
+                        <div style="font-size:11px;color:#9CA3AF">{{ $o['obras'] }} obra(s) · inventario+Otros costos {{ $fmt($o['aplicado']) }}</div>
                         @if(($o['mo'] ?? 0) > 0)<div style="font-size:11px;color:#B45309">Mano de obra {{ $fmt($o['mo']) }}</div>@endif
                         @if($o['provision'] > 0)<div style="font-size:11px;color:#B45309">Provisión {{ $fmt($o['provision']) }}</div>@endif
                     @endif

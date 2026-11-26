@@ -8,7 +8,7 @@
 <x-page-banner title="Costo de mano de obra por obra" icon="📊">
     Total de mano de obra directa que se carga a cada obra destino del área <b>{{ ucfirst($departamento ?? '') }}</b> en
     <b>{{ $meses[$mes] ?? $mes }} {{ $anio }}</b>. Al desplegar cada obra se ve el desglose por persona.
-    La suma de las obras iguala lo asignado de la bolsa.
+    La suma de las obras iguala lo asignado de Otros costos.
 </x-page-banner>
 
 @if(session('error'))<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;font-size:13px;color:#DC2626;margin-bottom:1rem">{{ session('error') }}</div>@endif

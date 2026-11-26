@@ -1488,12 +1488,12 @@ function asignarBolsa(cod){
     if(!sel || !inp) return;
     const bolsa = sel.value;
     let monto = Math.round(parseFloat(inp.value||0));
-    if(!bolsa){ alert('Elige una bolsa.'); return; }
+    if(!bolsa){ alert('Elige Otros costos.'); return; }
     if(!(monto>0)){ alert('Escribe un monto mayor a 0.'); return; }
     const disp = Math.max(0, dispBolsa[bolsa] || 0);
-    if(disp <= 0.5){ alert('Esa bolsa ya no tiene disponible por distribuir.'); return; }
+    if(disp <= 0.5){ alert('Esos Otros costos ya no tienen disponible por distribuir.'); return; }
     if(monto > disp){
-        alert('Solo puedes asignar hasta '+fmt(disp)+' de la bolsa '+bolsa+'. Se ajustó a ese máximo.');
+        alert('Solo puedes asignar hasta '+fmt(disp)+' de Otros costos '+bolsa+'. Se ajustó a ese máximo.');
         monto = Math.round(disp);
     }
     const info = BOLSAS[bolsa] || {nombre:''};

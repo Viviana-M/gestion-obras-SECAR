@@ -247,7 +247,7 @@ class DistribucionManoObraController extends Controller
 
         return back()->with('success',
             "Mano de obra aplicada en el sistema: {$totalLineas} movimientos (partida doble 14/6) en {$mes}/{$anio}. "
-            . "El saldo bajó en la bolsa y el costo quedó en cada obra.");
+            . "El saldo bajó en Otros costos y el costo quedó en cada obra.");
     }
 
     /** Resumen por obra del departamento (agrega todas sus UN). */

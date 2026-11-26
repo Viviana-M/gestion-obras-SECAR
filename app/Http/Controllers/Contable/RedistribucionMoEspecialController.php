@@ -160,7 +160,7 @@ class RedistribucionMoEspecialController extends Controller
 
         return back()->with('success',
             "Reverso de MO de apoyo aplicado en el sistema: {$plano->n_lineas} movimientos (partida doble 14/61) en "
-            .sprintf('%02d/%d', $mes, $anio).". El crédito de la cuenta 14 de las bolsas bajó y cuadra con el ERP.");
+            .sprintf('%02d/%d', $mes, $anio).". El crédito de la cuenta 14 de Otros costos bajó y cuadra con el ERP.");
     }
 
     /** Auxiliar de centro de costos según la UN de la bolsa (para las cuentas 61). */
