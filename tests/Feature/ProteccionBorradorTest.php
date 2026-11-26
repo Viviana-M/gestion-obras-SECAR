@@ -46,6 +46,26 @@ class ProteccionBorradorTest extends TestCase
     }
 
     #[Test]
+    public function el_envio_no_lo_bloquea_el_guard_anti_encogimiento(): void
+    {
+        // Envío (acción final deliberada) con menos obras que el borrador: NO debe bloquearse.
+        \App\Models\RegistroFinanciero::create(['codigo_proyecto' => 'C-1', 'nombre_proyecto' => 'Obra',
+            'cuenta_contable' => '41350100', 'cuenta_mayor' => 'Ingreso', 'estado_er' => 5000000,
+            'valor_debito' => 0, 'valor_credito' => 0, 'mes' => 7, 'anio' => 2026]);
+        $d = $this->borradorGrande(6);
+
+        $this->actingAs($this->operador())->post(route('operativo.distribucion.guardar'), [
+            'accion' => 'enviar', 'dist' => $d->id, 'mes' => 7, 'anio' => 2026, 'departamento' => 'mantenimiento',
+            'aplicar' => ['C-1' => ['14200105' => 500]], 'estado_obra' => ['C-1' => 'parcial'],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        // El borrador quedó ENVIADO y en solo lectura (no trabado por el guard).
+        $d->refresh();
+        $this->assertSame('enviado', $d->estado);
+        $this->assertFalse((bool) $d->edicion_habilitada);
+    }
+
+    #[Test]
     public function el_autoguardado_no_aplica_un_encogimiento_drastico(): void
     {
         $this->borradorGrande(6);

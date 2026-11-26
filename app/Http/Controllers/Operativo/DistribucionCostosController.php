@@ -1636,18 +1636,24 @@ class DistribucionCostosController extends Controller
         // Conjunto que SÍ se guarda (merge): las editadas menos las en conflicto. En legacy: null = todo.
         $editadasSet = $mergeMode ? array_values(array_diff($editadas, $conflictos)) : null;
 
-        // ── GUARD anti-pérdida (SOLO en legacy "reemplazar todo"): un guardado chico no debe borrar un
-        // borrador grande. En modo merge no aplica: el merge conserva las obras que no se editaron. ──
-        if (! $mergeMode) {
+        // ── GUARD anti-pérdida (SOLO guardado legacy "reemplazar todo"): un guardado chico no debe
+        // borrar un borrador grande. NO aplica en modo merge (conserva lo no editado) NI en 'enviar'
+        // (acción final deliberada, con su propio confirm y sin confirmar_reemplazo → quedaría trabado). ──
+        if (! $mergeMode && $accion !== 'enviar') {
             $limpiarMontoG = fn ($m) => is_numeric($m) ? (float) $m : (float) preg_replace('/[^\d]/', '', (string) $m);
-            $distIdsGrupo = Distribucion::where('mes', $mes)->where('anio', $anio)
-                ->where('departamento', $departamento)->where('tipo', 'obras')->pluck('id');
-            $prevAgg = $distIdsGrupo->isEmpty() ? collect()
-                : AplicacionCosto::whereIn('distribucion_id', $distIdsGrupo)
-                    ->selectRaw('distribucion_id, COUNT(DISTINCT codigo_proyecto) as obras, SUM(monto_aplicar) as total')
-                    ->groupBy('distribucion_id')->get();
-            $obrasPrevias = (int) ($prevAgg->max('obras') ?? 0);
-            $totalPrevio  = (float) ($prevAgg->max('total') ?? 0);
+            // Referencia = el borrador VIGENTE real (reemplazada=0, estado borrador), usando SUS obras
+            // y SU total (no el máximo histórico de versiones viejas, que infla y da falsos positivos).
+            $vigente = Distribucion::where('mes', $mes)->where('anio', $anio)
+                ->where('departamento', $departamento)->where('tipo', 'obras')
+                ->where('reemplazada', false)->where('estado', 'borrador')
+                ->orderByDesc('version')->first();
+            $obrasPrevias = 0; $totalPrevio = 0.0;
+            if ($vigente) {
+                $agg = AplicacionCosto::where('distribucion_id', $vigente->id)
+                    ->selectRaw('COUNT(DISTINCT codigo_proyecto) as obras, SUM(monto_aplicar) as total')->first();
+                $obrasPrevias = (int) ($agg->obras ?? 0);
+                $totalPrevio  = (float) ($agg->total ?? 0);
+            }
 
             $codsEntrantes = [];
             $totalNuevo = 0.0;
