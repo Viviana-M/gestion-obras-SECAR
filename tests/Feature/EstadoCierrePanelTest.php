@@ -135,4 +135,29 @@ class EstadoCierrePanelTest extends TestCase
         $this->assertStringContainsString('const EC_COSTO', $html);
         $this->assertStringContainsString('750000', $html);
     }
+
+    #[Test]
+    public function el_init_engancha_los_handlers_antes_de_pintar_el_panel(): void
+    {
+        // Regresión: un fallo del panel al cargar no debe dejar sin handler a "Con/Sin ingreso".
+        // Los enlaces de UI se registran ANTES del pintado del panel, y el panel va aislado en try/catch.
+        $this->seedInstalaciones();
+
+        $html = $this->actingAs($this->operador())
+            ->get('/operativo/distribucion?mes=10&anio=2026&departamento=instalaciones')
+            ->assertOk()->getContent();
+
+        $handlerCon = strpos($html, "on('grupo-head-con'");
+        $handlerSin = strpos($html, "on('grupo-head-sin'");
+        $pintaPanel = strpos($html, 'ecSetScope(ecScope)');
+        $this->assertNotFalse($handlerCon);
+        $this->assertNotFalse($pintaPanel);
+        // Los handlers de los grupos se enganchan ANTES de pintar el panel.
+        $this->assertLessThan($pintaPanel, $handlerCon);
+        $this->assertLessThan($pintaPanel, $handlerSin);
+
+        // El pintado del panel está aislado (try/catch), igual que la llamada interna del panel.
+        $this->assertStringContainsString('try { ecSetScope(ecScope); }', $html);
+        $this->assertStringContainsString('try { actualizarEstadoCierre(); }', $html);
+    }
 }
