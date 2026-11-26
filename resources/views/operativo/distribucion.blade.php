@@ -1427,7 +1427,9 @@ function actualizarBarraGlobal(){
         if (cod) t += Number((DATOS[cod] || {}).prov || 0);
     });
     el.textContent = fmt(t);
-    actualizarEstadoCierre();   // el panel "Estado del cierre" se recalcula en los MISMOS puntos
+    // El panel "Estado del cierre" se recalcula en los MISMOS puntos, pero AISLADO: un fallo del
+    // panel nunca puede romper el total de la barra ni abortar el resto de la pantalla.
+    try { actualizarEstadoCierre(); } catch (e) { console.error('panel estado cierre', e); }
 }
 
 /* ===== Panel "Estado del cierre · en vivo" =====
@@ -1439,12 +1441,22 @@ function actualizarBarraGlobal(){
 // cifras GUARDADAS de la versión enviada (idénticas a "Ver final (congelada)").
 function ecLiveDepto(dep){ return ! EC_BLOQUEADO && (EC_DEP === null || EC_DEP === dep); }
 
+// Depto de una obra por su prefijo (respaldo si DATOS[cod].dep no viniera, para que el panel
+// nunca quede en 0 por una entrada sin .dep).
+const EC_PREF = { mantenimiento:['C','R','MO','GM'], instalaciones:['GI','O'] };
+function ecDepDe(cod){
+    const c = String(cod || '').toUpperCase();
+    for (const dep in EC_PREF) if (EC_PREF[dep].some(p => c.startsWith(p))) return dep;
+    return null;
+}
+
 function ecDetDepto(dep){
     if (ecLiveDepto(dep)) {
         // En vivo: suma de los inputs de las obras de ESE depto mostradas en pantalla.
         let inv = 0, otros = 0, mo = 0, prov = 0;
         document.querySelectorAll('[id^="card-"]').forEach(c => {
-            const cod = c.id.slice(5); const d = DATOS[cod]; if (!d || d.dep !== dep) return;
+            const cod = c.id.slice(5); const d = DATOS[cod]; if (!d) return;
+            if ((d.dep || ecDepDe(cod)) !== dep) return;
             c.querySelectorAll('input[data-tipo="aplicar"]').forEach(i => inv += soloDigitos(i.value));
             c.querySelectorAll('input[data-tipo="bolsa"]').forEach(i => otros += parseFloat(i.value || 0));
             mo += sumMoObra(cod); prov += Number(d.prov || 0);
@@ -1984,6 +1996,20 @@ window.quitarMo = function(a, cod){
 };
 
 document.addEventListener('DOMContentLoaded', function(){
+    // ── Enlaces de UI PRIMERO (buscador, expandir/colapsar, grupos "Con/Sin ingreso", toggle de obra):
+    //    se registran antes de cualquier cálculo o pintado, así RESPONDEN SIEMPRE aunque un cálculo o
+    //    el panel "Estado del cierre" fallen al cargar (antes, un error del panel abortaba el init y
+    //    los encabezados Con/Sin ingreso quedaban sin handler).
+    function on(id, ev, fn){ const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
+    on('buscador', 'input', function(){ filtrarObras(this.value); });
+    on('btn-expandir', 'click', function(){ expandirTodo(true); });
+    on('btn-colapsar', 'click', function(){ expandirTodo(false); });
+    on('grupo-head-con', 'click', function(){ toggleGrupo('con'); });
+    on('grupo-head-sin', 'click', function(){ toggleGrupo('sin'); });
+    document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
+        row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
+    });
+
     for (const cod in DATOS) { evaluarCerrable(cod); }
     document.querySelectorAll('.mo-obra-sec').forEach(sec => { if (DATOS[sec.dataset.cod]) recalc(sec.dataset.cod); });
     moRecalcGlobal();
@@ -2000,25 +2026,13 @@ document.addEventListener('DOMContentLoaded', function(){
         dispBolsaInicial[c] = (Number(dispBolsa[c]) || 0) + (yaDistribuidoBolsa[c] || 0);
     });
     Object.keys(BOLSAS).forEach(c => actualizarOtrosCostosTopCard(c)); // pintado inicial Otros costos (fmt ya existe)
-    actualizarBarraGlobal(); // asegura el total de la barra al cargar (lee los inputs ya renderizados)
-    ecSetScope(ecScope);     // pinta el panel "Estado del cierre" con el alcance inicial
+    // Pintado inicial de la barra y del panel, AISLADOS: un fallo aquí no tumba el resto del init.
+    try { actualizarBarraGlobal(); } catch (e) { console.error('barra total', e); }
+    try { ecSetScope(ecScope); }   catch (e) { console.error('panel estado cierre', e); }
     // Base por obra (lo cargado): referencia para el merge y la detección de conflictos.
     document.querySelectorAll('[id^="card-"]').forEach(function(c){ const cod = c.id.slice(5); if (cod) baseTotalObra[cod] = totalObraCard(c); });
     bloquearCerradas();     // obras cerradas que siguen en el borrador → solo lectura (trazabilidad)
     @if($bloqueado || !$puedeEditar) bloquearForm(); @endif
-
-    // Enlaces por addEventListener (además de los inline): garantizan que el
-    // buscador, expandir/colapsar y los grupos respondan aunque una CSP bloquee
-    // los handlers inline o el navegador no dispare 'keyup'.
-    function on(id, ev, fn){ const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
-    on('buscador', 'input', function(){ filtrarObras(this.value); });
-    on('btn-expandir', 'click', function(){ expandirTodo(true); });
-    on('btn-colapsar', 'click', function(){ expandirTodo(false); });
-    on('grupo-head-con', 'click', function(){ toggleGrupo('con'); });
-    on('grupo-head-sin', 'click', function(){ toggleGrupo('sin'); });
-    document.querySelectorAll('[data-toggle-obra]').forEach(function(row){
-        row.addEventListener('click', function(){ toggleObra(row.getAttribute('data-toggle-obra')); });
-    });
 
     // Marcar en amarillo las celdas ya modificadas al cargar (borradores guardados).
     remarcarAplicar();
