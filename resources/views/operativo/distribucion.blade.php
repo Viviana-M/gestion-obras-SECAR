@@ -1689,12 +1689,21 @@ function quitarBolsa(el, cod){
     recalc(cod);
 }
 
+/* Marca una obra como EDITADA para que entre al merge/guardado. Global, para que lo usen también las
+   acciones que llenan "aplicar" POR CÓDIGO (Aplicar todo, costo sugerido, FIFO), no solo la edición a
+   mano: si no se marca, el guardado por obra (merge) deja fuera lo precargado y el borrador se achica. */
+function marcarObraEditada(cod){
+    const card = document.getElementById('card-' + cod);
+    if (card) card.setAttribute('data-editada', '1');
+}
+
 function aplicarTodo(){
     // "Aplicar todo el pendiente" = llenar cada cuenta con su saldo pendiente completo
     // (el max del input). Operaciones ajusta desde ahí.
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
         if (inp.dataset.bloqueado === '1') return; // sin ingreso: no se toca
         inp.value = Math.round(parseFloat(inp.max || 0));
+        const card = inp.closest('[id^="card-"]'); if (card) card.setAttribute('data-editada', '1'); // entra al guardado
     });
     remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
@@ -1704,6 +1713,7 @@ function ponerEnCero(){
     document.querySelectorAll('#form-dist input[data-tipo="aplicar"]').forEach(inp => {
         if (inp.dataset.bloqueado === '1') return; // solo obras con ingreso
         inp.value = 0;
+        const card = inp.closest('[id^="card-"]'); if (card) card.setAttribute('data-editada', '1'); // poner en 0 también se guarda
     });
     remarcarAplicar();
     for (const cod in DATOS) { recalc(cod); }
@@ -1729,6 +1739,7 @@ function llenarFifoObra(cod, objetivo){
         inp.value = Math.round(v);
         rem -= v;
     });
+    marcarObraEditada(cod);   // lo llenado por código entra al guardado (no solo lo tocado a mano)
 }
 
 function distribuirEnObra(cod, objetivo){
@@ -1747,6 +1758,7 @@ function ejecutarCalculo(){
     for(const cod in DATOS){
         const d = DATOS[cod];
         if (d.sinIngreso) continue; // el cálculo sugerido solo aplica a obras con ingreso
+        marcarObraEditada(cod);     // el cálculo cambia "aplicar" por código: debe entrar al guardado
         const inputs = document.querySelectorAll('#card-'+cod+' input[data-tipo="aplicar"]');
 
         // Margen acumulado actual (control): ingreso vs costo cuenta 6 acumulado
