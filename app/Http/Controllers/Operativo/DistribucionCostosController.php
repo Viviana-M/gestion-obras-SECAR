@@ -1602,7 +1602,13 @@ class DistribucionCostosController extends Controller
         // pisen. En 'enviar' (plano final) o si el front no manda la lista, se usa el guardado completo
         // de siempre (legacy).
         $editadas  = array_values(array_unique(array_map('strval', (array) $request->input('obras_editadas', []))));
-        $mergeMode = ! empty($editadas) && $accion !== 'enviar';
+        // El merge protege trabajo YA GUARDADO de otra persona. El PRIMER guardado de un borrador nuevo
+        // (sin AplicacionCosto todavía) no tiene nada que proteger: debe persistir COMPLETO (legacy), o
+        // la precarga / "Aplicar todo" se guardaría solo parcialmente. A partir del 2º guardado (ya hay
+        // obras guardadas) vuelve el merge por obra para la edición colaborativa.
+        $yaTieneGuardado = $distribucion
+            && AplicacionCosto::where('distribucion_id', $distribucion->id)->exists();
+        $mergeMode = ! empty($editadas) && $accion !== 'enviar' && $yaTieneGuardado;
 
         // Candado optimista: el formulario trae el lock_version del borrador tal como estaba al cargarlo.
         $lockCliente = $request->input('lock_version');
