@@ -63,6 +63,10 @@ class PlanoContableController extends Controller
                       ->orWhereNotNull('origen_bolsa');
                 })
                 ->orderBy('codigo_proyecto')->get();
+            // El plano a SIESA incluye la provisión (DB 61 / CR 26). El total del encabezado también
+            // debe incluirla para cuadrar con el cierre y con el costo (61) que se descarga/aplica.
+            $aplicado  = (float) $lineas->sum('monto_aplicar'); // inventario + bolsa (14→61)
+            $provTotal = $this->totalProvisionPlano((int) $d->mes, (int) $d->anio, (string) $d->departamento);
             return [
                 'id'           => $d->id,
                 'version'      => $d->version,
@@ -71,7 +75,9 @@ class PlanoContableController extends Controller
                 'enviado_por'  => $usuarios[$d->enviado_por] ?? '-',
                 'habilitada'   => $d->edicion_habilitada,
                 'lineas'       => $lineas,
-                'total'        => $lineas->sum('monto_aplicar'),
+                'aplicado'     => $aplicado,                 // inventario + bolsa (desglose)
+                'provision'    => $provTotal,                // provisión que entra al plano (desglose)
+                'total'        => $aplicado + $provTotal,    // total de costo (61) = cuadra con el cierre
                 'obras'        => $lineas->pluck('codigo_proyecto')->unique()->count(),
             ];
         });
@@ -319,6 +325,34 @@ class PlanoContableController extends Controller
      * Las provisiones activas de meses anteriores NO generan movimiento (ya se registraron).
      * La cuenta 61 se obtiene homologando la cuenta 14 provisionada (vigente en el período).
      */
+    /**
+     * Efecto NETO en la cuenta 61 de las provisiones que SÍ entran al plano del mes/departamento
+     * (exactamente el mismo criterio que movimientosProvisiones): registradas este mes suman (DB 61),
+     * reversadas este mes restan (CR 61); se excluyen las que no homologan a una 61. Es lo que el
+     * encabezado debe sumar para cuadrar con el cierre y con el costo del plano real.
+     */
+    private function totalProvisionPlano(int $mes, int $anio, string $depto): float
+    {
+        $prefijos = User::prefijosDeDepartamento($depto);
+        $mapa61   = Homologacion::mapaEn(Homologacion::periodo($anio, $mes));
+        $total = 0.0;
+        foreach (\App\Models\Provision::all() as $p) {
+            if (! $this->empiezaPor((string) $p->codigo_proyecto, $prefijos)) continue;
+            $monto = round((float) $p->monto, 2);
+            if ($monto <= 0.005) continue;
+            $h   = $mapa61->get((string) $p->cuenta_14);
+            $c61 = $h ? (string) $h->cuenta_61 : '';
+            if ($c61 === '' || $c61 === 'SIN HOMOLOGAR') continue; // sin homologar: no entra al plano
+            if ((int) $p->mes === $mes && (int) $p->anio === $anio) {
+                $total += $monto; // registrada este mes → DB 61 (costo)
+            }
+            if ($p->estado === 'reversada' && (int) $p->reversada_mes === $mes && (int) $p->reversada_anio === $anio) {
+                $total -= $monto; // reversada este mes → CR 61 (revierte el costo)
+            }
+        }
+        return round($total, 2);
+    }
+
     public function movimientosProvisiones(int $mes, int $anio, string $depto, int $numeroDoc): array
     {
         $prefijos     = User::prefijosDeDepartamento($depto);

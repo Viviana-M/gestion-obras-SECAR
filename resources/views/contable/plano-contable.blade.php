@@ -76,6 +76,9 @@
         </div>
         <div style="text-align:right">
             <div style="font-size:13px;font-weight:600;color:#1B3F6E">{{ $fmt($v['total']) }}</div>
+            @if(($v['provision'] ?? 0) > 0)
+            <div style="font-size:10.5px;color:#9CA3AF">Inventario+bolsa {{ $fmt($v['aplicado']) }} · Provisión {{ $fmt($v['provision']) }}</div>
+            @endif
             <div style="font-size:11px;color:#6B7280">{{ $v['obras'] }} obra(s) cerrada(s)</div>
         </div>
     </div>
